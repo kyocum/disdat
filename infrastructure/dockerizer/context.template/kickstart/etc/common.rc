@@ -1,0 +1,90 @@
+# Look at all the pretty colors!
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+REGULAR='\033[0m'
+YELLOW='\033[0;33m'
+
+function success() {
+	echo -e $GREEN"$@"$REGULAR
+}
+
+function warning() {
+	(>&2 echo -e $YELLOW"WARNING: $@"$REGULAR)
+}
+
+function error() {
+	(>&2 echo -e $RED"ERROR: $@"$REGULAR)
+}
+
+# Trap execution errors without cluttering up the script
+# http://stackoverflow.com/questions/5195607/checking-bash-exit-status-of-several-commands-efficiently
+function run() {
+	"$@"
+	local status=$?
+	if [ $status -ne 0 ]; then
+		error "Failed to run command $@"
+		exit $status
+	fi
+	return $status
+}
+
+function install_pip() {
+	# Upgrade pip past 7.1.2 to work with our private package cache
+	if ! pip --disable-pip-version-check $no_cache --quiet install --upgrade pip; then
+		error "Failed to upgrade pip"
+		exit 1
+	fi
+}
+
+function install_twine() {
+	# Upgrade pip past 7.1.2 to work with our private package cache
+	if ! pip --disable-pip-version-check $no_cache --quiet install twine; then
+		error "Failed to install twine"
+		exit 1
+	fi
+}
+
+function check_python_virtual_env()
+{
+	echo "Using Python virtual environment $python_virtual_env"
+	
+	if [ ! -d $python_virtual_env ]; then
+		error "Python virtual environment directory '$python_virtual_env' does not exist"
+		exit 1
+	fi
+}
+
+function activate_python_virtual_env()
+{
+	# Activate the virtual environment. Anaconda and pip use different
+	# activation scripts with slightly different syntax.
+	
+	anaconda_flag=''
+	source $python_virtual_env/bin/activate &> /dev/null
+	# If we succeeded, the activation script will set VIRTUAL_ENV
+	if [ x$VIRTUAL_ENV == 'x' ]; then
+		# OK, maybe this is an Anaconda environment
+		source $python_virtual_env/bin/activate $python_virtual_env
+		# If we succeeded, the activation script will set CONDA_ENV_PATH
+		if [ x$CONDA_ENV_PATH != 'x' ]; then
+			anaconda_flag='yes'
+		else
+			error "Failed to activate Python virtual environment in $python_virtual_env"
+			exit 1
+		fi
+	fi
+
+	# Whatever happens now, make sure we deactivate the virtual environment
+	
+	old_cwd=$PWD
+	function atexit_deactivate {
+		if [ x$anaconda_flag != 'x' ]; then
+			source $python_virtual_env/bin/deactivate
+		else
+			deactivate
+		fi
+		cd $old_cwd
+	}
+	trap atexit_deactivate EXIT
+}

@@ -1,0 +1,35 @@
+#!/bin/bash
+
+CONDA_ROOT=%%CONDA_ROOT%%
+
+# Ensure that this script is sourced, not executed
+# Note that if the script was executed, we're running inside bash!
+# Also note that errors are ignored as `activate foo` doesn't generate a bad
+# value for $0 which would cause errors.
+if [[ -n $BASH_VERSION ]] && [[ "$(basename "$0" 2> /dev/null)" == "deactivate" ]]; then
+	>&2 echo "Error: deactivate must be sourced. Run 'source deactivate'
+instead of 'deactivate'.
+"
+	exit 1
+fi
+
+# Determine the directory containing this script
+if [[ -n $BASH_VERSION ]]; then
+	_SCRIPT_LOCATION=${BASH_SOURCE[0]}
+elif [[ -n $ZSH_VERSION ]]; then
+	_SCRIPT_LOCATION=${funcstack[1]}
+else
+	echo "Only bash and zsh are supported"
+	return 1
+fi
+_THIS_DIR=$(dirname "$_SCRIPT_LOCATION")
+
+# Source the original deactivate script
+source $_THIS_DIR/deactivate-original
+
+if [ $? == 0 ]; then
+	# Strip off the Miniconda bin directory from the front of the PATH
+	echo cleaning up PATH
+	_NEW_PATH=$(echo $PATH | sed "s/$CONDA_ROOT\\/bin://")
+	export PATH=$_NEW_PATH
+fi

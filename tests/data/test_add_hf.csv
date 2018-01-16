@@ -1,0 +1,11 @@
+,bool,filepaths,s3paths,somefloats,someints,somestr,verticapaths
+0,True,file:///Users/kyocum/Code/disdat/tests/data/testfiles/A,s3://xfdrxlugoi,-0.446732696204,7,dagxmyptkh,vertica://veeimdzvao
+1,True,file:///Users/kyocum/Code/disdat/tests/data/testfiles/B,s3://mdoprhmair,0.115149633935,8,uwvmcmbjpg,vertica://gokyncobsf
+2,True,file:///Users/kyocum/Code/disdat/tests/data/testfiles/C,s3://ufoiimgfvr,-0.896987921979,6,zpddtmyesy,vertica://mgbwetgdfb
+3,True,file:///Users/kyocum/Code/disdat/tests/data/testfiles/D,s3://hbhetrneyb,0.289131271437,0,muxdisqvya,vertica://dgleivsqpv
+4,True,file:///Users/kyocum/Code/disdat/tests/data/testfiles/E,s3://tefnuacbpf,-0.0499105742283,5,nhdlfklxjh,vertica://sgwulyauky
+5,False,file:///Users/kyocum/Code/disdat/tests/data/testfiles/F,s3://rnwwhyhzgm,1.50906777869,4,adjwxlwkhh,vertica://loscadwjsw
+6,False,file:///Users/kyocum/Code/disdat/tests/data/testfiles/G,s3://fbcrsiobrk,-2.17438828193,6,bplodvtkfn,vertica://fioznxczaw
+7,False,file:///Users/kyocum/Code/disdat/tests/data/testfiles/H,s3://ncormlovcx,1.13708297764,3,whcxqcpndj,vertica://nwjycmnndg
+8,False,file:///Users/kyocum/Code/disdat/tests/data/testfiles/I,s3://mmpznwzoxp,0.300966308139,5,whnmcfbmqx,vertica://ihetqlcohe
+9,False,file:///Users/kyocum/Code/disdat/tests/data/testfiles/J,s3://bnadpqkjva,1.3984356353,1,rguvjdrpso,vertica://zkuayfouaj

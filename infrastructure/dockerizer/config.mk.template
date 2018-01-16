@@ -1,0 +1,32 @@
+# REQUIRED: The root for the Docker context in which we will build the image
+DOCKER_CONTEXT = # For example: $(HOME)/context
+
+# REQUIRED: The Disdat source root
+# DISDAT_ROOT = # For example: $(HOME)/disdat
+
+# REQUIRED: A pipeline name to identify the built Docker image. May contain
+# any combination of characters valid for a Docker image name.
+PIPELINE_NAME = # For example: flagstat
+
+# REQUIRED: The default pipeline class to run within the image. Must be a
+# fully-qualified Python module name.
+PIPELINE_CLASS = # For example: examples.flagstat.Flagstat
+
+# REQUIRED: The user pipeline package source tree root. The tree must
+# include a setuptools setup file at $PIPELINE_ROOT/setup.py file.
+PIPELINE_ROOT = # For example: ../../examples
+
+# REQUIRED: The base operating system type and version
+OS_TYPE = # For example: ubuntu
+OS_VERSION = # For example: 16.04
+
+# A remote AWS S3 URL to which to push output bundles. This must be an
+# S3 folder.
+# IMAGE_DISDAT_REMOTE = s3://bucket/key
+
+# A Docker registry. Only necessary if pushing images.
+# DOCKER_REGISTRY = registry-host:5000/path
+
+# A flag to indicate if the registry is an AWS Elastic Container Repository.
+# Set to 1 (really, any non-empty string) if using ECR.
+# DOCKER_REGISTRY_IS_ECR =

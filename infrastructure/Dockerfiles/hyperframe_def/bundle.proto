@@ -1,0 +1,122 @@
+syntax = "proto3";
+package bundle;
+
+// -----------------------------------------------------------------------------
+// Main Message
+// -----------------------------------------------------------------------------
+
+message Bundle {
+    message Column {
+        string name = 1;
+        Type type = 2;
+    }
+
+    /* An ordered mapping from column to data type */
+    repeated Column columns = 1;
+
+    /* A mapping from column name to the link metadata */
+    map<string, Link> links = 2;
+
+    /* Lineage of this bundle */
+    Lineage lineage = 4;
+
+    /* Unique identifier of the bundle  */
+    string uuid = 5;
+
+    /* The hash of this message when hash is set to 0 */
+    string hash = 6;
+}
+
+// -----------------------------------------------------------------------------
+// Metadata
+// -----------------------------------------------------------------------------
+
+enum Type {
+    NONE = 0;
+    LINK = 1;
+    FLOAT16 = 2;
+    FLOAT32 = 3;
+    FLOAT64 = 4;
+    UINT8 = 5;
+    UINT16 = 6;
+    UINT32 = 7;
+    UINT64 = 8;
+    INT8 = 9;
+    INT16 = 10;
+    INT32 = 11;
+    INT64 = 12;
+    STRING = 13;
+    BOOL = 14;
+    COMPLEX64 = 15;
+    COMPLEX128 = 16;
+}
+
+
+
+message Lineage {
+    string context = 1;
+    repeated string dependencies = 2;
+}
+
+// -----------------------------------------------------------------------------
+// Links
+// -----------------------------------------------------------------------------
+
+message Link {
+    /* Metadata for external data links */
+    oneof link {
+        LocalLink local = 2;
+        S3Link s3 = 3;
+        EmbeddedLink embedded = 4;
+        DatabaseLink database = 5;
+    }
+
+    string hash = 6;
+}
+
+message LocalLink {
+    /* Absolute path to the local data */
+    string path = 1;
+}
+
+
+message S3Link {
+    /* Absolute S3 bucket URL */
+    string url = 1;
+}
+
+
+message EmbeddedLink {
+
+    /* Byte data representing the file */
+    bytes data = 1;
+
+    /* Internal file format */
+    Format format = 2;
+
+    enum Format {
+        NONE = 0;
+        CSV = 1;
+        TSV = 2;
+        FEATHER = 3;
+        PICKLE = 4;
+        JSON = 5;
+        XML = 6;
+    }
+}
+
+
+message DatabaseLink {
+
+    /* Database url */
+    string url = 1;
+
+    /* Database schema */
+    string schema = 2;
+
+    /* Schema table */
+    string table = 3;
+
+    /* Table columns */
+    repeated string columns = 4;
+}
