@@ -78,7 +78,7 @@ def main():
     if getattr( sys, 'frozen', False ) :
         here = sys._MEIPASS
     else:
-        here = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..')
+        here = os.path.abspath(os.path.dirname(__file__))
 
     with open(os.path.join(here, 'VERSION')) as version_file:
         __version__ = version_file.read().strip()
