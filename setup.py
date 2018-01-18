@@ -73,6 +73,7 @@ setup(
         '': ['*.json'],
         'disdat': [
             'config/disdat/*',
+            'VERSION',
         ],
         'infrastructure': [
             'Dockerfiles/hyperframe_def/*'
