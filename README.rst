@@ -107,8 +107,7 @@ some publicly available files on s3.
     1  file:///Users/kyocum/.disdat/context/mycontext/objects/43b153db-14a2-45f4-91b0-a0280525c588/LC08_L1TP_233248_20170525_20170614_01_T1_MTL.txt          8         0.115150    True  uwvmcmbjpg
 
 
-Great!  You've created your first data context and bundle.  In the tutorial we'll look at how you can use a bundle as
- an input to a pipeline, and how you can push/pull your bundles to/from AWS S3 to share data with colleagues.
+Great!  You've created your first data context and bundle.  In the tutorial we'll look at how you can use a bundle as an input to a pipeline, and how you can push/pull your bundles to/from AWS S3 to share data with colleagues.
 
 Other Documentation
 -------------------
