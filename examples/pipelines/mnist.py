@@ -30,37 +30,69 @@ from tensorflow.examples.tutorials.mnist import input_data
 from tensorflow.contrib.learn.python.learn.datasets import mnist
 import luigi
 import pandas as pd
+import shutil
 import os
 
+from tensorflow.contrib.learn.python.learn.datasets import base
+from tensorflow.python.framework import dtypes
+from tensorflow.python.framework import random_seed
+from tensorflow.python.platform import gfile
 
-def convert_to(data_set, name):
-  """Converts a dataset to tfrecords."""
-  images = data_set.images
-  labels = data_set.labels
-  num_examples = data_set.num_examples
-
-  if images.shape[0] != num_examples:
-    raise ValueError('Images size %d does not match label size %d.' %
-                     (images.shape[0], num_examples))
-  rows = images.shape[1]
-  cols = images.shape[2]
-  depth = images.shape[3]
-
-  filename = os.path.join(FLAGS.directory, name + '.tfrecords')
-  print('Writing', filename)
-  writer = tf.python_io.TFRecordWriter(filename)
-  for index in range(num_examples):
-    image_raw = images[index].tostring()
-    example = tf.train.Example(features=tf.train.Features(feature={
-        'height': _int64_feature(rows),
-        'width': _int64_feature(cols),
-        'depth': _int64_feature(depth),
-        'label': _int64_feature(int(labels[index])),
-        'image_raw': _bytes_feature(image_raw)}))
-    writer.write(example.SerializeToString())
-  writer.close()
+# CVDF mirror of http://yann.lecun.com/exdb/mnist/
+DEFAULT_SOURCE_URL = 'https://storage.googleapis.com/cvdf-datasets/mnist/'
 
 
+def _int64_feature(value):
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+
+
+def _bytes_feature(value):
+    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+
+def convert_to(task, data_set, name):
+    """Converts a dataset to tfrecords.
+
+    """
+    images = data_set.images
+    labels = data_set.labels
+    num_examples = data_set.num_examples
+
+    if images.shape[0] != num_examples:
+        raise ValueError('Images size %d does not match label size %d.' %
+        (images.shape[0], num_examples))
+    rows = images.shape[1]
+    cols = images.shape[2]
+    depth = images.shape[3]
+
+    filename = task.create_output_file(name + '.tfrecords').path
+    print('Writing', filename)
+    writer = tf.python_io.TFRecordWriter(filename)
+    for index in range(num_examples):
+        image_raw = images[index].tostring()
+        example = tf.train.Example(features=tf.train.Features(feature={
+            'height': _int64_feature(rows),
+            'width': _int64_feature(cols),
+            'depth': _int64_feature(depth),
+            'label': _int64_feature(int(labels[index])),
+            'image_raw': _bytes_feature(image_raw)}))
+        writer.write(example.SerializeToString())
+    writer.close()
+
+    return filename
+
+
+def download_files(task):
+    """
+    Use task to download files
+
+    Args:
+        task:
+
+    Returns:
+
+    """
+    pass
 
 
 class GetData(PipeTask):
@@ -83,22 +115,18 @@ class GetData(PipeTask):
 
         """
 
-#        mnist = input_data.read_data_sets('MNIST_data', one_hot=True)
-
-        data_sets = mnist.read_data_sets('MNIST_data', #FLAGS.directory,
+        data_sets = mnist.read_data_sets('MNIST_data_tmp',
                                          dtype=tf.uint8,
                                          reshape=False)
-                                         #validation_size=FLAGS.validation_size)
 
         # Convert to Examples and write the result to TFRecords.
-#        convert_to(data_sets.train, 'train')
-#        convert_to(data_sets.validation, 'validation')
-#        convert_to(data_sets.test, 'test')
+        files = {'train': [convert_to(self, data_sets.train, 'train')]}
+        files['validation'] = [convert_to(self, data_sets.validation, 'validation')]
+        files['test'] = [convert_to(self, data_sets.test, 'test')]
 
-        print "Grabbed mnist data of type {}".format(type(data_sets.train))
-        print "Grabbed mnist data in files {}".format(data_sets.train.list_files())
+        shutil.rmtree('MNIST_data_tmp')
 
-        return None
+        return files
 
 
 class MNIST(PipeTask):
@@ -112,8 +140,6 @@ class MNIST(PipeTask):
         A list of produced HyperFrames
 
     """
-    make_hyperframes = luigi.BoolParameter(default=False)
-    fork_task_str = luigi.Parameter(default=None)
 
     def pipe_requires(self, pipeline_input=None):
         """ For each row in the dataframe, create an upstream task with the row
@@ -125,30 +151,16 @@ class MNIST(PipeTask):
             None
         """
 
-        if not isinstance(pipeline_input, pd.DataFrame):
-            print "DFFork expects DataFrame input bundle."
-            return
+        self.add_dependency("input_tfrecords", GetData, {})
 
-        if self.fork_task_str is None:
-            print "DFFork requires upstream tasks to fork to.  Specify '--fork_task_str <module.Class>'"
-            return
-
-        for i in range(0, len(pipeline_input.index)):
-            json_row = pipeline_input[i:i + 1].to_json(orient='records')
-            row_index = pipeline_input.index[i]
-            self.add_dependency("output_{}".format(row_index),  self.fork_task_str,
-                                {'input_row': json_row, 'input_idx': row_index})
-
-        return
-
-    def pipe_run(self, pipeline_input=None, **kwargs):
+    def pipe_run(self, pipeline_input=None, input_tfrecords=None):
         """ Given a dataframe, split each row into the fork_task_str task class.
 
         Return a bundle of each tasks bundle.
 
         Args:
             pipeline_input: Input bundle data
-            **kwargs: keyword args from input hyperframe and inputs to transform
+            input_tfrecords: dictionary with our tfrecord files
 
         Returns:
             Array of Bundles (aka HyperFrames) from the forked tasks
@@ -157,22 +169,30 @@ class MNIST(PipeTask):
 
         # Note: There are two ways to propagate our outputs to our final output bundle
 
-        if self.make_hyperframes:
-            """ 1.) We can grab our upstream output hyperframes """
-            hfrs  = self.upstream_hframes()
-            return hfrs
-        else:
-            """ 2.) Or we can simply return our outputs """
-            data = []
-            for k, v in kwargs.iteritems():
-                if 'output_' in k:
-                    data.append(v)
+        for k,v in input_tfrecords.iteritems():
+            print "k{} v{}".format(k,v)
 
-            print "DFFork: Returning data {}".format(data)
+        with tf.Session() as sess:
+            x = tf.placeholder(tf.float32, shape=[None, 784])
+            y_ = tf.placeholder(tf.float32, shape=[None, 10])
 
-            return data
+            W = tf.Variable(tf.zeros([784, 10]))
+            b = tf.Variable(tf.zeros([10]))
+
+            sess.run(tf.global_variables_initializer())
+
+            y = tf.matmul(x, W) + b
+
+            cross_entropy = tf.reduce_mean(
+                tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=y))
+
+            train_step = tf.train.GradientDescentOptimizer(0.5).minimize(cross_entropy)
+
+
+
+        return None
 
 
 if __name__ == "__main__":
     print "Using Disdat API to run the pipeline"
-    api.apply('tflow', '-', '-', 'GetData')
+    api.apply('tflow', '-', '-', 'MNIST')
