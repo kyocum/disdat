@@ -3,7 +3,7 @@
 block_cipher = None
 
 added_files = [ ('disdat', 'disdat'),
-('setup.py','.'), ('VERSION','.'),
+('setup.py','.'),
 ('infrastructure/dockerizer', 'infrastructure/dockerizer'),
 ('infrastructure/__init__.py', 'infrastructure/.')]
 

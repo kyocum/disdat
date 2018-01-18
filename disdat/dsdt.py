@@ -76,7 +76,7 @@ def main():
     """
 
     if getattr( sys, 'frozen', False ) :
-        here = sys._MEIPASS
+        here = os.path.join(sys._MEIPASS, 'disdat')
     else:
         here = os.path.abspath(os.path.dirname(__file__))
 
