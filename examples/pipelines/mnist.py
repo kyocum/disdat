@@ -243,4 +243,4 @@ class Evaluate(PipeTask):
 
 if __name__ == "__main__":
     print "Using Disdat API to run the pipeline"
-    api.apply('tflow', '-', '-', 'Evaluate')
+    api.apply('examples', '-', '-', 'Evaluate')

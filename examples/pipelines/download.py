@@ -7,8 +7,7 @@ to access s3 instead of calling out to shell commands.
 @license: Apache 2.0
 """
 
-# Using print as a function makes it easier to switch between printing
-# during development and using logging.{debug, info, ...} in production.
+
 from __future__ import print_function
 
 import disdat.pipe as pipe

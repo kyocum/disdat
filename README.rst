@@ -57,7 +57,7 @@ Install disdat
 
 
 Install for developers
--------------------------
+----------------------
 
 Create a new virtual environment for Disdat:
 
@@ -77,6 +77,13 @@ Execute disdat:
 .. code-block:: console
 
     $ dsdt
+
+Tutorial
+--------
+
+We've implemented a simple TensorFlow example as a three-task Disdat pipeline in `examples/pipelines/mnist.py`.   The
+README in `examples` has more information.
+
 
 Short Test Drive
 ----------------

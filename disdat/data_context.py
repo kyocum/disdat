@@ -929,16 +929,17 @@ class DataContext(object):
         src_split = os.path.normpath(os.path.dirname(src)).split('/')
         dst_split = os.path.normpath(dst).split('/')
         sub_dir = list()
+        found = False
         for i in range(len(src_split)-1,-1,-1):
             if src_split[i] == dst_split[-1]:
                 if src_split[i-1] == dst_split[-2] and dst_split[-2] == 'objects':
+                    found = True
                     break
             sub_dir.append(src_split[i])
-        if len(sub_dir) > 0:
+        if found:
             return '/'.join(sub_dir[::-1])
         else:
             return ''
-
 
     @staticmethod
     def copy_in_files(src_files, dst_dir):

@@ -25,8 +25,6 @@ from disdat.pipe import PipeTask, PipesExternalBundle
 import luigi
 import logging
 
-PIPE_PKG = 'pipe'
-
 _logger = logging.getLogger(__name__)
 
 

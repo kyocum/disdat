@@ -761,7 +761,7 @@ class DisdatFS(object):
             return prior_context_name
 
         if local_context not in self._all_contexts:
-            _logger.error("Context {} not found.  Please use 'dsdt branch {}'".format(local_context, local_context))
+            _logger.error("Context {} not found.  Please use 'dsdt context {}'".format(local_context, local_context))
             return prior_context_name
 
         self._curr_context_name = local_context
@@ -1183,7 +1183,7 @@ class DisdatFS(object):
         """
 
         if self._curr_context.remote_ctxt_url is None:
-            print "Push cannot execute.  Branch {} on context {} has no remote.".format(self._curr_context.local_ctxt, self._curr_context.remote_ctxt)
+            print "Push cannot execute.  Local context {} on remote {} not bound.".format(self._curr_context.local_ctxt, self._curr_context.remote_ctxt)
             return None
 
         if tags is None:
@@ -1257,7 +1257,7 @@ class DisdatFS(object):
 
         """
         if self._curr_context.remote_ctxt_url is None:
-            print "Pull cannot execute.  Branch {} on context {} has no remote.".format(self._curr_context.local_ctxt, self._curr_context.remote_ctxt)
+            print "Pull cannot execute.  Local context {} on remote {} not bound.".format(self._curr_context.local_ctxt, self._curr_context.remote_ctxt)
             return
 
         possible_hframe_objects = aws_s3.ls_s3_url_objects(self.get_curr_context().get_remote_object_dir())
@@ -1272,7 +1272,7 @@ class DisdatFS(object):
                 if s3_uuid != uuid:
                     continue
                 else:
-                    print "Found remote bundle with UUID {}, checking local branch for duplicates ...".format(uuid)
+                    print "Found remote bundle with UUID {}, checking local context for duplicates ...".format(uuid)
 
             local_hfr = self.get_hframe_by_uuid(s3_uuid)
             if local_hfr is not None:
@@ -1358,7 +1358,7 @@ class DisdatFS(object):
             return_strings.append('[None]')
         else:
             return_strings.append("Disdat Context {}".format(self._curr_context.get_repo_name()))
-            return_strings.append("On local branch {}".format(self._curr_context.get_local_name()))
+            return_strings.append("On local context {}".format(self._curr_context.get_local_name()))
             if self._curr_context.get_remote_object_dir() is not None:
                 return_strings.append("Remote @ {}".format(self._curr_context.get_remote_object_dir()))
             else:

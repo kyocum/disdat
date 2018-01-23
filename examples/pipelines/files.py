@@ -107,5 +107,4 @@ class ReadFiles(PipeTask):
 
 
 if __name__ == "__main__":
-    print "Using Disdat API to run the pipeline"
-    api.apply('test', '-', '-', 'ReadFiles', params={'num_luigi_files':5})
+    api.apply('examples', '-', '-', 'ReadFiles', params={'num_luigi_files':5})
