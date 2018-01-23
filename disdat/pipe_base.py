@@ -377,6 +377,9 @@ class PipeBase(object):
         elif isinstance(val, dict):
             presentation = hyperframe_pb2.ROW
             for k, v in val.iteritems():
+                if False: # For now require dict values to be sequences
+                    if not isinstance(v, collections.Sequence):
+                        frames.append(DataContext.convert_scalar2frame(hfid, k, v, managed_path))
                 assert isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray))
                 frames.append(DataContext.convert_serieslike2frame(hfid, k, v, managed_path))
 
@@ -387,7 +390,6 @@ class PipeBase(object):
         else:
             presentation = hyperframe_pb2.SCALAR
             frames.append(DataContext.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
-            #frames.append(DataContext.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
 
         hfr = self.make_hframe(frames, hfid, self.bundle_inputs(),
                                human_name=human_name,

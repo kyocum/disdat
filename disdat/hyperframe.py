@@ -439,6 +439,51 @@ def delete_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_n
     return results
 
 
+def detect_local_fs_path(series):
+    """
+    Given a series, check whether all entries appear to be real paths and:
+    1.) get their absolute paths
+    2.) pre-pend file:///
+
+    Args:
+        series:
+
+    Returns:
+        series: Same series but absolute otherwise None
+
+    """
+    output = []
+    for s in series:
+        if not isinstance(s, str) and not isinstance(s, unicode):
+            return None
+        if os.path.isfile(s):
+            output.append("file://{}".format(os.path.abspath(s)))
+        elif os.path.isdir(s):
+            output.extend(["file://{}".format(os.path.join(s,f)) for f in os.listdir(s) if os.path.isfile(os.path.join(s, f))])
+        else:
+            del output
+            return None
+    return np.array(output)
+
+
+def strip_file_prefix(series):
+    """
+    Given a series of local fs file links, strip the "file://" from each.
+
+    Note: In-place modification
+
+    Args:
+        series: Strings with "file://" prefix
+
+    Returns:
+        None: Modifies input array to point to stripped strings.
+
+    """
+    for i in range(len(series)):
+        assert series[i].startswith("file://")
+        series[i] = series[i][7:]
+
+
 class PBObject(object):
     """
     Most objects mirror PB objects.
@@ -1751,7 +1796,7 @@ class FrameRecord(PBObject):
         return frame
 
     @staticmethod
-    def make_link_frame(hfid, name, file_paths):
+    def make_link_frame(hfid, name, file_paths, managed_path):
         """ Create link frame from file paths (file, s3, or vertica) or luigi.Target objects.
 
         Assumes file_paths are 'file:///' or 's3://' or 'vertica:///'
@@ -1765,6 +1810,7 @@ class FrameRecord(PBObject):
             hfid: hyperframe id
             name: column name
             file_paths (:list:str): array of paths or luigi.Target objects
+            managed_path (str): The current directory structure
 
         Returns:
             (FrameRecord)
@@ -1782,8 +1828,12 @@ class FrameRecord(PBObject):
         else:
             raise ValueError("Bad file paths -- cannot determine link type: example path {}".format(file_paths[0]))
 
-        if link_type is FileLinkRecord or link_type is S3LinkRecord:
-            file_paths = [common.BUNDLE_URI_SCHEME + os.path.basename(fn) for fn in file_paths]
+        if link_type is FileLinkRecord:
+            to_remove = "file:///" + managed_path
+            file_paths = [common.BUNDLE_URI_SCHEME + fn[len(to_remove):] for fn in file_paths]
+        elif link_type is S3LinkRecord:
+            to_remove = "s3://" + managed_path
+            file_paths = [common.BUNDLE_URI_SCHEME + fn[len(to_remove):] for fn in file_paths]
         else:
             _logger.warn("make_link_frame: unimplemented: relative vertica table paths.")
 

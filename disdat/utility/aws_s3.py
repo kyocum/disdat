@@ -356,6 +356,10 @@ def get_s3_file(s3_url, filename=None):
     bucket, s3_path = split_s3_url(s3_url)
     if filename is None:
         filename = os.path.basename(s3_path)
+    else:
+        path = os.path.dirname(filename)
+        if not os.path.exists(path):
+            os.makedirs(path)
     s3.Object(bucket, s3_path).download_file(filename)
     return filename
 

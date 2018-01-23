@@ -24,7 +24,7 @@ import disdat.common as common
 import disdat.utility.aws_s3 as aws_s3
 from disdat.common import DisdatConfig
 
-from urlparse import urlparse
+from collections import Sequence
 import logging
 import os
 import json
@@ -868,10 +868,15 @@ class DataContext(object):
         except TypeError:
             series_like = np.array(series_like)
 
+        local_files_series = hyperframe.detect_local_fs_path(series_like)
+
+        if local_files_series is not None:
+            series_like = local_files_series
+
         if hyperframe.FrameRecord.is_link_series(series_like):
             assert managed_path is not None
             series_like = [DataContext.copy_in_files(x, managed_path) for x in series_like]
-            frame = hyperframe.FrameRecord.make_link_frame(hfid, name, series_like)
+            frame = hyperframe.FrameRecord.make_link_frame(hfid, name, series_like, managed_path)
         else:
             frame = hyperframe.FrameRecord.from_serieslike(hfid, name, series_like)
         return frame
@@ -903,6 +908,37 @@ class DataContext(object):
                 continue
             frames.append(DataContext.convert_serieslike2frame(hfid, c, df[c], managed_path))
         return frames
+
+    @staticmethod
+    def find_subdir(src, dst):
+        """
+        Given
+        src: <uri:>//something/context/<somecontext>/objects/<some uuid>/sub1/.../sub2/file
+        dst: <uri:>//otherthing/context/<somecontext>/objects/<same uuid>
+
+        Extract 'sub1/.../subn/'
+
+        Args:
+            src: full path to the source file in a context
+            dst: destination managed path directory -- should end in 'objects/<uuid>'
+
+        Returns:
+            (str):
+        """
+        # Strip file name from src, normalize, and split on /
+        src_split = os.path.normpath(os.path.dirname(src)).split('/')
+        dst_split = os.path.normpath(dst).split('/')
+        sub_dir = list()
+        for i in range(len(src_split)-1,-1,-1):
+            if src_split[i] == dst_split[-1]:
+                if src_split[i-1] == dst_split[-2] and dst_split[-2] == 'objects':
+                    break
+            sub_dir.append(src_split[i])
+        if len(sub_dir) > 0:
+            return '/'.join(sub_dir[::-1])
+        else:
+            return ''
+
 
     @staticmethod
     def copy_in_files(src_files, dst_dir):
@@ -963,15 +999,19 @@ class DataContext(object):
                 file_set.append(src_path)
                 continue
 
-            dst_file = os.path.join(dst_dir, os.path.basename(src_path))
+            # Src path can contain a sub-directory.
+            sub_dir = DataContext.find_subdir(src_path, dst_dir)
+            dst_file = os.path.join(dst_dir, sub_dir, os.path.basename(src_path))
 
             if dst_scheme != 's3' and dst_scheme != 'vertica':
                 file_set.append(urljoin('file:', dst_file))
             else:
                 file_set.append(dst_file)
 
-            if file_set[-1] == src_path:
+            if src_path.startswith(os.path.dirname(file_set[-1])):
                 # This can happen if you re-push something already pushed that's not localized
+                # Or if the user places files directly in the output directory (or in a sub-directory of that directory)
+                file_set[-1] = src_path
                 _logger.debug("DataContext: copy_in_files found src {} == dst {}".format(src_path, file_set[-1]))
                 # but it can also happen if you re-bind and push.  So check that file is present!
                 if urlparse(src_path).scheme == 's3' and not aws_s3.s3_path_exists(src_path):
@@ -988,7 +1028,7 @@ class DataContext(object):
                     if o.scheme == 's3':
                         # s3 to s3
                         if dst_scheme == 's3':
-                            aws_s3.cp_s3_file(src_path, dst_dir)
+                            aws_s3.cp_s3_file(src_path, os.path.dirname(dst_file))
                         elif dst_scheme != 'vertica':  # assume 'file'
                             aws_s3.get_s3_file(src_path, dst_file)
                         else:
@@ -1000,10 +1040,10 @@ class DataContext(object):
                     elif o.scheme == 'file':
                         if dst_scheme == 's3':
                             # local to s3
-                            aws_s3.put_s3_file(o.path, dst_dir)
+                            aws_s3.put_s3_file(o.path, os.path.dirname(dst_file))
                         elif dst_scheme != 'vertica':  # assume 'file'
                             # local to local
-                            shutil.copy(o.path, dst_dir)
+                            shutil.copy(o.path, os.path.dirname(dst_file))
                         else:
                             raise Exception("copy_in_files: copy local file to unsupported scheme {}".format(dst_scheme))
 
@@ -1062,7 +1102,7 @@ class DataContext(object):
 
     def convert_hfr2df(self, hfr):
         """
-        Given a HyperFrameRecord, convert into a dataframe.
+        Given a HyperFrameRecord, convert into a dataframe.  If no data, return empty dataframe
 
         Note: This process may a.) reduce data fidelity (pandas series are 1d!) and b.) may fail
 
@@ -1085,7 +1125,11 @@ class DataContext(object):
                 columns.append(pd.Series(data=src_paths, name=fr.pb.name))
             else:
                 columns.append(fr.to_series())
-        return pd.concat(columns, axis=1)
+
+        if len(columns) == 0:
+            return pd.DataFrame()
+        else:
+            return pd.concat(columns, axis=1)
 
     def convert_hfr2scalar(self, hfr):
         """
@@ -1131,7 +1175,9 @@ class DataContext(object):
 
     def convert_hfr2row(self, hfr):
         """
-        Convert a HyperFrameRecord into a tuple (row).
+        Convert a HyperFrameRecord into a tuple (row).  The user can input either a tuple (x,y,z), in which case we
+        fabricate column names.  Or the user may pass a dictionary.   If there are multiple values to unpack then we
+        will store them into Python lists.  Note, if the names are generic, we return the tuple form.
 
         Args:
             hfr:
@@ -1144,15 +1190,21 @@ class DataContext(object):
         for fr in frames:
             if fr.is_local_fs_link_frame() or fr.is_s3_link_frame():
                 src_paths = self.actualize_link_urls(fr)
-                assert len(src_paths) == 1
-                row.append((fr.pb.name, src_paths[0]))
+                if len(src_paths) == 1:
+                    row.append((fr.pb.name, src_paths[0]))
+                else:
+                    row.append((fr.pb.name, np.array(src_paths)))
             else:
-                row.append((fr.pb.name, fr.to_ndarray())) #fr.to_ndarray().item()))
+                if fr.pb.shape[0] == 1:
+                    row.append((fr.pb.name, fr.to_ndarray().item()))
+                else:
+                    row.append((fr.pb.name, fr.to_ndarray()))
         if common.DEFAULT_FRAME_NAME in frames[0].pb.name:
             # Drop the names and return a list of unkeyed values.
             return tuple([r[1] for r in row])
         else:
-            return dict(row)
+            d = { t[0]: (t[1] if isinstance(t[1], (tuple, list, np.ndarray)) else [t[1]]) for t in row }
+            return d
 
     def present_hfr(self, hfr):
         """

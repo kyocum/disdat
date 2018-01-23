@@ -376,7 +376,7 @@ class PipeTask(luigi.Task, PipeBase):
         except Exception as error:
             """ If user's pipe fails for any reason, remove bundle dir and raise """
             rm_bundle_dir()
-            raise error
+            raise
 
         try:
             hfr = self.parse_pipe_return_val(pce.uuid, user_rtn_val, human_name=self.pipeline_id())
@@ -394,7 +394,7 @@ class PipeTask(luigi.Task, PipeBase):
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
             rm_bundle_dir()
-            raise error
+            raise
 
         return hfr
 
