@@ -528,7 +528,7 @@ class DisdatFS(object):
 
     @staticmethod
     def _pretty_print_header():
-        header = "{:20}\t{:20}\t{:10}\t{:18}\t{:10}\t{}".format('NAME','PROC_NAME','OWNER','DATE','COMMITTED','TAGS')
+        header = "{:20}\t{:20}\t{:10}\t{:18}\t{:10}\t{}".format('NAME','PROC_NAME','OWNER','DATE','COMMITTED','UUID','TAGS')
         return header
 
     @staticmethod
@@ -539,11 +539,12 @@ class DisdatFS(object):
         else:
             committed = 'False'
 
-        output_string = "{:20}\t{:20}\t{:10}\t{:18}\t{:10}".format(hfr.pb.human_name,
-                                                        hfr.pb.processing_name[:20],
-                                                        hfr.pb.owner,
-                                                        time.strftime("%m-%d-%y %H:%M:%S ",time.gmtime(hfr.pb.lineage.creation_date)),
-                                                        committed)
+        output_string = "{:20}\t{:20}\t{:10}\t{:18}\t{:8}\t{:15}".format(hfr.pb.human_name,
+                                                                   hfr.pb.processing_name[:20],
+                                                                   hfr.pb.owner,
+                                                                   time.strftime("%m-%d-%y %H:%M:%S ",time.gmtime(hfr.pb.lineage.creation_date)),
+                                                                   committed,
+                                                                   hfr.pb.uuid)
         if print_tags:
             tags = ["[{}]:[{}]".format(k, v) for k, v in hfr.tag_dict.iteritems() if k != 'committed']
             output_string += ' '.join(tags)
