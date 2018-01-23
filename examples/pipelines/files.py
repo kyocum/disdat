@@ -70,6 +70,12 @@ class CreateFiles(PipeTask):
             with open(f, 'w') as of:
                 of.write("Output dir file test string {}".format(i))
 
+        # Create files inside the root directory -- make sure that we don't add our pb's
+        outputs['root_output_dir'] = output_dir
+        for i in range(int(self.num_dir_files)):
+            with open(os.path.join(output_dir, "root_dir_output_{}".format(i))) as of:
+                of.write("Root output dir file test string {}".format(i))
+
         # Point to a file that already exists anywhere in the FS
         outputs['pre-existing files'].append(os.path.abspath(__file__))
 

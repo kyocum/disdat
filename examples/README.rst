@@ -40,11 +40,9 @@ broken the example down into three steps in ``pipelines/mnist.py``, which you wi
 
 * ``GetDataGz``: This downloads four gzip files and stores them in a bundle called ``MNIST.data.gz``
 
-* ``Train``: This PipeTask depends on the ``GetDataGz`` tasks, gets the gzip files, builds a Tensorflow graph and trains
-it. It stores the saved model into an output bundle called ``MNIST.trained``.
+* ``Train``: This PipeTask depends on the ``GetDataGz`` tasks, gets the gzip files, builds a Tensorflow graph and trains it.  It stores the saved model into an output bundle called ``MNIST.trained``.
 
-* ``Evaluate``: This PipeTask depends on both upstream tasks.  It rebuilds the graph, restores the values, and evaluates
-the model.  It returns a single accuracy float in it's output bundle ``MNIST.eval``
+* ``Evaluate``: This PipeTask depends on both upstream tasks.  It rebuilds the graph, restores the values, and evaluates the model.  It returns a single accuracy float in it's output bundle ``MNIST.eval``
 
 
 Dependencies
@@ -53,15 +51,13 @@ Dependencies
 A Disdat PipeTask consists of two functions: ``pipe_requires`` and ``pipe_run``.   If you know Luigi, these are analagous to
 `requires ``and ``run``.  Let's first describe what they do, and then we can describe how they are different from those analogs.
 
-* ``pipe_requires``: Here you declare the tasks that must run before this task.  To do so you write statements like:
-`self.add_dependency("input_gzs", GetDataGz, {})``.   This says that the current task needs a ``GetDataGz`` instance to run with no
-parameters.  It also says that Disdat should setup the output of that task as a named parameter to ``pipe_run`` called ``'input_gzs'``.
-Users may optionally name the output bundle in this function with ``set_bundle_name(<your name>)``.
+* ``pipe_requires``: Here you declare the tasks that must run before this task.  To do so you write statements like: ``self.add_dependency("input_gzs", GetDataGz, {})``.   This says that the current task needs a ``GetDataGz`` instance to run with no parameters.  It also says that Disdat should setup the output of that task as a named parameter to ``pipe_run`` called ``'input_gzs'``.
+
+  Users may optionally name the output bundle in this function with ``set_bundle_name(<your name>)``.
 
 * ``pipe_run``: Here you perform the task's main work.  This function gets a set of named parameters.
     - ``pipeline_input``:  This contains the *input* bundle data.
-    - <your dependency names>:  Disdat prepares named parameters for each upstream dependency.  The variable will be they
-same type as the upstream task returned.
+    - <your dependency names>:  Disdat prepares named parameters for each upstream dependency.  The variable will be they same type as the upstream task returned.
 
 
 Outputs
@@ -79,8 +75,7 @@ However, Disdat manages your output paths for you -- you just need to name the f
 To do so, you can:
 
 * Call ``self.create_output_file("my_results.txt")``: this returns a ``luigi.LocalTarget`` object.  You can open and write to it.
-* Call ``self.get_output_dir()``:  This returns a fully-qualified path to your bundle's output directory.  You can place files
-directly into this directory.
+* Call ``self.get_output_dir()``:  This returns a fully-qualified path to your bundle's output directory.  You can place files directly into this directory.
 
 When you're done making files, you need to return the file paths (if you want them to be in your output bundle).  You can return:
 
@@ -95,16 +90,15 @@ MNIST Pipeline
 ==============
 
 * In ``GetDataGz`` you'll notice that we keep track of the files we write, and we return a dictionary of name to path.
-* ``Train`` consumes that dictionary and produces a TensorFlow DataSet from those gzip files.  Note that TensorFlow's ``Saver`
-object just wants an output directory -- it's not very easy to get the names of those files it produced.  So we create an
-output sub-directory in line 190:
-```
-save_dir = os.path.join(self.get_output_dir(), 'MNIST')
-```
-And then we pass that directory as an element in our return dictionary.  Disdat will save all the files in that directory
-into our output bundle.
-* Finally ``Evaluate`` uses the gzip files and the model saved by ``Train``.   Since TensorFlow's ``Saver`` just wants a directory,
-we take the dirname of the first file in ``Train``'s output in line 233.
+* ``Train`` consumes that dictionary and produces a TensorFlow DataSet from those gzip files.  Note that TensorFlow's ``Saver`` object just wants an output directory -- it's not very easy to get the names of those files it produced.  So we create an output sub-directory in line 190:
+
+  .. code-block:: console
+
+    save_dir = os.path.join(self.get_output_dir(), 'MNIST')
+
+  And then we pass that directory as an element in our return dictionary.  Disdat will save all the files in that directory into our output bundle.
+
+* Finally ``Evaluate`` uses the gzip files and the model saved by ``Train``.   Since TensorFlow's ``Saver`` just wants a directory, we take the dirname of the first file in ``Train``'s output in line 233.
 
 Running the Pipeline
 ====================
@@ -169,16 +163,16 @@ is simply setting a flag that tells Disdat, hey, don't throw this away.
 Now all of your data is safely on S3.   To illustrate, let's delete our local copies and pull it back.
 
 .. code-block:: console
+
     $ dsdt rm --all MNI.*
     $ dsdt pull -b MNIST.eval; dsdt pull -b MNIST.data.gz; dsdt pull -b MNIST.trained
 
-If you ``dsdt cat MNIST.data.gz`` you'll notice something interesting.   Your bundle now has a bunch of s3 paths!
-That's because Disdat leaves your data on S3 unless you really want it locally.   To localize:
 
+If you ``dsdt cat MNIST.data.gz`` you'll notice something interesting.   Your bundle now has a bunch of s3 paths! That's because Disdat leaves your data on S3 unless you really want it locally.   To localize:
 
 .. code-block:: console
-    $ dsdt pull -b --localize MNIST.data.gz
 
+    $ dsdt pull -b --localize MNIST.data.gz
 
 Now all of your data is also local.
 

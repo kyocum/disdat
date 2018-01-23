@@ -439,6 +439,25 @@ def delete_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_n
     return results
 
 
+def get_files_in_dir(dir):
+    """ Look for files in a user returned directory
+    1.) Only look one-level down (in this directory)
+    2.) Do not include anything that looks like one of disdat's pbufs
+
+    TODO: One place that defines the format of the Disdat pb file names
+    See data_context.DataContext: rebuild_db() *_frame.pb, *_hframe.pb, *_auth.pb
+    Args:
+        (str): local directory
+    Returns:
+        (list:str): List of files in that directory
+    """
+
+    files = [os.path.join(dir, f) for f in os.listdir(dir) if os.path.isfile(os.path.join(dir, f))
+             and ('_hframe.pb' not in f) and ('_frame.pb' not in f) and ('_auth.pb' not in f)]
+
+    return files
+
+
 def detect_local_fs_path(series):
     """
     Given a series, check whether all entries appear to be real paths and:
@@ -459,7 +478,8 @@ def detect_local_fs_path(series):
         if os.path.isfile(s):
             output.append("file://{}".format(os.path.abspath(s)))
         elif os.path.isdir(s):
-            output.extend(["file://{}".format(os.path.join(s,f)) for f in os.listdir(s) if os.path.isfile(os.path.join(s, f))])
+            """ Find files one-level down """
+            output.extend(["file://{}".format(os.path.join(s, f)) for f in get_files_in_dir(s)])
         else:
             del output
             return None
