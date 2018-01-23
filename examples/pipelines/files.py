@@ -57,24 +57,18 @@ class CreateFiles(PipeTask):
 
         # Create files using Luigi.Target class
         for i in range(int(self.num_luigi_files)):
-            target = self.create_output_file("lf_output_{}".format(i))
+            target = self.create_output_file("new_dir/lf_output_{}".format(i))
             outputs['luigi target files'].append(target)
             with target.open('w') as of:
                 of.write("Luigi file test string {}".format(i))
 
-        # Create files directly inside this output bundle
+        # Create files directly inside output bundle dir, simply pass output dir in outputs
         output_dir = self.get_output_dir()
+        outputs['output directory files'].append(output_dir)
         for i in range(int(self.num_dir_files)):
             f = os.path.join(output_dir, "dir_output_{}".format(i))
-            outputs['output directory files'].append(f)
             with open(f, 'w') as of:
                 of.write("Output dir file test string {}".format(i))
-
-        # Create files inside the root directory -- make sure that we don't add our pb's
-        outputs['root_output_dir'] = output_dir
-        for i in range(int(self.num_dir_files)):
-            with open(os.path.join(output_dir, "root_dir_output_{}".format(i))) as of:
-                of.write("Root output dir file test string {}".format(i))
 
         # Point to a file that already exists anywhere in the FS
         outputs['pre-existing files'].append(os.path.abspath(__file__))

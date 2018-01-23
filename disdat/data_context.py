@@ -1060,12 +1060,13 @@ class DataContext(object):
         else:
             return file_set
 
-    def actualize_link_urls(self, fr):
+    def actualize_link_urls(self, fr, strip_file_scheme=False):
         """
         Given an s3 or file link frame, return actual file paths to the data.
 
         Args:
             fr (`hyperframe.FrameRecord`):  A single link frame
+            strip_file_scheme (bool): Return the files without 'file://' if local FS
 
         Returns:
             file_set: set of new paths where files exist
@@ -1089,7 +1090,11 @@ class DataContext(object):
         local_file_set = [os.path.join(local_dir, fr.hframe_uuid, f.replace(common.BUNDLE_URI_SCHEME,'')) for f in urls]
 
         if all(os.path.isfile(lf) for lf in local_file_set):
-            file_set = [ "file://{}".format(lf) for lf in local_file_set ]
+            if strip_file_scheme:
+                append = ''
+            else:
+                append = 'file://'
+            file_set = [ "{}{}".format(append, lf) for lf in local_file_set ]
         else:
             # Note that remote_dir already includes the URL scheme
             remote_dir = self.get_remote_object_dir()
@@ -1122,7 +1127,7 @@ class DataContext(object):
         columns = []
         for fr in frames:
             if fr.is_local_fs_link_frame() or fr.is_s3_link_frame():
-                src_paths = self.actualize_link_urls(fr)
+                src_paths = self.actualize_link_urls(fr, strip_file_scheme=True)
                 columns.append(pd.Series(data=src_paths, name=fr.pb.name))
             else:
                 columns.append(fr.to_series())
@@ -1148,7 +1153,7 @@ class DataContext(object):
         fr = frames[0]
 
         if fr.is_local_fs_link_frame() or fr.is_s3_link_frame():
-            src_paths = self.actualize_link_urls(fr)
+            src_paths = self.actualize_link_urls(fr, strip_file_scheme=True)
             nda = np.array(src_paths)
         else:
             nda = fr.to_ndarray()
@@ -1169,7 +1174,7 @@ class DataContext(object):
         fr = frames[0]
 
         if fr.is_local_fs_link_frame() or fr.is_s3_link_frame():
-            src_paths = self.actualize_link_urls(fr)
+            src_paths = self.actualize_link_urls(fr, strip_file_scheme=True)
             return np.array(src_paths)
         else:
             return fr.to_ndarray()
@@ -1190,7 +1195,7 @@ class DataContext(object):
         row = []
         for fr in frames:
             if fr.is_local_fs_link_frame() or fr.is_s3_link_frame():
-                src_paths = self.actualize_link_urls(fr)
+                src_paths = self.actualize_link_urls(fr, strip_file_scheme=True)
                 if len(src_paths) == 1:
                     row.append((fr.pb.name, src_paths[0]))
                 else:
