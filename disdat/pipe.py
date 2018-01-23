@@ -414,7 +414,7 @@ class PipeTask(luigi.Task, PipeBase):
 
         """
 
-        kwargs = {}
+        kwargs = dict()
 
         # 1.) Place input hyperframe presentable into the users's run / requires function
         kwargs[CLOSURE_PIPE_INPUT] = self.presentable_inputs
