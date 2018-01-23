@@ -70,7 +70,7 @@ class CreateFiles(PipeTask):
             with open(f, 'w') as of:
                 of.write("Output dir file test string {}".format(i))
 
-        # Create files inside the root directory -- make sure that we don't add our pb's
+        # Create files inside the root directory as well. 
         outputs['root_output_dir'] = output_dir
         for i in range(int(self.num_dir_files)):
             with open(os.path.join(output_dir, "root_dir_output_{}".format(i))) as of:
