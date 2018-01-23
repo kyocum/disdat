@@ -11,6 +11,20 @@ Examples
    :members:
    :member-order: bysource
 
+
+MNIST TensorFlow Tutorial
+-------------------------
+
+In this tutorial we build a pipeline of three tasks.
+
+
+
+
+
+
+
+
+
 First CLI Example
 -----------------
 This example shows how to create and checkout branches, add remotes, and push and pull from s3.

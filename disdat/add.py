@@ -138,7 +138,7 @@ class AddTask(luigi.Task, PipeBase):
             abs_input_path = os.path.abspath(self.input_path)
             files = [urlparse.urljoin('file:', os.path.join(abs_input_path, f)) for f in os.listdir(abs_input_path)]
             file_set = DataContext.copy_in_files(files, managed_path)
-            frames = [FrameRecord.make_link_frame(add_hf_uuid, constants.FILE, file_set), ]
+            frames = [FrameRecord.make_link_frame(add_hf_uuid, constants.FILE, file_set, managed_path), ]
             presentation = hyperframe_pb2.TENSOR
         elif os.path.isfile(self.input_path):
             if str(self.input_path).endswith('.csv') or str(self.input_path).endswith('.tsv'):
@@ -150,7 +150,7 @@ class AddTask(luigi.Task, PipeBase):
                 abs_input_path = os.path.abspath(self.input_path)
                 files = [urlparse.urljoin('file:', abs_input_path)]
                 file_set = DataContext.copy_in_files(files, managed_path)
-                frames = [FrameRecord.make_link_frame(add_hf_uuid, constants.FILE, file_set), ]
+                frames = [FrameRecord.make_link_frame(add_hf_uuid, constants.FILE, file_set, managed_path), ]
                 presentation = hyperframe_pb2.TENSOR
         else:
             raise RuntimeError('Unable to find input file or path {}'.format(self.input_path))

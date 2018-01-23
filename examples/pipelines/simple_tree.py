@@ -21,12 +21,12 @@ A simple tree of pipes:   Task C <- Task B <- Task A
 author: Kenneth Yocum
 """
 
-from disdat.pipe import PipeTask, PipesExternalBundle
+from disdat.pipe import PipeTask
+import disdat.api as api
 import luigi
 import logging
 from tree_leaves import B
 
-PIPE_PKG = 'pipe'
 
 _logger = logging.getLogger(__name__)
 
@@ -64,3 +64,6 @@ class SimpleTree(PipeTask):
         """
 
         return
+
+if __name__ == "__main__":
+    api.apply('examples', '-', '-', 'SimpleTree')

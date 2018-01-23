@@ -35,6 +35,7 @@ author: Kenneth Yocum
 from disdat.pipe_base import PipeBase
 import disdat.common as common
 from disdat.driver import DriverTask
+import shutil
 import luigi
 import logging
 import json
@@ -357,26 +358,43 @@ class PipeTask(luigi.Task, PipeBase):
 
         """
 
-        kwargs = self.prepare_pipe_kwargs(for_run=True)
+        def rm_bundle_dir():
+            try:
+                shutil.rmtree(pce.path)
+            except IOError as why:
+                _logger.error("Removal of hyperframe directory {} failed with error {}. Continuing removal...".format(
+                    pce.uuid, why))
 
-        user_rtn_val = self.pipe_run(**kwargs)
+        kwargs = self.prepare_pipe_kwargs(for_run=True)
 
         pce = self.pfs.get_path_cache(self)
 
         assert(pce is not None)
 
-        hfr = self.parse_pipe_return_val(pce.uuid, user_rtn_val, human_name=self.pipeline_id())
+        try:
+            user_rtn_val = self.pipe_run(**kwargs)
+        except Exception as error:
+            """ If user's pipe fails for any reason, remove bundle dir and raise """
+            rm_bundle_dir()
+            raise
 
-        if self.output_tags:
-            self.user_tags.update(self.output_tags)
+        try:
+            hfr = self.parse_pipe_return_val(pce.uuid, user_rtn_val, human_name=self.pipeline_id())
 
-        if isinstance(self.calling_task, DriverTask):
-            self.user_tags.update({'root_task':'True'})
+            if self.output_tags:
+                self.user_tags.update(self.output_tags)
 
-        if self.user_tags:
-            hfr.replace_tags(self.user_tags)
+            if isinstance(self.calling_task, DriverTask):
+                self.user_tags.update({'root_task': 'True'})
 
-        self.pfs.write_hframe(hfr)
+            if self.user_tags:
+                hfr.replace_tags(self.user_tags)
+
+            self.pfs.write_hframe(hfr)
+        except Exception as error:
+            """ If we fail for any reason, remove bundle dir and raise """
+            rm_bundle_dir()
+            raise
 
         return hfr
 
@@ -506,6 +524,24 @@ class PipeTask(luigi.Task, PipeBase):
         """
 
         return self.make_luigi_targets_from_basename(filename)
+
+    def get_output_dir(self):
+        """
+        Disdat Pipe API Function
+
+        Retrieve the output directory for this task's bundle.  You may place
+        files directly into this directory.
+
+        Returns:
+            output_dir (str):  The bundle's output directory
+
+        """
+
+        # Find the path cache entry for this pipe to find its output path
+        pce = self.pfs.get_path_cache(self)
+        assert(pce is not None)
+
+        return pce.path
 
     def set_bundle_name(self, human_name):
         """

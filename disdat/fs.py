@@ -522,7 +522,8 @@ class DisdatFS(object):
             if print_long:
                 output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags))
             else:
-                output_strings.append(r.pb.human_name)
+                if r.pb.human_name not in output_strings:
+                    output_strings.append(r.pb.human_name)
         return output_strings
 
     @staticmethod
@@ -572,7 +573,6 @@ class DisdatFS(object):
             hfr = self.get_hframe_by_uuid(uuid, tags=tags)
 
         if hfr is not None:
-
             df = self._curr_context.convert_hfr2df(hfr)
             if df is not None and file is not None:
                 print "Saving to file {}".format(file)
@@ -761,7 +761,7 @@ class DisdatFS(object):
             return prior_context_name
 
         if local_context not in self._all_contexts:
-            _logger.error("Context {} not found.  Please use 'dsdt branch {}'".format(local_context, local_context))
+            _logger.error("Context {} not found.  Please use 'dsdt context {}'".format(local_context, local_context))
             return prior_context_name
 
         self._curr_context_name = local_context
@@ -1143,7 +1143,7 @@ class DisdatFS(object):
             assert self._curr_context is not None
             src_paths = self._curr_context.actualize_link_urls(fr)
             new_paths = DataContext.copy_in_files(src_paths, managed_path)
-            fr = hyperframe.FrameRecord.make_link_frame(new_hfr_uuid, fr.pb.name, new_paths)
+            fr = hyperframe.FrameRecord.make_link_frame(new_hfr_uuid, fr.pb.name, new_paths, managed_path)
         return fr
 
     def push(self, human_name=None, uuid=None, tags=None, force_uuid=None):
@@ -1183,7 +1183,7 @@ class DisdatFS(object):
         """
 
         if self._curr_context.remote_ctxt_url is None:
-            print "Push cannot execute.  Branch {} on context {} has no remote.".format(self._curr_context.local_ctxt, self._curr_context.remote_ctxt)
+            print "Push cannot execute.  Local context {} on remote {} not bound.".format(self._curr_context.local_ctxt, self._curr_context.remote_ctxt)
             return None
 
         if tags is None:
@@ -1216,6 +1216,27 @@ class DisdatFS(object):
 
         return hfr
 
+    def _localize_hfr(self, local_hfr, s3_uuid):
+        """
+        Given local hfr, read link frames and pull data from s3.
+
+        TODO: Checks to see if the files are already local!
+
+        Args:
+            local_hfr:
+            s3_uuid:
+
+        Returns:
+            None
+        """
+        managed_path = os.path.join(self.get_curr_context().get_object_dir(), s3_uuid)
+        for fr in local_hfr.get_frames(self.get_curr_context()):
+            if fr.is_link_frame():
+                src_paths = self.get_curr_context().actualize_link_urls(fr)
+                for f in src_paths:
+                    print "Adding file {} to bundle".format(f)
+                    DataContext.copy_in_files(f, managed_path)
+
     def pull(self, human_name=None, uuid=None, localize=False):
         """
         Either pull in any versions of a particular object, or update all
@@ -1236,7 +1257,7 @@ class DisdatFS(object):
 
         """
         if self._curr_context.remote_ctxt_url is None:
-            print "Pull cannot execute.  Branch {} on context {} has no remote.".format(self._curr_context.local_ctxt, self._curr_context.remote_ctxt)
+            print "Pull cannot execute.  Local context {} on remote {} not bound.".format(self._curr_context.local_ctxt, self._curr_context.remote_ctxt)
             return
 
         possible_hframe_objects = aws_s3.ls_s3_url_objects(self.get_curr_context().get_remote_object_dir())
@@ -1251,7 +1272,7 @@ class DisdatFS(object):
                 if s3_uuid != uuid:
                     continue
                 else:
-                    print "Found remote bundle with UUID {}, checking local branch for duplicates ...".format(uuid)
+                    print "Found remote bundle with UUID {}, checking local context for duplicates ...".format(uuid)
 
             local_hfr = self.get_hframe_by_uuid(s3_uuid)
             if local_hfr is not None:
@@ -1269,18 +1290,9 @@ class DisdatFS(object):
                             print "Found remote bundle with human name {}, uuid {} localizing ...".format(hfr_test.pb.human_name,
                                                                                                           hfr_test.pb.uuid)
 
-                    # grab files for this hyperframe
-                    # TODO: make one function (shares with below)
-                    s3_hfr_dir = os.path.join(self.get_curr_context().get_remote_object_dir(), s3_uuid)
-                    local_uuid_dir = os.path.join(self.get_curr_context().get_object_dir(), s3_uuid)
-                    possible_frame_objects = aws_s3.ls_s3_url_objects(s3_hfr_dir)
-                    files = [obj for obj in possible_frame_objects if ('_frame.pb' not in obj.key) and ('_hframe.pb' not in obj.key)]
-                    for f in files:
-                        basename = os.path.basename(f.key)
-                        local_path = os.path.join(local_uuid_dir, basename)
-                        if not os.path.isfile(local_path):
-                            print "Adding file {} to bundle".format(basename)
-                            f.Object().download_file(local_path)
+                    # grab files for this hyperframe -- read the local HFR frames
+                    self._localize_hfr(local_hfr, s3_uuid)
+
             else:
                 obj = s3_hfr_obj.Object().get()
                 hfr_test = hyperframe.HyperFrameRecord.from_str_bytes(obj['Body'].read())
@@ -1302,21 +1314,20 @@ class DisdatFS(object):
                 os.makedirs(local_uuid_dir)
 
                 hyperframe.w_pb_fs(None, hfr_test, local_hfr_path)
-                #s3_hfr_obj.Object().download_file(local_hfr_path)
 
-                # grab frames and possibly files for this hyperframe
+                # grab frames for this hyperframe
                 s3_hfr_dir = os.path.join(self.get_curr_context().get_remote_object_dir(), s3_uuid)
                 possible_frame_objects = aws_s3.ls_s3_url_objects(s3_hfr_dir)
-                if localize:
-                    frame_objects = possible_hframe_objects
-                else:
-                    frame_objects = [obj for obj in possible_frame_objects if '_frame.pb' in obj.key]
+                frame_objects = [obj for obj in possible_frame_objects if '_frame.pb' in obj.key]
                 for s3_fr_obj in frame_objects:
                     fr_basename = os.path.basename(s3_fr_obj.key)
                     local_fr_path = os.path.join(local_uuid_dir,fr_basename)
                     s3_fr_obj.Object().download_file(local_fr_path)
 
                 self.get_curr_context().write_hframe_db_only(hfr_test)
+
+                if localize:
+                    self._localize_hfr(self.get_hframe_by_uuid(s3_uuid), s3_uuid)
 
     def remote_add(self, context, s3_url, force):
         """
@@ -1347,7 +1358,7 @@ class DisdatFS(object):
             return_strings.append('[None]')
         else:
             return_strings.append("Disdat Context {}".format(self._curr_context.get_repo_name()))
-            return_strings.append("On local branch {}".format(self._curr_context.get_local_name()))
+            return_strings.append("On local context {}".format(self._curr_context.get_local_name()))
             if self._curr_context.get_remote_object_dir() is not None:
                 return_strings.append("Remote @ {}".format(self._curr_context.get_remote_object_dir()))
             else:

@@ -295,20 +295,18 @@ class PipeBase(object):
 
     def make_luigi_targets_from_basename(self, output_value):
         """
-        Determine the output paths AND create the Luigi objects
+        Determine the output paths AND create the Luigi objects.
 
-        This is called from the output of the pipe.   Thus need to determine where this file
-        should exist.  Before we ran, we determined whether or not we should make a new
-        bundle or we should re-use an old one.  This *matters* because the bundle determines
-        the location of the file.  And if the file already exists, then we don't need to run.
+        Return the same object type as output_value, but with Luigi.Targets instead.
 
-        The DisdatFS contains the Path Cache.   The path cache is a dictionary from pipe.unique_id()
-        to a path_cache_entry, which contains the fields: instance uuid path rerun
+        Note that we get the path from the DisdatFS Path Cache.   The path cache is a dictionary from
+        pipe.unique_id() to a path_cache_entry, which contains the fields: instance uuid path rerun
 
-        NOTE: We also attach the run index to the output name.
+        Args:
+            output_value (str, dict, list): A basename, dictionary of basenames, or list of basenames.
 
-        Given [], return [] of Luigi targets.
-        If len([]) == 1, return without []
+        Return:
+            (`luigi.LocalTarget`, `luigi.S3Target`): Singleton, list, or dictionary of Luigi Target objects.
         """
 
         # Find the path cache entry for this pipe to find its output path
@@ -379,6 +377,9 @@ class PipeBase(object):
         elif isinstance(val, dict):
             presentation = hyperframe_pb2.ROW
             for k, v in val.iteritems():
+                if False: # For now require dict values to be sequences
+                    if not isinstance(v, collections.Sequence):
+                        frames.append(DataContext.convert_scalar2frame(hfid, k, v, managed_path))
                 assert isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray))
                 frames.append(DataContext.convert_serieslike2frame(hfid, k, v, managed_path))
 
@@ -389,7 +390,6 @@ class PipeBase(object):
         else:
             presentation = hyperframe_pb2.SCALAR
             frames.append(DataContext.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
-            #frames.append(DataContext.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
 
         hfr = self.make_hframe(frames, hfid, self.bundle_inputs(),
                                human_name=human_name,
