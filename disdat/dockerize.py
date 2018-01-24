@@ -25,6 +25,8 @@ import os
 import subprocess
 import tempfile
 
+from ConfigParser import NoOptionError
+
 _MODULE_NAME = inspect.getmodulename(__file__)
 
 _DOCKERIZER_ROOT = os.path.dirname(inspect.getsourcefile(infrastructure.dockerizer))
@@ -92,7 +94,11 @@ def dockerize(disdat_config, pipeline_root, pipeline_class_name, config_dir=None
 
     if push:
         docker_client = docker.from_env()
-        repository_name_prefix = disdat_config.parser.get('docker', 'repository_prefix')
+        repository_name_prefix = None
+        try:
+            repository_name_prefix = disdat_config.parser.get('docker', 'repository_prefix')
+        except NoOptionError:
+            pass
         repository_name = disdat.common.make_pipeline_repository_name(repository_name_prefix, pipeline_class_name)
         # Figure out the fully-qualified repository name, i.e., the name
         # including the registry.
