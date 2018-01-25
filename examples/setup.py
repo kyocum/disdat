@@ -5,7 +5,6 @@ setup(
     version=0.1,
     packages=find_packages(exclude=['config']),
     install_requires=[
-        'tensorflow',
         'pandas==0.20.3',
         'luigi',
     ],

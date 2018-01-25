@@ -34,5 +34,7 @@ ARG CONDA_VERSION
 ARG VIRTUAL_ENV
 ENV VIRTUAL_ENV $VIRTUAL_ENV
 
-# Install Miniconda
-RUN $KICKSTART_ROOT/bin/kickstart-conda.sh -c $CONDA_VERSION $VIRTUAL_ENV
+# Install Miniconda if selected.
+RUN if [ x$CONDA_VERSION != xNO_CONDA ]; then \
+	$KICKSTART_ROOT/bin/kickstart-conda.sh -c $CONDA_VERSION $VIRTUAL_ENV; \
+fi
