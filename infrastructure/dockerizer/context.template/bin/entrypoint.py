@@ -227,7 +227,7 @@ if __name__ == '__main__':
         '--input-json',
         default=None,
         type=str,
-        help='Data to load as the input bundle',
+        help='JSON-encoded data to load as the input bundle',
     )
     parser.add_argument(
         '--dump-output',
@@ -275,14 +275,12 @@ if __name__ == '__main__':
     pipeline_parser.add_argument(
         '--input-tags',
         type=str,
-        required=True,
-        help='The JSON string of a dictionary of tags to choose input bundle.',
+        help='A JSON-encoded dictionary of tags to choose input bundle',
     )
     pipeline_parser.add_argument(
         '--output-tags',
         type=str,
-        required=True,
-        help='The JSON string of a dictionary of tags to attach to output bundle.',
+        help='A JSON-encoded dictionary of tags to attach to the output bundle',
     )
     pipeline_parser.add_argument(
         '--output-bundle-uuid',
@@ -339,8 +337,13 @@ if __name__ == '__main__':
                 _logger.error('Failed to add JSON to input bundle \'{}\''.format(args.input))
                 sys.exit(os.EX_IOERR)
 
-    input_tags = json.loads(args.input_tags)
-    output_tags = json.loads(args.output_tags)
+    # If specified, decode the JSON-encoded tags.
+    input_tags = {}
+    if args.input_tags is not None:
+        input_tags = json.loads(args.input_tags)
+    output_tags = {}
+    if args.output_tags is not None:
+        output_tags = json.loads(args.output_tags)
 
     if False:
         print "Container Running with command (output uuid {}, input_tags {}, output_tags {}):".format(args.output_bundle_uuid,

@@ -338,7 +338,6 @@ def main(disdat_config, args):
     print "backend type {} arg {}".format(type(backend), backend)
 
     input_tags = common.parse_args_tags(args.input_tag)
-
     output_tags = common.parse_args_tags(args.output_tag)
 
     task_args = [args.input_bundle,
