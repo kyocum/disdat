@@ -608,3 +608,28 @@ an image named `disdat-module-submodule[-submodule]`.
 If successful, `dockerize` will create a Docker image named
 `disdat-module-submodule`. Using the Docker (NOT Disdat) `run` command will
 display the help message for the image entry point script.
+
+Pushing images to AWS Elastic Container Registry
+------------------------------------------------
+
+Users can push Disdat Docker images to AWS Elastic Container Registry (ECR)
+using the `--push` option to the `dockerize` command:
+
+`dsdt dockerize --push pipe_root pipe_cls`.
+
+Given a transform named `module.submodule.PipeClass`, `dockerize` will push
+an image named `disdat-module-submodule[-submodule]:latest` to ECR.
+
+To push images to Docker, the user needs to specify the registry prefix in
+the Disdat configuration file. We assume that the user has first followed the
+instructions in the AWS ECR documentation for setting up AWS credentials
+and profiles require to access AWS services, as the dockerizer uses the
+current AWS profile to determine the ECR URL and obtain Docker server
+authentication tokens. The user then sets the following configuration options
+in the Disdat configuration file in the `[docker]` stanza:
+
+- `registry`: Set to `*ECR*`.
+- `repository_prefix`: An optional prefix of the form `a/b/[...]` that
+  `dockerize` will prepend to the image name. Given a transform named
+  `module.submodule.PipeClass` and a prefix `a/b`, `dockerize` will push
+  an image named `a/b/disdat-module-submodule[-submodule]:latest`.
