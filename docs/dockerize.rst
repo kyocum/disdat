@@ -63,7 +63,7 @@ using the `--push` option to the ``dockerize`` command:
 
 	dsdt dockerize --push pipe_root pipe_cls
 
-Given a transform named `module.submodule.PipeClass`, ``dockerize`` will push
+Given a transform named ``module.submodule[.submodule].PipeClass``, ``dockerize`` will push
 an image named `disdat-module-submodule[-submodule]:latest` to ECR.
 
 To push images to Docker, the user needs to specify the registry prefix in
