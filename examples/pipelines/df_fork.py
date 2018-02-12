@@ -13,18 +13,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+
+from disdat.pipe import PipeTask
+import disdat.api as api
+from df_dup import DataMaker
+import luigi
+import pandas as pd
+
 """
 Fork Pipe
 
 Take an input DataFrame.  For each row, convert to a json string, and send to an upstream
 task specified by the string fork_task_str ('module.Class').
 
-author: Kenneth Yocum
-"""
+Pre Execution:
+$export PYTHONPATH=$DISDAT_HOME/disdat/examples/pipelines
+$dsdt context examples; dsdt switch examples
 
-from disdat.pipe import PipeTask
-import luigi
-import pandas as pd
+Execution:
+$python ./df_fork.py
+or:
+$dsdt apply - - df_fork.DFFork
+
+"""
 
 
 class DFFork(PipeTask):
@@ -38,7 +49,6 @@ class DFFork(PipeTask):
         A list of produced HyperFrames
 
     """
-    make_hyperframes = luigi.BoolParameter(default=False)
     fork_task_str = luigi.Parameter(default=None)
 
     def pipe_requires(self, pipeline_input=None):
@@ -54,6 +64,9 @@ class DFFork(PipeTask):
         if not isinstance(pipeline_input, pd.DataFrame):
             print "DFFork expects DataFrame input bundle."
             return
+
+        if pipeline_input is None:
+            self.add_dependency('example_data', DataMaker, {})
 
         if self.fork_task_str is None:
             print "DFFork requires upstream tasks to fork to.  Specify '--fork_task_str <module.Class>'"
@@ -83,17 +96,16 @@ class DFFork(PipeTask):
 
         # Note: There are two ways to propagate our outputs to our final output bundle
 
-        if self.make_hyperframes:
-            """ 1.) We can grab our upstream output hyperframes """
-            hfrs  = self.upstream_hframes()
-            return hfrs
-        else:
-            """ 2.) Or we can simply return our outputs """
-            data = []
-            for k, v in kwargs.iteritems():
-                if 'output_' in k:
-                    data.append(v)
 
-            print "DFFork: Returning data {}".format(data)
+        data = []
+        for k, v in kwargs.iteritems():
+            if 'output_' in k:
+                data.append(v)
 
-            return data
+        print "DFFork: Returning data {}".format(data)
+
+        return data
+
+
+if __name__ == "__main__":
+    api.apply('examples', '-', '-', 'DFFork', params={'fork_task_str':'df_dup.DFDup'})
