@@ -22,7 +22,7 @@ Some files are Luigi targets, some files are created directly in the bundle dire
 This examples shows the different ways one can create and return files in Disdat:
 The CreateFiles task creates files using:
 1.) self.create_output_file(<your path>)  This will put a file directly in the output file.
-2.) Or self.get_output_dir() This gives you a directly you can directly place files into.
+2.) Or self.get_output_dir() This gives you a directory you can directly place files into.
 Then you can return files by either:
 1.) Return the luigi.Target object that self.create_output_file() returned
 2.) Or return the directory returned by self.get_output_dir()
@@ -115,6 +115,7 @@ class ReadFiles(PipeTask):
         """ For each file, print out its name and contents.
         """
         max_len = 0
+        nfiles = 0
         for k, v in input_files.iteritems():
             for f in v:
                 with open(f,'r') as of:
@@ -122,8 +123,9 @@ class ReadFiles(PipeTask):
                     if len(s) > max_len:
                         max_len = len(s)
                     print "Reading file: {} length:{}".format(f, len(s))
+                    nfiles += 1
 
-        return {'num categories': [len(input_files)], 'num files': [len(input_files)], 'max string': [max_len]}
+        return {'num categories': [len(input_files)], 'num files': [nfiles], 'max string': [max_len]}
 
 
 if __name__ == "__main__":
