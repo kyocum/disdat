@@ -25,6 +25,10 @@ DF Duplicate Example
 Double the size of an input dataframe or dictionary by replicating its rows.
 Note, this pipeline has no upstream dependencies.
 
+This examples shows:
+1.) A simple single upstream dependency
+2.) How to return a dataframe in 'DataMaker' and how DFDup reads it.
+
 Pre Execution:
 $export PYTHONPATH=$DISDAT_HOME/disdat/examples/pipelines
 $dsdt context examples; dsdt switch examples

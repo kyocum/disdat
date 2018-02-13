@@ -19,6 +19,26 @@ Bundle Local FS Links Example
 First task creates N files and passes them to the second task.
 Some files are Luigi targets, some files are created directly in the bundle directory.
 
+This examples shows the different ways one can create and return files in Disdat:
+The CreateFiles task creates files using:
+1.) self.create_output_file(<your path>)  This will put a file directly in the output file.
+2.) Or self.get_output_dir() This gives you a directly you can directly place files into.
+Then you can return files by either:
+1.) Return the luigi.Target object that self.create_output_file() returned
+2.) Or return the directory returned by self.get_output_dir()
+3.) Or return a file that exists somewhere on your FS
+
+
+Pre Execution:
+$export PYTHONPATH=$DISDAT_HOME/disdat/examples/pipelines
+$dsdt context examples; dsdt switch examples
+
+Execution:
+$python ./files.py
+or:
+$dsdt apply - ReadFiles.example.output files.ReadFiles --num_luigi_files 5
+
+
 author: Kenneth Yocum
 """
 

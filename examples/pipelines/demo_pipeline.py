@@ -24,6 +24,10 @@ Demo Pipeline
 Simple pipeline of two stages.  First stage GenData creates an array.  Second stage
 Average reads array and returns an average.
 
+This examples shows:
+1.) A simple single upstream dependency
+2.) How to return an ndarray
+3.) Uses self.set_bundle_name(<name>) to declare the bundle name for the GenData task
 
 Pre Execution:
 $export PYTHONPATH=$DISDAT_HOME/disdat/examples/pipelines
