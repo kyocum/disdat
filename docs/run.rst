@@ -84,7 +84,7 @@ file in the ``[run]`` stanza:
 	instances (the "Compute resources: Instance role", which by default is
 	``ecsInstanceRole``) has S3 read/write access.
 
-Once the user jas configured Batch, they can queue jobs using the
+Once the user has configured Batch, they can queue jobs using the
 ``--backend AWSBatch`` option to the ``run`` command:
 
 ::
