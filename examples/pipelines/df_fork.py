@@ -32,7 +32,7 @@ This examples shows:
 3.) And how an argument may be a string indicating an upstream task: '__main__.PrintRow'
 4.) How you may use **kwargs to find the dynamic set of inputs
 
-Pre Execution:
+Pre Execution (here we run an extra pipeline to make our input data bundle "DataMaker"):
 $export PYTHONPATH=$DISDAT_HOME/disdat/examples/pipelines
 $dsdt context examples; dsdt switch examples
 $dsdt apply - DataMaker df_dup.DataMaker
@@ -52,7 +52,8 @@ class PrintRow(PipeTask):
     loc  = luigi.IntParameter(default=0)
 
     def pipe_run(self, pipeline_input=None):
-        print "PrintRow[{}]: {}".format(self.iloc, pipeline_input.iloc(self.iloc))
+        print "PrintRow[{}]:".format(self.iloc)
+        print "{}".format(pipeline_input.iloc[self.iloc])
         return True
 
 

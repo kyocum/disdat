@@ -35,6 +35,7 @@ This example shows how you can save TensorFlow outputs into bundles.
 
 Pre Execution:
 $export PYTHONPATH=$DISDAT_HOME/disdat/examples/pipelines
+$cd ${DISDAT_HOME}/examples; pip install -e .
 $dsdt context examples; dsdt switch examples
 
 Execution:
