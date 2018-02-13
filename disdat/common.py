@@ -141,10 +141,11 @@ class DisdatConfig(object):
         """
 
         _logger.debug("Loading config file [{}]".format(disdat_config_file))
-        config = ConfigParser.SafeConfigParser({'meta_dir_root': self.meta_dir_root})
+        config = ConfigParser.SafeConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
         config.read(disdat_config_file)
         self.meta_dir_root = os.path.expanduser(config.get('core', 'meta_dir_root'))
         self.meta_dir_root = DisdatConfig._fix_relative_path(disdat_config_file, self.meta_dir_root)
+        self.ignore_code_version = config.getboolean('core', 'ignore_code_version')
 
         try:
             self.logging_config = os.path.expanduser(config.get('core', 'logging_conf_file'))
