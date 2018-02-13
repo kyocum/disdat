@@ -13,15 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""
-MNIST
-
-This is a direct adaptation of https://www.tensorflow.org/get_started/mnist/pros
-
-It also takes code from
-https://github.com/tensorflow/tensorflow/blob/r1.4/tensorflow/examples/how_tos/reading_data/convert_to_records.py
-
-"""
 
 from disdat.pipe import PipeTask
 import disdat.api as api
@@ -31,6 +22,29 @@ from tensorflow.contrib.learn.python.learn.datasets import base
 from tensorflow.python.framework import dtypes
 from tensorflow.python.platform import gfile
 import os
+
+"""
+MNIST
+
+This is a direct adaptation of https://www.tensorflow.org/get_started/mnist/pros
+
+It also takes code from
+https://github.com/tensorflow/tensorflow/blob/r1.4/tensorflow/examples/how_tos/reading_data/convert_to_records.py
+
+This example shows how you can save TensorFlow outputs into bundles.
+
+Pre Execution:
+$export PYTHONPATH=$DISDAT_HOME/disdat/examples/pipelines
+$cd ${DISDAT_HOME}/examples; pip install -e .
+$dsdt context examples; dsdt switch examples
+
+Execution:
+$python ./mnist.py
+or:
+$dsdt apply - - mnist.Evaluate
+
+"""
+
 
 # CVDF mirror of http://yann.lecun.com/exdb/mnist/
 DEFAULT_SOURCE_URL = 'https://storage.googleapis.com/cvdf-datasets/mnist/'

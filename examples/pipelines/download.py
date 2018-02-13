@@ -1,23 +1,47 @@
+#
+# Copyright 2017 Human Longevity, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+from __future__ import print_function
+
+import disdat.pipe as pipe
+import disdat.utility.aws_s3 as s3
+import disdat.api as api
+import logging
+import luigi
+import os
+import shutil
+from urlparse import urlparse
+
 """
 Pipe for downloading data to a local file from a source blob URL. Uses boto3
 to access s3 instead of calling out to shell commands.
+
+Pre Execution:
+$export PYTHONPATH=$DISDAT_HOME/disdat/examples/pipelines
+$dsdt context examples; dsdt switch examples
+
+$python download.py
+or:
+$dsdt apply - Download.example.output download.Download --input_url ./download.py
 
 @author: twong / kyocum
 @copyright: Human Longevity, Inc. 2017
 @license: Apache 2.0
 """
 
-
-from __future__ import print_function
-
-import disdat.pipe as pipe
-import disdat.utility.aws_s3 as s3
-import logging
-import luigi
-import os
-import shutil
-
-from urlparse import urlparse
 
 _logger = logging.getLogger(__name__)
 _logger.debug(logging.DEBUG)
@@ -85,3 +109,7 @@ class Download(pipe.PipeTask):
         target = self.create_output_file(os.path.basename(source_url))
         Download._download_blob(target, source_url)
         return {self.OUTPUT_FILE_KEY: [target.path]}
+
+
+if __name__ == "__main__":
+    api.apply('examples', '-', 'Download.example.output', 'Download', params={'input_url': './download.py'})
