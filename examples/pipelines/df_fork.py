@@ -26,16 +26,34 @@ Fork Pipe
 Take an input DataFrame.  For each row, convert to a json string, and send to an upstream
 task specified by the string fork_task_str ('module.Class').
 
+This examples shows:
+1.) How the input bundle shows up automatically as the parameter "pipeline_input" in upstream tasks.
+2.) How you can pass arguments when calling apply
+3.) And how an argument may be a string indicating an upstream task: '__main__.PrintRow'
+4.) How you may use **kwargs to find the dynamic set of inputs
+
 Pre Execution:
 $export PYTHONPATH=$DISDAT_HOME/disdat/examples/pipelines
 $dsdt context examples; dsdt switch examples
+$dsdt apply - DataMaker df_dup.DataMaker
 
 Execution:
 $python ./df_fork.py
 or:
-$dsdt apply - - df_fork.DFFork
+$dsdt apply DataMaker - df_fork.DFFork --fork_task df_fork.PrintRow
 
 """
+
+
+class PrintRow(PipeTask):
+    """ Given an iloc, pretty print row in dataframe """
+
+    iloc = luigi.IntParameter(default=0)
+    loc  = luigi.IntParameter(default=0)
+
+    def pipe_run(self, pipeline_input=None):
+        print "PrintRow[{}]: {}".format(self.iloc, pipeline_input.iloc(self.iloc))
+        return True
 
 
 class DFFork(PipeTask):
@@ -49,10 +67,14 @@ class DFFork(PipeTask):
         A list of produced HyperFrames
 
     """
-    fork_task_str = luigi.Parameter(default=None)
+    fork_task = luigi.Parameter(default=None)
 
     def pipe_requires(self, pipeline_input=None):
         """ For each row in the dataframe, create an upstream task with the row
+
+        Here we simply hand an index to each upstream, and they pull it out of
+        the input dataframe present in 'pipeline_input'.   The input bundle gets handed
+        to all the tasks in the workflow automatically.
 
         Args:
             pipeline_input: Input bundle data
@@ -66,24 +88,26 @@ class DFFork(PipeTask):
             return
 
         if pipeline_input is None:
-            self.add_dependency('example_data', DataMaker, {})
+            print "DFFork requires an input bundle"
+            return
 
-        if self.fork_task_str is None:
-            print "DFFork requires upstream tasks to fork to.  Specify '--fork_task_str <module.Class>'"
+        if self.fork_task is None:
+            print "DFFork requires upstream tasks to fork to.  Specify '--fork_task <module.Class>'"
             return
 
         for i in range(0, len(pipeline_input.index)):
-            json_row = pipeline_input[i:i + 1].to_json(orient='records')
-            row_index = pipeline_input.index[i]
-            self.add_dependency("output_{}".format(row_index),  self.fork_task_str,
-                                {'input_row': json_row, 'input_idx': row_index})
+            iloc   = i
+            loc = pipeline_input.index[i]
+            self.add_dependency("task_{}".format(iloc), self.fork_task,
+                                {'iloc': iloc, 'loc': loc})
 
         return
 
     def pipe_run(self, pipeline_input=None, **kwargs):
         """ Given a dataframe, split each row into the fork_task_str task class.
 
-        Return a bundle of each tasks bundle.
+        The body of DFFork simply prints out the return value of the upstream
+        tasks.
 
         Args:
             pipeline_input: Input bundle data
@@ -94,18 +118,10 @@ class DFFork(PipeTask):
 
         """
 
-        # Note: There are two ways to propagate our outputs to our final output bundle
-
-
-        data = []
         for k, v in kwargs.iteritems():
-            if 'output_' in k:
-                data.append(v)
-
-        print "DFFork: Returning data {}".format(data)
-
-        return data
+            if 'task_' in k:
+                print "DFFork finished[{}] with output[{}]".format(k, v)
 
 
 if __name__ == "__main__":
-    api.apply('examples', '-', '-', 'DFFork', params={'fork_task_str':'df_dup.DFDup'})
+    api.apply('examples', 'DataMaker', '-', 'DFFork', params={'fork_task': '__main__.PrintRow'})
