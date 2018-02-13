@@ -29,14 +29,14 @@ Users execute transforms in Docker containers using the ``run`` command:
 ``input_bundle`` specifies the name of the bundle in the current context to
 send to the transform as input.  ``run`` will push the input bundle to
 the remote before executing the transform; the user must first commit the bundle
-with the ``commit`` command if it is not already committed. 
+with the ``commit`` command if it is not already committed.
 
 ``output_bundle`` specifies the name of the bundle in the current context to
 receive from the transform as output. ``run`` will push the output bundle from
 inside the Docker container of the transform to the remote, and then pull the
 bundle back to the local context. If the bundle does not already exist, ``run``
 will create a new bundle, otherwise it will create a new version of the existing
-bundle. 
+bundle.
 
 ``pipe_class`` specifies the fully-qualified class name of the transform. The
 module and class name of the transform should follow standard Python naming
@@ -47,7 +47,7 @@ be defined as `class PipeClass` in the file `module/submodule.py` under
 ``--backend`` specifies the execution backend for the Docker containers.
 
 - ``Local`` launches containers on a local Docker server.
-- ``AWSBatch`` queues launch requests at an AWS Batch queue. 
+- ``AWSBatch`` queues launch requests at an AWS Batch queue.
 
 ``--no-push-input`` instructs ``run`` not to push the input bundle to the
 remote. The user should ensure that the remote copy of the bundle contains
