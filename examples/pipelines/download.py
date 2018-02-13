@@ -49,7 +49,7 @@ _logger.debug(logging.DEBUG)
 
 class Download(pipe.PipeTask):
     """Download data to a local file from a source blob URL. Disdat copies
-    files referenced in bundles by file: URLs, so this pipe symlinks sources
+    files referenced in bundles by file: URLs, so this pipe symlinks source
     files instead of copying them, on the assumption that the source, having
     already been copied by Disdat into managed storage, will not be
     capriciously deleted out from under the link.
@@ -79,7 +79,7 @@ class Download(pipe.PipeTask):
 
         Args:
             target (`Luigi.Target`): A Luigi Target object
-            source_url (str): Source data URL, accepts file:/// and s3://
+            source_url (str): Source data URL, accepts file:// and s3://
 
         Returns:
             None
