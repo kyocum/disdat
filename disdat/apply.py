@@ -234,8 +234,12 @@ def different_code_versions(code_version, lineage_obj):
 
     """
 
+    conf = common.DisdatConfig.instance()
+
     # If there were uncommitted changes, then we have to re-run, mark as different
     if code_version.dirty:
+        if conf.ignore_code_version:
+            return False
         return True
 
     if code_version.semver != lineage_obj.pb.code_semver:
