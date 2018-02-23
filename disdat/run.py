@@ -292,7 +292,7 @@ def _run(input_bundle, output_bundle, pipeline_params, pipeline_class_name,
         if push_input_bundle:
             result = pfs.push(human_name=input_bundle)
             if result is None:
-                _logger.error("'run' failed trying to push input bundle {} to remote.".format(input_bundle))
+                _logger.error("'run' failed trying to push input bundle {} to remote (bundle not committed?).".format(input_bundle))
                 return
         # Now try to run the container
         try:
