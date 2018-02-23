@@ -37,6 +37,8 @@ Options:
     -h : Get help
     -d : Set debug mode (echoes commands)
     -a : Use Miniconda with Intel MKL instead of pip install
+    -b : Build binaries for non-pure-Python dependencies from source (i.e.,
+         do not use manylinux wheels)
     -c CONDA_VERSION : Specify the Miniconda version (default $CONDA_VERSION_DEFAULT);
          set to '' to use the most recent version
     -m CONDA_ROOT : Specify the Miniconda installation root
@@ -53,14 +55,17 @@ contains the requirements file.
 EOF
 }
 
-while getopts "hdac:fm:nv" opt; do
+while getopts "hdabc:fm:nv" opt; do
 	case "$opt" in
 	h)	usage
 		exit 0
 		;;
 	d)	set -x
+		debug=yes
 		;;
 	a)	use_conda=yes
+		;;
+	b)	no_manylinux=yes
 		;;
 	c)	conda_version=$OPTARG
 		;;
@@ -140,7 +145,9 @@ if [ \( x$use_conda != 'x' -o -x $virtual_env/bin/conda \) -a x$force_pip == 'x'
 	# and remove the temp file.
 	non_conda_requirements=$(mktemp)
 	function atexit_deactivate {
-		rm -f $non_conda_requirements
+		if [ x$debug == 'x' ]; then
+			rm -f $non_conda_requirements
+		fi
 		source deactivate
 	}
 	trap atexit_deactivate EXIT
@@ -149,8 +156,10 @@ if [ \( x$use_conda != 'x' -o -x $virtual_env/bin/conda \) -a x$force_pip == 'x'
 	# mock is required by select_conda_packages.py
 	run pip install --quiet mock
 
-	# Prevent pip from installing generic 'manylinux' wheels.
-	run cp -p $SH_DIR/../etc/_manylinux.py $virtual_env/lib/python2.7/site-packages
+	if [ x$no_manylinux != 'x' ]; then
+		# Prevent pip from installing generic 'manylinux' wheels.
+		run cp -p $SH_DIR/../etc/_manylinux.py $virtual_env/lib/python2.7/site-packages
+	fi
 
 	# Install whatever Continuum provides
 	conda_packages=$($SH_DIR/select_conda_packages.py $requirements 2> $non_conda_requirements)
@@ -190,7 +199,7 @@ else
 		exit 1
 	fi
 
-	VIRTUALENV_VERSION=13.1.2
+	VIRTUALENV_VERSION=15.0.1
 	if [ $(virtualenv --version) != $VIRTUALENV_VERSION ]; then
 		warning "Expected virtualenv $VIRTUALENV_VERSION, got $(virtualenv --version)"
 	fi
@@ -214,7 +223,9 @@ else
 	old_cwd=$PWD
 	requirements_from_setup=$(mktemp)
 	function atexit_deactivate {
-		rm -f $requirements_from_setup
+		if [ x$debug == 'x' ]; then
+			rm -f $requirements_from_setup
+		fi
 		cd $old_cwd
 		deactivate
 	}
@@ -224,8 +235,10 @@ else
 	# mock is required by find_packages_from_setup.py
 	run pip install --quiet mock
 
-	# Prevent pip from installing generic 'manylinux' wheels.
-	run cp -p $SH_DIR/../etc/_manylinux.py $virtual_env/lib/python2.7/site-packages
+	if [ x$no_manylinux != 'x' ]; then
+		# Prevent pip from installing generic 'manylinux' wheels.
+		run cp -p $SH_DIR/../etc/_manylinux.py $virtual_env/lib/python2.7/site-packages
+	fi
 
 	# The authors of SciPy feel that dependency checking is (a) for the
 	# weak, or (b) for anyone that actually wants to get work done instead

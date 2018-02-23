@@ -17,7 +17,6 @@
 from disdat.pipe import PipeTask
 import disdat.api as api
 import pandas as pd
-import luigi
 
 """
 DF Duplicate Example
@@ -43,13 +42,11 @@ $dsdt apply - - df_dup.DFDup
 
 class DataMaker(PipeTask):
     def pipe_run(self, pipeline_input=None):
-        data = pd.DataFrame({'heart_rate': [60,70,100,55], 'age':[30,44,18,77]})
+        data = pd.DataFrame({'heart_rate': [60, 70, 100, 55], 'age': [30, 44, 18, 77]})
         return data
 
 
 class DFDup(PipeTask):
-    stop = luigi.BoolParameter(default=False)
-
     def pipe_requires(self, pipeline_input=None):
         if pipeline_input is None:
             self.add_dependency('example_data', DataMaker, {})

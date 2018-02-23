@@ -244,7 +244,9 @@ def _run(input_bundle, output_bundle, pipeline_params, pipeline_class_name,
         # If the job definition does not exist, create it.
         job_definition = aws.batch_get_job_definition(job_definition_name)
         if job_definition is None:
-            repository_prefix = disdat_config.parser.get('docker', 'repository_prefix')
+            repository_prefix = None
+            if disdat_config.parser.has_option('docker', 'repository_prefix'):
+                repository_prefix = disdat_config.parser.get('docker', 'repository_prefix')
             repository_name = common.make_pipeline_repository_name(repository_prefix, pipeline_class_name)
             # Figure out the fully-qualified repository name, i.e., the name
             # including the registry.
@@ -262,9 +264,11 @@ def _run(input_bundle, output_bundle, pipeline_params, pipeline_class_name,
                                               input_tags, output_tags, pipeline_params)
         container_overrides = {'command': job_command}
 
-        # Through the magic boto3_session_cache, we get clients to interact
-        # with AWS services and (if necessary) temporary tokens if using
-        # AWS profiles/MFA tokens.
+        # Through the magic of boto3_session_cache, the client in our script
+        # here can get at AWS profiles and temporary AWS tokens created in
+        # part from MFA tokens generated through the user's shells; we don't
+        # have to write special code of our own to deal with authenticating
+        # with AWS.
         client = b3.client('batch', region_name=aws.profile_get_region())
         job = client.submit_job(jobName=job_name, jobDefinition=job_definition, jobQueue=job_queue,
                                 containerOverrides=container_overrides)
@@ -334,7 +338,6 @@ def main(disdat_config, args):
     print "backend type {} arg {}".format(type(backend), backend)
 
     input_tags = common.parse_args_tags(args.input_tag)
-
     output_tags = common.parse_args_tags(args.output_tag)
 
     task_args = [args.input_bundle,

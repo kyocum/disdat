@@ -92,7 +92,9 @@ def dockerize(disdat_config, pipeline_root, pipeline_class_name, config_dir=None
 
     if push:
         docker_client = docker.from_env()
-        repository_name_prefix = disdat_config.parser.get('docker', 'repository_prefix')
+        repository_name_prefix = None
+        if disdat_config.parser.has_option('docker', 'repository_prefix'):
+            repository_name_prefix = disdat_config.parser.get('docker', 'repository_prefix')
         repository_name = disdat.common.make_pipeline_repository_name(repository_name_prefix, pipeline_class_name)
         # Figure out the fully-qualified repository name, i.e., the name
         # including the registry.

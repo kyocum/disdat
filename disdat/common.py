@@ -247,17 +247,27 @@ def get_run_command_parameters(pfs):
     return output_bundle_uuid, remote, local_ctxt
 
 
-def make_run_command(input_bundle, output_bundle, output_bundle_uuid, remote, local_ctxt, input_tags,
-                     output_tags, pipeline_params):
-    return [x.strip() for x in [
+def make_run_command(
+        input_bundle,
+        output_bundle,
+        output_bundle_uuid,
+        remote,
+        local_ctxt,
+        input_tags,
+        output_tags,
+        pipeline_params,
+):
+    args = [
         '--output-bundle-uuid ', output_bundle_uuid,
         '--remote', remote,
         '--branch', local_ctxt,
-        '--input-tags', "'" + json.dumps(dict(input_tags)) + "'",
-        '--output-tags', "'" + json.dumps(dict(output_tags)) + "'",
-        input_bundle,
-        output_bundle,
-    ] + pipeline_params]
+    ]
+    if len(input_tags) > 0:
+        args += ['--input-tags', "'" + json.dumps(dict(input_tags)) + "'"]
+    if len(output_tags) > 0:
+        args += ['--output-tags', "'" + json.dumps(dict(output_tags)) + "'"]
+    args += [input_bundle, output_bundle]
+    return [x.strip() for x in args + pipeline_params]
 
 
 def parse_args_tags(args_tag):

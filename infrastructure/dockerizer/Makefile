@@ -67,10 +67,12 @@ DOCKER_REGISTRY_IS_ECR ?=
 # Kickstart script installation
 IMAGE_KICKSTART_ROOT ?= /opt/kickstart
 
-# Permanent directories for the Anaconda bootstrap installation and the
-# Disdat Python virtual environment
-IMAGE_CONDA_VERSION ?= 4.0.9
+# Directory for the Disdat Python virtual environment. By default, we
+# install whatever packages show up when using pip. If the user wants
+# Miniconda, they should set IMAGE_CONDA_VERSION in a custom CONFIG_MK
+# file.
 IMAGE_VIRTUAL_ENV ?= /opt/python-virtualenv
+IMAGE_CONDA_VERSION ?= NO_CONDA
 
 # Temporary build directory for holding various things copied in from the
 # build context
