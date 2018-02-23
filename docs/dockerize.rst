@@ -4,7 +4,7 @@
 Disdat provides a ``dockerize`` command for creating self-contained Docker
 images of user-defined transforms. An image includes:
 
-- A base operating system installation (e.g., Ubuntu 16.04)
+- A base operating system installation (e.g., Python 2.7.14 over Ubuntu, or Ubuntu 16.04)
 - A full Disdat Python environment
 - Optional user-selected O/S-specific binary packages (e.g., `.deb` packages) and `pip`-managed Python packages
 - The user-defined transform
@@ -41,10 +41,10 @@ be defined as `class PipeClass` in the file `module/submodule.py` under
 `pipe_root`.
 
 `--os-type` specifies the base operating system to install. If not specified,
-``dockerize`` defaults to Ubuntu (which is the only O/S it currently supports).
+``dockerize`` defaults to a Python installation over Ubuntu.
 
 `--os-version` specifies the base O/S version to install. If not specified,
-``dockerize`` defaults to 16.04.
+``dockerize`` defaults to Python 2.7.14-slim.
 
 Given a transform named `module.submodule.PipeClass`, ``dockerize`` will create
 an image named `disdat-module-submodule[-submodule]`.

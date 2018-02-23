@@ -23,6 +23,7 @@ Users execute transforms in Docker containers using the ``run`` command:
 ::
 
 	dsdt run [-h] [--backend {Local,AWSBatch}] [--force] [--no-push-input]
+	         [--use-aws-session-token AWS_SESSION_TOKEN_DURATION]
              [-it INPUT_TAG] [-ot OUTPUT_TAG]
              input_bundle output_bundle pipe_cls ...
 
@@ -53,6 +54,10 @@ be defined as `class PipeClass` in the file `module/submodule.py` under
 remote. The user should ensure that the remote copy of the bundle contains
 the correct version of the input to use.
 
+``--use-aws-session-token AWS_SESSION_TOKEN_DURATION`` creates and uses
+temporary AWS credentials within a container running on AWS Batch to obtain
+read/write access to S3 from within the container.
+
 To push and pull bundles to and from a remote, the user needs to have
 appropriate AWS credentials to access the S3 bucket holding the remote. We
 assume that the user has first followed the instructions in the AWS
@@ -82,7 +87,9 @@ file in the ``[run]`` stanza:
 	write access to the S3 bucket holding the remote. The easiest way to
 	accomplish this is the ensure that the AWS IAM role that owns the EC2
 	instances (the "Compute resources: Instance role", which by default is
-	``ecsInstanceRole``) has S3 read/write access.
+	``ecsInstanceRole``) has S3 read/write access. Alternatively, the user
+	can use the ``--use-aws-session-token`` to create and use temporary
+	AWS credentials within the container to obtain read/write access to S3.
 
 Once the user has configured Batch, they can queue jobs using the
 ``--backend AWSBatch`` option to the ``run`` command:
