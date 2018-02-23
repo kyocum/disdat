@@ -14,16 +14,19 @@
 # limitations under the License.
 #
 
-import disdat.common
-import disdat.resources
-import disdat.utility.aws_s3 as aws
-import docker
-import infrastructure.dockerizer
+# Built-in imports
 import inspect
 import logging
 import os
 import subprocess
 import tempfile
+
+# Third-party imports
+import disdat.common
+import disdat.resources
+import disdat.utility.aws_s3 as aws
+import docker
+import infrastructure.dockerizer
 
 _MODULE_NAME = inspect.getmodulename(__file__)
 
@@ -119,6 +122,47 @@ def dockerize(disdat_config, pipeline_root, pipeline_class_name, config_dir=None
                 raise RuntimeError(line)
             else:
                 print line
+
+
+def add_arg_parser(parsers):
+    dockerize_p = parsers.add_parser('dockerize', description="Dockerizer a particular transform.")
+    dockerize_p.add_argument(
+        '--config-dir',
+        type=str,
+        default=None,
+        help="A directory containing configuration files for the operating system within the Docker image",
+    )
+    dockerize_p.add_argument(
+        '--os-type',
+        type=str,
+        default=None,
+        help='The base operating system type for the Docker image',
+    )
+    dockerize_p.add_argument(
+        '--os-version',
+        type=str,
+        default=None,
+        help='The base operating system version for the Docker image',
+    )
+    dockerize_p.add_argument(
+        '--push',
+        action='store_true',
+        help="Push the image to a remote Docker registry (default is to not push; must set 'docker_registry' in Disdat config)",
+    )
+    dockerize_p.add_argument(
+        '--no-build',
+        action='store_false',
+        help='Do not build an image (only copy files into the Docker build context)',
+        dest='build',
+    )
+    dockerize_p.add_argument(
+        "pipe_root",
+        type=str,
+        help="Root of the Python source tree containing the user-defined transform; must have a setuptools-style setup.py file"
+    )
+    dockerize_p.add_argument("pipe_cls", type=str, help="User-defined transform, e.g., module.PipeClass")
+    dockerize_p.set_defaults(func=lambda args: main(disdat.common.DisdatConfig.instance(), args))
+    return parsers
 
 
 def main(disdat_config, args):
