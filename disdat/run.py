@@ -38,14 +38,11 @@ author: Kenneth Yocum
 """
 
 from disdat.pipe_base import PipeBase
-import disdat.constants as constants
-from disdat.hyperframe import FrameRecord
-import disdat.hyperframe_pb2 as hyperframe_pb2
 import disdat.fs as fs
 import disdat.common as common
 import disdat.utility.aws_s3 as aws
 import luigi
-from luigi import retcodes, build
+from luigi import build
 import boto3_session_cache as b3
 import docker
 import inspect

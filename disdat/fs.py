@@ -252,6 +252,19 @@ class DisdatFS(object):
         """
         return self._curr_context and self._curr_context.is_valid()
 
+    def commit_db_links(self, hfr):
+        """
+        Commit the db_links in this bundle
+
+        Args:
+            hfr:
+
+        Returns:
+            None
+
+        """
+        self._curr_context.commit_db_links(hfr)
+
     def atomic_update_hframe(self, hfr):
         """Update an existing HFR on disk and in the database.
 
@@ -778,15 +791,9 @@ class DisdatFS(object):
 
     def commit(self, bundle_name, input_tags):
         """   Commit indicates that this is a primary version of this bundle.
-        Everything else up to this point could be deleted (including prior committed versions? No).
-        And we could, like git, batch up all the commits when we do a push.
 
-        Note:  We used to have a third 'force_uuid' optional parameter.  However, commit no longer
-        creates new bundles, and this no longer applies.
-
-        Note: Commit in place.  Do not make a new bundle.  Re-use existing bundle and add the commit tag.  Thus this
-        will not use the commit_hf_uuid.  Because we don't make a new bundle, we don't use a pipe task here.  If we
-        need to, then we can find the hyperframe and put it in the PCE for the task to find.
+        Commit in place.  Re-use existing bundle and add the commit tag.
+        Database links are special.  Commits materialize special views of the physical table.
 
         Args:
             bundle_name (str): the name of the bundle to commit
@@ -815,13 +822,16 @@ class DisdatFS(object):
 
         tags = {'committed': 'True'}
 
-        # Commit first in memory:
+        # Commit in memory:
         existing_tags = hfr.get_tags()
         existing_tags.update(tags)
         hfr.replace_tags(existing_tags)
 
         # Commit to disk:
         self.atomic_update_hframe(hfr)
+
+        # Address an commit issues with links in bundle:
+        self.commit_db_links(hfr)
 
     def _get_all_link_frames(self, outer_hfr, local_fs_frames=False, s3_frames=False, db_frames=False):
         """
