@@ -353,8 +353,28 @@ class PipeTask(luigi.Task, PipeBase):
         """
 
         def rm_bundle_dir():
+            """
+            We created a directory (managed path) to hold the bundle and any files.   The files have been
+            copied in.   Removing the directory removes any created files.  However we also need to
+            clean up any temporary tables as well.
+
+            TODO: Integrate with data_context bundle remove.   That deals with information already
+            stored in the local DB.
+
+            ASSUMES:  That we haven't actually updated the local DB with information on this bundle.
+
+            Returns:
+                None
+            """
             try:
                 shutil.rmtree(pce.path)
+
+                # if people create s3 files, s3 file targets, insdie of an s3 context,
+                # then we will have to clean those up as well.
+
+                for t in self.db_targets:
+                    t.drop_table()
+
             except IOError as why:
                 _logger.error("Removal of hyperframe directory {} failed with error {}. Continuing removal...".format(
                     pce.uuid, why))

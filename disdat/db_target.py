@@ -26,10 +26,7 @@ _logger = logging.getLogger(__name__)
 #
 
 ENABLE_DISDAT_SCHEMAS = False
-
-#
-# Simple pyodbc connections
-#
+UUID_PREFIX = 8 # number of chars to use as uuid prefix in phys_name
 
 
 @contextlib.contextmanager
@@ -318,7 +315,7 @@ class DBTarget(Target):
                                                       self.disdat_prefix,
                                                       self.context.get_local_name(),
                                                       self.table_name,
-                                                      self.uuid[:8])
+                                                      self.uuid[:UUID_PREFIX])
 
         """ The fully qualified physical name is the text representation of the link stored in the bundle """
         self.phys_name_url = self.url()
@@ -348,19 +345,53 @@ class DBTarget(Target):
         except Exception as e:
             raise Exception("DBTarget:commit failed: {}".format(e))
 
-    def rm(self):
+    def rm(self, drop_view=False):
         """
         Remove a database table link.  There may or may not be a view.  Remove both.
+
+        TODO: We should see if the view refers to this physical table instead of using 'drop_view'
+
+        Args:
+            drop_view (bool): If true, drop the view as well as the phys table
 
         Returns:
             None
 
         """
         try:
-            drop_view_vertica(self.dsn, self.virt_name)
+            if drop_view:
+                drop_view_vertica(self.dsn, self.virt_name)
             drop_table_vertica(self.dsn, self.phys_name)
         except Exception as e:
             raise Exception("DBTarget:rm failed: {}".format(e))
+
+    def is_latest_committed(self):
+        """
+        Check to see if there is a view for this virtual table
+        that uses this physical table as its basis.  If yes, then
+        this is the latest committed version on the db.
+
+        Returns:
+            bool
+        """
+
+        schema, table_name = self.virt_name.split('.')
+
+        query = """
+        SELECT view_definition FROM views
+        WHERE table_name ilike '{}'
+        AND table_schema ilike '{}'
+        AND view_definition ilike '%{}%';
+        """.format(table_name, schema, self.uuid[:UUID_PREFIX])
+
+        try:
+            result = raw_query(self.dsn, query)
+            if len(result) > 0:
+                return True
+            else:
+                return False
+        except Exception as e:
+            raise Exception("DBTarget:is_latest_committed failed: {}".format(e))
 
     def url(self, remove_context=False):
         """

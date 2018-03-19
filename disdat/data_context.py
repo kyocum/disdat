@@ -555,7 +555,7 @@ class DataContext(object):
 
         return dir, _provided_uuid, remote_dir
 
-    def rm_hframe(self, hfr_uuid):
+    def rm_hframe(self, hfr_uuid, force=False):
         """
         Given a hfr_uuid, remove the hyperframe from the context.
         This is a destructive operation.  After this the hframe and all of its data
@@ -570,28 +570,33 @@ class DataContext(object):
 
         Args:
             hfr_uuid (str):
+            force (bool): remove even if there are db links backing views
 
         Returns:
-            success (bool): Whether or not we
+            success (bool): Whether or not we deleted the bundle
 
         """
-
-        hyperframe.update_hfr_db(self.local_engine, hyperframe.RecordState.deleted, uuid=hfr_uuid)
-
         try:
-
             hfr = self.get_hframes(uuid=hfr_uuid)
             assert hfr is not None
             assert len(hfr) == 1
 
-            self.rm_db_links(hfr[0])
+            # First, test whether any db links are used to back the current view
+            no_force_required = self.rm_db_links(hfr[0])
 
-            shutil.rmtree(self.implicit_hframe_path(hfr_uuid))
-
+            if no_force_required or force:
+                hyperframe.update_hfr_db(self.local_engine, hyperframe.RecordState.deleted, uuid=hfr_uuid)
+                self.rm_db_links(hfr[0], dry_run=False)
+                shutil.rmtree(self.implicit_hframe_path(hfr_uuid))
+                hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid)
+            else:
+                print ("Disdat: Looks like you're trying to remove a committed bundle with a db link backing a view.")
+                print ("Disdat: Removal of this bundle with db links that back a view requires '--force'")
+                return False
+            return True
         except (IOError, os.error) as why:
-            _logger.error("Removal of hyperframe directory {} failed with error {}. Continuing removal...".format(self.implicit_hframe_path(hfr_uuid), why))
-
-        hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid)
+            _logger.error("Removal of hyperframe directory {} failed with error {}.".format(self.implicit_hframe_path(hfr_uuid), why))
+            return False
 
     def get_hframes(self, human_name=None, processing_name=None, uuid=None, tags=None, state=None, groupby=False):
         """
@@ -686,7 +691,7 @@ class DataContext(object):
 
         return None
 
-    def rm_db_links(self, hfr):
+    def rm_db_links(self, hfr, dry_run=True):
         """
         For all the db link frames, delete the tables in the database.
 
@@ -713,25 +718,48 @@ class DataContext(object):
 
         Args:
             hfr:
+            dry_run (bool): If True, then we are just testing whether all db links can be safely removed.  If False,
+            then remove the tables on the db no matter if they back the view or not.
 
         Returns:
+            bool: If True, we can safely remove all links, if False, at least one table is supporting a view.
 
         """
         commit_tag = hfr.get_tag('committed')
 
-        if commit_tag is not None and commit_tag == 'True':
-            # Go read the db for the latest commit tag
-            return
+        # For each of the tables in the bundle we have to
+        # check the database to see if this table is backing
+        # the current view.  If it is supporting the current view
+        # then there may be another copy of the committed bundle in the universe.
+        # And we don't delete it.
+        # If this committed version is not the version supporting the current
+        # view, then we can safely delete it.
 
-        # Remove all the physical tables
         for fr in hfr.get_frames(self):
             if fr.is_db_link_frame():
                 for dbt_pb in fr.pb.links:
                     dbt = DBTarget(None, dbt_pb.database.dsn, dbt_pb.database.table,
                                    dbt_pb.database.schema, dbt_pb.database.servername,
                                    dbt_pb.database.database, self, hfr.pb.uuid)
-                    dbt.rm()
-
+                    if commit_tag is not None and commit_tag == 'True':
+                        if not dbt.is_latest_committed():
+                            if dry_run:
+                                pass
+                            else:
+                                dbt.rm(drop_view=True)
+                        else:
+                            if dry_run:
+                                print ("Data Context: Attempting to remove a committed bundle, but we found")
+                                print ("            : that table {} is backing the current view {}.".format(dbt.phys_name, dbt.virt_name))
+                                return False
+                            else:
+                                dbt.rm(drop_view=True)
+                    else:
+                        if dry_run:
+                            pass
+                        else:
+                            dbt.rm()
+        return True
 
     def commit_db_links(self, hfr):
         """

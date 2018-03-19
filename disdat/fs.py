@@ -351,7 +351,7 @@ class DisdatFS(object):
 
         DisdatFS.put_path_cache(pipe, uuid, dir, True, is_left_edge_task)
 
-    def rm(self, human_name=None, rm_all=False, rm_old_only=False, tags=None):
+    def rm(self, human_name=None, rm_all=False, rm_old_only=False, tags=None, force=False):
         """
         Remove bundle with human_name or tag_value
 
@@ -364,6 +364,7 @@ class DisdatFS(object):
             rm_all:      Remove all the bundles matching name, tags.
             rm_old_only: Remove everything but the latest bundle matching name, tags
             tags (:dict):   A dict of (key,value) to find bundles
+            force (bool): If a committed bundle has a db link backing a view, you have to force removal.
 
         Returns:
             results (list:str):  List of strings of removed bundles
@@ -384,12 +385,12 @@ class DisdatFS(object):
 
             if rm_old_only or rm_all:
                 for hfr in hfrs[1:]:
-                    self._curr_context.rm_hframe(hfr.pb.uuid)
-                    return_strings.append("Removing old bundle {}".format(hfr.to_string()))
+                    if self._curr_context.rm_hframe(hfr.pb.uuid, force=force):
+                        return_strings.append("Removing old bundle {}".format(hfr.to_string()))
 
             if not rm_old_only:
-                self._curr_context.rm_hframe(hfrs[0].pb.uuid)
-                return_strings.append("Removing latest bundle {}".format(hfrs[0].to_string()))
+                if self._curr_context.rm_hframe(hfrs[0].pb.uuid, force=force):
+                    return_strings.append("Removing latest bundle {}".format(hfrs[0].to_string()))
 
             return return_strings
 
@@ -1436,7 +1437,7 @@ def _pull(fs, args):
 
 
 def _rm(fs, args):
-    for f in fs.rm(args.bundle, rm_all=args.all, tags=common.parse_args_tags(args.tag)):
+    for f in fs.rm(args.bundle, rm_all=args.all, tags=common.parse_args_tags(args.tag), force=args.force):
         print f
 
 
@@ -1480,7 +1481,7 @@ def init_fs_cl(subparsers):
 
     # context
     checkout_p = subparsers.add_parser('context')
-    checkout_p.add_argument('-f','--force', action='store_true', help='Force remove of a dirty local context')
+    checkout_p.add_argument('-f', '--force', action='store_true', help='Force remove of a dirty local context')
     checkout_p.add_argument('-d','--delete', action='store_true', help='Delete local context')
     checkout_p.add_argument(
         'context',
@@ -1515,6 +1516,7 @@ def init_fs_cl(subparsers):
     # rm
     rm_p = subparsers.add_parser('rm')
     rm_p.add_argument('bundle',  type=str, help='The destination bundle in the current context')
+    rm_p.add_argument('-f', '--force', action='store_true', default=False, help='Force remove of a committed bundle')
     rm_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
                       help="Having a specific tag: 'dsdt rm -t committed:True -t version:0.7.1'")
     rm_p.add_argument('--all', action='store_true',
