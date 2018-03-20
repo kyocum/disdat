@@ -41,29 +41,31 @@ def get_cursor(dsn):
     conn = pyodbc.connect(dsn=dsn)
     cursor = conn.cursor()
     yield cursor
+    cursor.commit()
     cursor.close()
     conn.close()
 
 
-def raw_query(dsn, query):
+def single_query(dsn, query, cursor=None):
     """
 
     Args:
         dsn (unicode) : The database configuration dsn
         query (unicode) : Raw query text
+        cursor:
 
     Returns:
         df (pd.DataFrame) or desc (str)
 
     """
 
-    #print ("raw_query: Running query:{}".format(query))
+    #print ("query: Running query:{}".format(query))
 
     get_rows = True
     if "DROP" in query or "CREATE" in query:
         get_rows = False
 
-    with get_cursor(dsn) as cursor:
+    def _query(cursor, query):
         cursor.execute(query)
         desc = cursor.description
         df = None
@@ -71,11 +73,39 @@ def raw_query(dsn, query):
             rows = cursor.fetchall()
             col_names = [x[0] for x in cursor.description]
             df = pd.DataFrame.from_records(rows, columns=col_names)
+        return desc, df
+
+    if cursor is None:
+        with get_cursor(dsn) as cursor:
+            desc, df = _query(cursor, query)
+    else:
+        desc, df = _query(cursor, query)
 
     if get_rows:
         return df
     else:
         return desc
+
+
+def multi_tx_query(dsn, queries):
+    """
+    Issue multiple queries in a single transaction.  We depend
+    on our get_cursor() function to call cursor.commit().
+
+    Args:
+        dsn (unicode) : The database configuration dsn
+        queries (list:unicode) : Query texts
+
+    Returns:
+        list:df (pd.DataFrame) or list:desc (str)
+
+    """
+    results = []
+    with get_cursor(dsn) as cursor:
+        for q in queries:
+            results.append(single_query(dsn, q, cursor))
+
+    return results
 
 
 def table_exists_vertica(dsn, schema, table):
@@ -132,12 +162,13 @@ def schema_exists_vertica(dsn, schema):
         return True
 
 
-def drop_table_vertica(dsn, table):
+def drop_table_vertica(dsn, table, run=True):
     """
 
     Args:
         dsn:
         table:
+        run:
 
 
     Returns:
@@ -145,17 +176,21 @@ def drop_table_vertica(dsn, table):
     """
     query = u"DROP TABLE if exists {};".format(table)
 
-    result = raw_query(dsn, query)
+    if run:
+        result = single_query(dsn, query)
+    else:
+        result = query
 
     return result
 
 
-def drop_view_vertica(dsn, table):
+def drop_view_vertica(dsn, table, run=True):
     """
 
     Args:
         dsn:
         table:
+        run:
 
 
     Returns:
@@ -163,7 +198,10 @@ def drop_view_vertica(dsn, table):
     """
     query = u"DROP VIEW if exists {};".format(table)
 
-    result = raw_query(dsn, query)
+    if run:
+        result = single_query(dsn, query)
+    else:
+        result = query
 
     return result
 
@@ -178,7 +216,7 @@ def database_name_vertica(dsn):
     """
     query = u"SELECT CURRENT_DATABASE();"
 
-    result = raw_query(dsn, query)
+    result = single_query(dsn, query)
 
     return result[result.columns[0]].iloc[0]
 
@@ -303,7 +341,7 @@ class DBTarget(Target):
                 query = u"""
                 CREATE SCHEMA IF NOT EXISTS {}
                 """.format(self.schema)
-                raw_query(self.dsn, query)
+                single_query(self.dsn, query)
 
             self.phys_name = u"{}.{}_{}".format(self.schema, self.table_name, self.uuid[:8])
         else:
@@ -341,7 +379,7 @@ class DBTarget(Target):
 
         try:
             drop_view_vertica(self.dsn, self.virt_name)
-            _ = raw_query(self.dsn, virtual_view)
+            _ = single_query(self.dsn, virtual_view)
         except Exception as e:
             raise Exception("DBTarget:commit failed: {}".format(e))
 
@@ -359,9 +397,11 @@ class DBTarget(Target):
 
         """
         try:
+            queries = []
             if drop_view:
-                drop_view_vertica(self.dsn, self.virt_name)
-            drop_table_vertica(self.dsn, self.phys_name)
+                queries.append(drop_view_vertica(self.dsn, self.virt_name, run=False))
+            queries.append(drop_table_vertica(self.dsn, self.phys_name, run=False))
+            multi_tx_query(self.dsn, queries)
         except Exception as e:
             raise Exception("DBTarget:rm failed: {}".format(e))
 
@@ -370,6 +410,9 @@ class DBTarget(Target):
         Check to see if there is a view for this virtual table
         that uses this physical table as its basis.  If yes, then
         this is the latest committed version on the db.
+
+        TODO: Needs to be used in a transaction to remove the table, else possible
+        someone commits a newer version and we remove the latest view.
 
         Returns:
             bool
@@ -385,7 +428,7 @@ class DBTarget(Target):
         """.format(table_name, schema, self.uuid[:UUID_PREFIX])
 
         try:
-            result = raw_query(self.dsn, query)
+            result = single_query(self.dsn, query)
             if len(result) > 0:
                 return True
             else:
