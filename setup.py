@@ -94,7 +94,8 @@ setup(
     # List run-time dependencies here.  These will be installed by pip when
     # your project is installed.
 
-    install_requires=['boto3',
+    install_requires=['python-dateutil<2.7', # python-dateutil<2.7.0,>=2.1 is required by set(['botocore']), 2.7 broke things on March 12, 2018
+                      'boto3',
                       'boto3-session-cache',
                       'termcolor',
                       'docker',
