@@ -44,7 +44,7 @@ META_FILE = 'info.json'
 
 
 def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
-          output_bundle_uuid=None, sysexit=True):
+          output_bundle_uuid=None, sysexit=True, central_scheduler=False, workers=1):
     """
     Given an input bundle, run the pipesline on the bundle.
     Note, we first make a copy of all tasks that are parameterized identically to the tasks we will run.
@@ -61,7 +61,9 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
         output_tags (dict):  Tags that need to be placed on the output bundle
         force (bool): whether to re-run this pipe
         output_bundle_uuid (str):  Optionally specify exactly the UUID of the output bundle IFF we actually need to produce it
-        sysexit: Run with sys exist return codes (will raise SystemExit), else run internally
+        sysexit: Run with sys exist return codes (will raise SystemExit) (default False)
+        central_scheduler: Use a centralized Luigi scheduler (default False, i.e., --local-scheduler is used)
+        workers: The number of luigi workers to use for this workflow (default 1)
 
     Returns:
         None
@@ -74,29 +76,35 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
     _logger.debug("input tags: {}".format(input_tags))
     _logger.debug("output tags: {}".format(output_tags))
     _logger.debug("sys.path {}".format(sys.path))
+    _logger.debug("central_scheduler {}".format(central_scheduler))
+    _logger.debug("workers {}".format(workers))
 
-    args = [driver.DriverTask.task_family,
-            '--local-scheduler',
-            '--input-bundle', input_bundle,
-            '--output-bundle', output_bundle,
-            '--param-bundles', pipe_params,
-            '--pipe-cls', pipe_cls,
-            '--input-tags', json.dumps(input_tags),
-            '--output-tags', json.dumps(output_tags)
-            ]
+    args = [driver.DriverTask.task_family]
+
+    if not central_scheduler:
+        args += ['--local-scheduler']
+
+    args += ['--workers', str(workers),
+             '--input-bundle', input_bundle,
+             '--output-bundle', output_bundle,
+             '--param-bundles', pipe_params,
+             '--pipe-cls', pipe_cls,
+             '--input-tags', json.dumps(input_tags),
+             '--output-tags', json.dumps(output_tags)
+             ]
 
     if force:
         args += ['--force']
 
-    ## Re-execute logic -- make copy of task DAG here.
-    #  Creates a cache of {pipe:path_cache_entry} in the pipesFS object.
-    #  This is used throughout execution to find / name the output bundles.
+    # Re-execute logic -- make copy of task DAG
+    # Creates a cache of {pipe:path_cache_entry} in the pipesFS object.
+    # This "task_path_cache" is used throughout execution to find output bundles.
     reexecute_dag = driver.DriverTask(input_bundle, output_bundle, pipe_params,
                                       pipe_cls, input_tags, output_tags, force)
 
     resolve_workflow_bundles(reexecute_dag)
 
-    # at this point the path cache should be full of existing or new UUIDs.
+    # At this point the path cache should be full of existing or new UUIDs.
     # we are going to replace the final pipe's UUID if the user has passed one in.
     # this happens when we run the docker container.
     # TODO: don't replace if it already exists.
@@ -125,15 +133,14 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
         print "resolve_bundles requires {}".format(fs.DisdatFS.task_path_cache)
         print "----END DAG TASK---"
 
-    # This is a superior way of calling the task, because we can make it once
-    # and not have to repeat the args into a 'fake' cli call.
+    # Build is nice since we do not have to repeat the args into a 'fake' cli call.
+    # But retcodes is nice if people use it in a shell.
     if sysexit:
         retcodes.run_with_retcodes(args)
     else:
-        build([reexecute_dag], local_scheduler=True)
+        build([reexecute_dag], local_scheduler=not central_scheduler, workers=workers)
 
     # After running a pipeline, blow away our path cache.  Needed if we're run twice in the same process.
-    # Probably not needed if you're using sysexit.
     fs.DisdatFS().clear_path_cache()
 
         
@@ -389,5 +396,6 @@ def main(disdat_config, args):
 
     output_tags = common.parse_args_tags(args.output_tag)
 
-    apply(args.input_bundle, args.output_bundle, dynamic_params, args.pipe_cls, input_tags, output_tags, args.force)
+    apply(args.input_bundle, args.output_bundle, dynamic_params, args.pipe_cls, input_tags, output_tags,
+          args.force, central_scheduler=args.central_scheduler, workers=args.workers)
 
