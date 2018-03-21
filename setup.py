@@ -98,6 +98,7 @@ setup(
                       'boto3-session-cache',
                       'termcolor',
                       'docker',
+                      'pyodbc',
                       'luigi>=2.5.0',
                       'pandas==0.20.3', # 0.21.0 causes pyinstaller built binary to crap out
                       'enum34>=',
