@@ -33,6 +33,7 @@ author: Kenneth Yocum
 """
 
 from disdat.pipe_base import PipeBase
+from disdat.db_target import DBTarget
 import disdat.common as common
 from disdat.driver import DriverTask
 import shutil
@@ -48,8 +49,7 @@ _logger = logging.getLogger(__name__)
 
 class PipesExternalBundle(luigi.ExternalTask, PipeBase):
     """
-    Assume that an external bundle always consists of a single list (row)
-    of files in the bundle.  There are no values in an external bundle!!
+    DEPRECATED
     """
 
     input_bundle_name = luigi.Parameter(default='None')
@@ -96,19 +96,12 @@ class PipesExternalBundle(luigi.ExternalTask, PipeBase):
 
     def output(self):
         """
+        DEPRECATED
         Read the latest version of the given input_bundle
         and transform the first row into luigi file objects as outputs
         Returns: {'col': luigitarget, ... }
         """
-
-        bundle_df = self.pfs.cat(self.input_bundle_name)
-        # to_json returns a list of dictionaries per row, take the first row
-        bundle_files_dict = json.loads(bundle_df[0:1].to_json(orient='records'))[0]
-        print "PipesExternalBundle JSON {}".format(bundle_files_dict)
-        bundle_targets_dict = self.parse_pipe_outputs(self.make_luigi_targets_from_fqp, bundle_files_dict)
-        print "PipesExternalBundle TARGETS {}".format(bundle_targets_dict)
-
-        return bundle_targets_dict
+        pass
 
 
 class PipeTask(luigi.Task, PipeBase):
@@ -178,6 +171,7 @@ class PipeTask(luigi.Task, PipeBase):
         self.user_set_human_name = None
         self.user_tags = {}
         self.add_deps  = {}
+        self.db_targets = []
 
     def bundle_outputs(self):
         """
@@ -359,8 +353,28 @@ class PipeTask(luigi.Task, PipeBase):
         """
 
         def rm_bundle_dir():
+            """
+            We created a directory (managed path) to hold the bundle and any files.   The files have been
+            copied in.   Removing the directory removes any created files.  However we also need to
+            clean up any temporary tables as well.
+
+            TODO: Integrate with data_context bundle remove.   That deals with information already
+            stored in the local DB.
+
+            ASSUMES:  That we haven't actually updated the local DB with information on this bundle.
+
+            Returns:
+                None
+            """
             try:
                 shutil.rmtree(pce.path)
+
+                # if people create s3 files, s3 file targets, insdie of an s3 context,
+                # then we will have to clean those up as well.
+
+                for t in self.db_targets:
+                    t.drop_table()
+
             except IOError as why:
                 _logger.error("Removal of hyperframe directory {} failed with error {}. Continuing removal...".format(
                     pce.uuid, why))
@@ -507,6 +521,40 @@ class PipeTask(luigi.Task, PipeBase):
         self.add_deps[name] = (task_class, params)
 
         return
+
+    def add_db_target(self, db_target):
+        """
+        Every time the user creates a db target, we add
+        it to the list of db_targets in this pipe.
+
+        Note: We add through the DBTarget object create, not through
+        pipe.create_db_target() in the case that people do some hacking and don't use that API.
+
+        Args:
+            db_target (`db_target.DBTarget`):
+
+        Returns:
+            None
+        """
+        self.db_targets.append(db_target)
+
+    def create_output_table(self, dsn, table_name, schema_name=None):
+        """
+        Create an output table target.  Use the target to parameterize queries with the
+        target table name.
+
+        Args:
+            dsn (unicode): The dsn indicating the configuration to connect to the db
+            table_name (unicode): The table name.
+            schema_name (unicode): Optional force use of schema (default None)
+
+        Returns:
+            (`disdat.db_target.DBTarget`)
+
+        """
+        target = DBTarget(self, dsn, table_name, schema_name=schema_name)
+
+        return target
 
     def create_output_file(self, filename):
         """

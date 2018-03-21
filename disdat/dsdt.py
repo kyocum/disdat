@@ -135,6 +135,8 @@ def main():
     run_p.add_argument('--backend', default=run.Backend.default(), type=str, choices=run.Backend.options(), help='An optional batch execution back-end to use')
     run_p.add_argument("--force", action='store_true', help="If there are dependencies, force re-computation.")
     run_p.add_argument("--no-push-input", action='store_false', help="Do not push the current committed input bundle before execution (default is to push)", dest='push_input_bundle')
+    run_p.add_argument('-cs', '--central-scheduler', action='store_true', default=False, help="Use a central Luigi scheduler (defaults to local scheduler)")
+    run_p.add_argument('-w', '--workers', type=int, default=1, help="Number of Luigi workers on this node")
     run_p.add_argument('-it', '--input-tag', nargs=1, type=str, action='append',
                        help="Input bundle tags: '-it authoritative:True -it version:0.7.1'")
     run_p.add_argument('-ot', '--output-tag', nargs=1, type=str, action='append',
@@ -147,6 +149,8 @@ def main():
 
     # apply
     apply_p = subparsers.add_parser('apply', description="Apply a transform to an input bundle to produce an output bundle.")
+    apply_p.add_argument('-cs', '--central-scheduler', action='store_true', default=False, help="Use a central Luigi scheduler (defaults to local scheduler)")
+    apply_p.add_argument('-w', '--workers', type=int, default=1, help="Number of Luigi workers on this node")
     apply_p.add_argument('-it', '--input-tag', nargs=1, type=str, action='append',
                          help="Input bundle tags: '-it authoritative:True -it version:0.7.1'")
     apply_p.add_argument('-ot', '--output-tag', nargs=1, type=str, action='append',

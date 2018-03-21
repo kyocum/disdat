@@ -15,7 +15,6 @@ from disdat.data_context import DataContext
 from disdat.hyperframe import LineageRecord, HyperFrameRecord, FrameRecord
 
 import disdat.common as common
-import sys
 import os
 import logging
 import luigi
@@ -397,37 +396,3 @@ class PipeBase(object):
                                presentation=presentation)
 
         return hfr
-
-    @staticmethod
-    def parse_pipe_outputs(func, t_outputs):
-        """
-        Pipe output is always a dictionary of [column_name, value] or None
-
-        Apply func to the items in the dictionary
-
-        Used by PipeTask.output() and DriverTask.run()
-
-        Removing support for sub-bundles. We used to allow names ':subbundle':[outputs].  Revisit in another version.
-
-        :param func:
-        :param t_outputs:
-        :return:
-        """
-
-        if t_outputs is None:
-            return
-
-        if not isinstance(t_outputs, dict):
-            raise Exception("parse_pipe_outputs given outputs that is not in a dictionary")
-
-        luigi_outputs_dict = {}
-
-        for k, v in t_outputs.iteritems():
-            if isinstance(v, list) or isinstance(v, tuple) or isinstance(v, dict):
-                raise Exception("Bad type in pipe_output specification {}".format(type(v)))
-
-            assert(k not in luigi_outputs_dict)
-            luigi_outputs_dict[k] = func(k, v)
-            _logger.debug("Adding element of type {}".format(type(luigi_outputs_dict[k])))
-
-        return luigi_outputs_dict
