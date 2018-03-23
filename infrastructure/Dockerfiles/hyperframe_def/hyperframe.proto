@@ -250,4 +250,7 @@ message DatabaseLink {
 
     /* Data Source Name */
     string dsn = 7;
+
+    /* Server port */
+    int32 port = 8;
 }

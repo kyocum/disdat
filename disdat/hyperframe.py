@@ -1916,6 +1916,7 @@ class FrameRecord(PBObject):
                                db_tgt.schema,     # schema
                                db_tgt.tn, # table name, i.e, no schema, disdat_prefix, context, or uuid
                                None, # columns
+                               db_tgt.port, # port
                                db_tgt.dsn # data source name
                                ) for db_tgt in file_paths]
         else:
@@ -2230,7 +2231,7 @@ class S3LinkRecord(LinkBase):
 
 
 class DatabaseLinkRecord(LinkBase):
-    def __init__(self, hframe_uuid, linkauth_uuid, url, servername, database, schema, table, columns, dsn):
+    def __init__(self, hframe_uuid, linkauth_uuid, url, servername, database, schema, table, columns, port, dsn):
         """
         Args:
             hframe_uuid (str):  The UUID of the hyperframe
@@ -2242,6 +2243,7 @@ class DatabaseLinkRecord(LinkBase):
             schema (str):      The schema name
             table (str):       The virtual table name
             columns (list:str): A list of strings of column names.  Currently unused.
+            port (int):  The port at which the server is listening
             dsn (str): data source name
         """
         super(DatabaseLinkRecord, self).__init__(hframe_uuid, linkauth_uuid)
@@ -2252,6 +2254,7 @@ class DatabaseLinkRecord(LinkBase):
         self.pb.database.schema = schema
         self.pb.database.table = table
         self.pb.database.columns.extend(columns)
+        self.pb.database.port = port
         self.pb.database.dsn = dsn
 
         self.pb.ClearField('hash')

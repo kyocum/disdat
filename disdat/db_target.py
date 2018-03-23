@@ -244,7 +244,7 @@ class DBTarget(Target):
 
     disdat_prefix = "DISDAT"
 
-    def __init__(self, pipe, dsn, table_name, schema_name, servername='unknown', database='unknown', context=None, uuid=None):
+    def __init__(self, pipe, dsn, table_name, schema_name, servername='unknown', database='unknown', context=None, uuid=None, port=-1):
         """
         User creates a db_target within a Disdat Pipe when they want to work on a database table.
 
@@ -278,6 +278,7 @@ class DBTarget(Target):
         self.table_name = table_name
         self.servername = servername
         self.database = database
+        self.port     = port
 
         self.dsn = dsn
         try:
