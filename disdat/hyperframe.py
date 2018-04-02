@@ -2233,6 +2233,11 @@ class S3LinkRecord(LinkBase):
 class DatabaseLinkRecord(LinkBase):
     def __init__(self, hframe_uuid, linkauth_uuid, url, servername, database, schema, table, columns, port, dsn):
         """
+
+        At this time we store the DSN in the database_link.   This is to avoid users placing userids and passwords
+        in code to create DBTargets.  Only committed bundles can be shared, so only the user creating the bundle
+        should be able to commit it.
+
         Args:
             hframe_uuid (str):  The UUID of the hyperframe
             linkauth_uuid (str): The UUID of the linkauth.  Currently unused.

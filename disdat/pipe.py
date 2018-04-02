@@ -369,7 +369,7 @@ class PipeTask(luigi.Task, PipeBase):
             try:
                 shutil.rmtree(pce.path)
 
-                # if people create s3 files, s3 file targets, insdie of an s3 context,
+                # if people create s3 files, s3 file targets, inside of an s3 context,
                 # then we will have to clean those up as well.
 
                 for t in self.db_targets:

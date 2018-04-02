@@ -198,7 +198,7 @@ class DisdatFS(object):
                 try:
                     self.__curr_context = self._all_contexts[self._mangled_curr_context_name]
                 except KeyError as ke:
-                    print "No current local context, please change context with 'dsdt checkout'"
+                    print "No current local context, please change context with 'dsdt switch'"
             self.save()
         return self.__curr_context
 
@@ -731,7 +731,7 @@ class DisdatFS(object):
         ctxt_dir = os.path.join(DisdatConfig.instance().get_context_dir(), local_context)
 
         if local_context == self._curr_context_name:
-            print("Disdat on context {}, please 'dsdt checkout <otherbranch>' before deleting.".format(local_context))
+            print("Disdat on context {}, please 'dsdt switch <otherbranch>' before deleting.".format(local_context))
             return
 
         if local_context in self._all_contexts:
@@ -831,7 +831,7 @@ class DisdatFS(object):
         # Commit to disk:
         self.atomic_update_hframe(hfr)
 
-        # Address an commit issues with links in bundle:
+        # Commit DBTarget links if present:
         self.commit_db_links(hfr)
 
     def _get_all_link_frames(self, outer_hfr, local_fs_frames=False, s3_frames=False, db_frames=False):

@@ -26,7 +26,6 @@ _logger = logging.getLogger(__name__)
 #
 
 ENABLE_DISDAT_SCHEMAS = False
-UUID_PREFIX = 8 # number of chars to use as uuid prefix in phys_name
 
 
 @contextlib.contextmanager
@@ -52,7 +51,7 @@ def single_query(dsn, query, cursor=None):
     Args:
         dsn (unicode) : The database configuration dsn
         query (unicode) : Raw query text
-        cursor:
+        cursor (`pyodbc.cursor`: An valid PyODBC Cursor object
 
     Returns:
         df (pd.DataFrame) or desc (str)
@@ -118,7 +117,7 @@ def table_exists_vertica(dsn, schema, table):
         table (unicode) : The table name
 
     Returns:
-        (bool) : True if table in db
+        (bool) : True if table is present in the db
     """
 
     query = u"""
@@ -145,7 +144,7 @@ def schema_exists_vertica(dsn, schema):
         schema (unicode) : The schema holding table
 
     Returns:
-        (bool) : True if table in db
+        (bool) : True if schema is present in the db
     """
 
     query = u"""
@@ -166,12 +165,12 @@ def drop_table_vertica(dsn, table, run=True):
     """
 
     Args:
-        dsn:
-        table:
-        run:
-
+        dsn (unicode): The db configuration to use
+        table (unicode): The name of the table to drop, i.e., <schema.table>
+        run (bool): Execute the query (default), else if False, just return the query text
 
     Returns:
+        (unicode): The unicode string containing the query
 
     """
     query = u"DROP TABLE if exists {};".format(table)
@@ -188,12 +187,12 @@ def drop_view_vertica(dsn, table, run=True):
     """
 
     Args:
-        dsn:
-        table:
-        run:
-
+        dsn (unicode): The db configuration to use
+        table (unicode): The name of the table to drop, i.e., <schema.table>
+        run (bool): Execute the query (default), else if False, just return the query text
 
     Returns:
+        (unicode): The unicode string containing the query
 
     """
     query = u"DROP VIEW if exists {};".format(table)
@@ -210,8 +209,11 @@ def database_name_vertica(dsn):
     """
     SQL for getting the current database name
 
+    Args:
+        dsn (unicode): The db configuration to use
+
     Returns:
-        (unicode):
+        (unicode): The name of the database
 
     """
     query = u"SELECT CURRENT_DATABASE();"
@@ -354,7 +356,7 @@ class DBTarget(Target):
                                                       self.disdat_prefix,
                                                       self.context.get_local_name(),
                                                       self.table_name,
-                                                      self.uuid[:UUID_PREFIX])
+                                                      self.uuid)
 
         """ The fully qualified physical name is the text representation of the link stored in the bundle """
         self.phys_name_url = self.url()
@@ -363,11 +365,7 @@ class DBTarget(Target):
 
     def commit(self):
         """
-        Commit a database table link.   At this point the system is trying to commit a bundle that contains
-        db links, not DBTarget objects.   disdat.data_context.commit_db_links() translates each db_link protocol
-        buffer into a DBTarget object.
-
-        When you commit a table link, you are going to create / update a view for the table, using the physical name.
+        Commit a database table link by creating (maybe replacing) a view for the table, using the physical name.
 
         Returns:
             None
@@ -379,8 +377,10 @@ class DBTarget(Target):
         """.format(self.virt_name, self.phys_name)
 
         try:
-            drop_view_vertica(self.dsn, self.virt_name)
-            _ = single_query(self.dsn, virtual_view)
+            queries = []
+            queries.append(drop_view_vertica(self.dsn, self.virt_name, run=False))
+            queries.append(virtual_view)
+            multi_tx_query(self.dsn, queries)
         except Exception as e:
             raise Exception("DBTarget:commit failed: {}".format(e))
 
@@ -388,7 +388,8 @@ class DBTarget(Target):
         """
         Remove a database table link.  There may or may not be a view.  Remove both.
 
-        TODO: We should see if the view refers to this physical table instead of using 'drop_view'
+        Note: The policy for whether to remove the corresponding view is currently the
+        responsibility of the caller (e.g., data_context.py).
 
         Args:
             drop_view (bool): If true, drop the view as well as the phys table
@@ -415,6 +416,8 @@ class DBTarget(Target):
         TODO: Needs to be used in a transaction to remove the table, else possible
         someone commits a newer version and we remove the latest view.
 
+        Note: This works for Vertica.  Other DBs?  Investigate SqlAlchemy or modularize.
+
         Returns:
             bool
         """
@@ -426,7 +429,7 @@ class DBTarget(Target):
         WHERE table_name ilike '{}'
         AND table_schema ilike '{}'
         AND view_definition ilike '%{}%';
-        """.format(table_name, schema, self.uuid[:UUID_PREFIX])
+        """.format(table_name, schema, self.uuid)
 
         try:
             result = single_query(self.dsn, query)

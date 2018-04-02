@@ -765,18 +765,23 @@ class DataContext(object):
         """
         For all the db link frames, commit the tables.
 
+        Note: Typically, commits are isolated since they only apply to the local bundle in the local context.  However,
+        DBTargets, once committed, form a collective view of the latest logical tables in all bundles in a context.
+
+        Note: Therefore, we should treat a bundle commit with many DBTargets as a single logical transaction, updating
+        this collective view in an all or nothing way.   At this time, though, it is possible that, if the task fails
+        then there may be some physical tables not written and some virtual (views) tables that have not been updated.
+         Further, this implies that a user in a local context may query the database, see this collective view, and note
+         that another user must have committed some other bundle in the context, a copy of which they may not have.
+
         The DBTarget object is a user-facing object.   However, DBTarget does define the commit because
         it is the place where the naming logic for tables resides.
-
-        At this time we store the DSN in the database_link.   This is to avoid users placing userids and passwords
-        in code to create DBTargets.  Only committed bundles can be shared, so only the user creating the bundle
-        should be able to commit it.
 
         Args:
             hfr (`disdat.hyperframe.HyperFrameRecord`):
 
         Returns:
-
+            None
         """
 
         for fr in hfr.get_frames(self):
@@ -1066,7 +1071,6 @@ class DataContext(object):
         db       : db
 
         Note: We do not copy-in external tables to managed tables.
-        Note: While we convert
 
         Args:
             src_files (:list:str):  A single file path or a list of paths
