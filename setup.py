@@ -26,10 +26,10 @@ def find_version():
 setup(
     name='disdat',
     version=find_version(),
-    description='DisDat: bundled data science',
+    description='DisDat: versioned data science',
     author='Ken Yocum',
     author_email='kyocum@gmail.com',
-    url='https://github.com/disdat',
+    url='https://github.com/kyocum/disdat',
 
     # Choose your license
     license='Apache License, version 2.0',
@@ -42,7 +42,7 @@ setup(
         'Development Status :: 4 - Beta',
 
         # Indicate who your project is intended for
-        'Intended Audience :: Data Scientists and Developers',
+        'Intended Audience :: Science/Research',
         'Topic :: Scientific/Engineering',
 
         # Pick your license as you wish (should match "license" above)
@@ -90,6 +90,8 @@ setup(
             'dockerizer/kickstart/bin/*.pyc',
         ]
     },
+
+    data_files=[('', ['setup.py'])],
 
     # List run-time dependencies here.  These will be installed by pip when
     # your project is installed.

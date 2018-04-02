@@ -16,7 +16,8 @@ RUN apt-get upgrade -y
 
 # Install git and a minimal Python 2.x toolchain. Disdat uses git to detect
 # changed sources when deciding whether or not to rerun a pipeline.
-RUN apt-get install -y git
+# disdat uses pyodbc which requires gcc ,hence 'build-essential'
+RUN apt-get install -y git build-essential unixodbc-dev
 RUN easy_install virtualenv
 
 # Install the kickstart scripts used by later layers
@@ -26,3 +27,4 @@ COPY kickstart $KICKSTART_ROOT
 # virtual environment path for later stages.
 ARG VIRTUAL_ENV
 ENV VIRTUAL_ENV $VIRTUAL_ENV
+
