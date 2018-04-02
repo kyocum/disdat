@@ -37,20 +37,24 @@ It will then need to run it remotely.   Thus we need to submit a job.
 author: Kenneth Yocum
 """
 
-from disdat.pipe_base import PipeBase
+# Built-in imports
+import argparse
+
+# Third-party imports
+import boto3_session_cache as b3
 import disdat.fs as fs
 import disdat.common as common
 import disdat.utility.aws_s3 as aws
-import luigi
-from luigi import build
-import boto3_session_cache as b3
 import docker
 import inspect
 import logging
+import luigi
 import os
 import time
-
+from disdat.common import DisdatConfig
+from disdat.pipe_base import PipeBase
 from enum import Enum
+from luigi import build
 
 _MODULE_NAME = inspect.getmodulename(__file__)
 
@@ -95,6 +99,7 @@ class RunTask(luigi.Task, PipeBase):
     backend = luigi.EnumParameter(enum=Backend, default=Backend.default())
     force = luigi.BoolParameter(default=False)
     push_input_bundle = luigi.BoolParameter(default=True)
+    aws_session_token_duration = luigi.IntParameter(default=0)
     input_tags = luigi.DictParameter()
     output_tags = luigi.DictParameter()
 
@@ -181,17 +186,28 @@ class RunTask(luigi.Task, PipeBase):
             input_bundle=self.input_bundle,
             output_bundle=self.output_bundle,
             pipeline_class_name=self.pipeline_class_name,
-            pipeline_params=list(self.pipeline_params), # for some reason ListParameter is creating a tuple
+            pipeline_params=list(self.pipeline_params),  # for some reason ListParameter is creating a tuple
             backend=self.backend,
             force=bool(self.force),
             push_input_bundle=bool(self.push_input_bundle),
+            aws_session_token_duration=self.aws_session_token_duration,
             input_tags=self.input_tags,
             output_tags=self.output_tags
         )
 
 
-def _run(input_bundle, output_bundle, pipeline_params, pipeline_class_name,
-         backend=Backend.Local, force=False, push_input_bundle=True, input_tags=None, output_tags=None):
+def _run(
+    input_bundle,
+    output_bundle,
+    pipeline_params,
+    pipeline_class_name,
+    backend=Backend.Local,
+    force=False,  # @UnusedVariable
+    push_input_bundle=True,
+    aws_session_token_duration=0,
+    input_tags=None,
+    output_tags=None
+):
     """Run the dockerized version of a pipeline.
 
     Args:
@@ -210,10 +226,8 @@ def _run(input_bundle, output_bundle, pipeline_params, pipeline_class_name,
         `None`
     """
 
-    #print "_run args are {}".format(pipeline_params)
-
+    disdat_config = DisdatConfig.instance()
     pfs = fs.DisdatFS()
-    disdat_config = common.DisdatConfig.instance()
 
     pipeline_image_name = common.make_pipeline_image_name(pipeline_class_name)
 
@@ -267,6 +281,19 @@ def _run(input_bundle, output_bundle, pipeline_params, pipeline_class_name,
         # have to write special code of our own to deal with authenticating
         # with AWS.
         client = b3.client('batch', region_name=aws.profile_get_region())
+        # A bigger problem might be that the IAM role executing the job on
+        # a batch EC2 instance might not have access to the S3 remote. To
+        # get around this, allow the user to create some temporary AWS
+        # credentials.
+        if aws_session_token_duration > 0:
+            sts_client = b3.client('sts')
+            token = sts_client.get_session_token(DurationSeconds=aws_session_token_duration)
+            credentials = token['Credentials']
+            container_overrides['environment'] = [
+                {'name': 'AWS_ACCESS_KEY_ID', 'value': credentials['AccessKeyId']},
+                {'name': 'AWS_SECRET_ACCESS_KEY', 'value': credentials['SecretAccessKey']},
+                {'name': 'AWS_SESSION_TOKEN', 'value': credentials['SessionToken']}
+            ]
         job = client.submit_job(jobName=job_name, jobDefinition=job_definition, jobQueue=job_queue,
                                 containerOverrides=container_overrides)
         status = job['ResponseMetadata']['HTTPStatusCode']
@@ -289,7 +316,7 @@ def _run(input_bundle, output_bundle, pipeline_params, pipeline_class_name,
         if push_input_bundle:
             result = pfs.push(human_name=input_bundle)
             if result is None:
-                _logger.error("'run' failed trying to push input bundle {} to remote.".format(input_bundle))
+                _logger.error("'run' failed to push input bundle {} to remote (bundle not committed?).".format(input_bundle))
                 return
         # Now try to run the container
         try:
@@ -299,7 +326,8 @@ def _run(input_bundle, output_bundle, pipeline_params, pipeline_class_name,
             print "run.py ARGS {}".format(args)
 
             _logger.debug('Running image {} with arguments {}'.format(pipeline_image_name, args))
-            stdout = client.containers.run(pipeline_image_name, args, detach=False, environment=environment, init=True, stderr=True, volumes=volumes)
+            stdout = client.containers.run(pipeline_image_name, args, detach=False,
+                                           environment=environment, init=True, stderr=True, volumes=volumes)
             print stdout
         except docker.errors.ImageNotFound:
             _logger.error("Unable to find the docker image {}".format(pipeline_image_name))
@@ -310,7 +338,40 @@ def _run(input_bundle, output_bundle, pipeline_params, pipeline_class_name,
         raise ValueError('Got unrecognized job backend \'{}\': Expected {}'.format(backend, Backend.options()))
 
 
-def main(disdat_config, args):
+def add_arg_parser(parsers):
+    run_p = parsers.add_parser('run', description="Run a containerized version of transform.")
+    run_p.add_argument(
+        '--backend',
+        default=Backend.default(),
+        type=str,
+        choices=Backend.options(),
+        help='An optional batch execution back-end to use',
+    )
+    run_p.add_argument("--force", action='store_true', help="If there are dependencies, force re-computation.")
+    run_p.add_argument("--no-push-input", action='store_false',
+                       help="Do not push the current committed input bundle before execution (default is to push)", dest='push_input_bundle')
+    run_p.add_argument(
+        '--use-aws-session-token',
+        nargs=1,
+        default=[0],
+        type=int,
+        help='Use a temporary AWS session token to access the remote, valid for AWS_SESSION_TOKEN_DURATION seconds',
+        dest='aws_session_token_duration',
+    )
+    run_p.add_argument('-it', '--input-tag', nargs=1, type=str, action='append',
+                       help="Input bundle tags: '-it authoritative:True -it version:0.7.1'")
+    run_p.add_argument('-ot', '--output-tag', nargs=1, type=str, action='append',
+                       help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'")
+    run_p.add_argument("input_bundle", type=str, help="Name of source data bundle.  '-' means no input bundle.")
+    run_p.add_argument("output_bundle", type=str, help="Name of destination bundle.  '-' means default output bundle.")
+    run_p.add_argument("pipe_cls", type=str, help="User-defined transform, e.g., module.PipeClass")
+    run_p.add_argument("pipeline_args", type=str,  nargs=argparse.REMAINDER,
+                       help="Optional set of parameters for this pipe '--parameter value'")
+    run_p.set_defaults(func=lambda args: main(DisdatConfig.instance(), args))
+    return parsers
+
+
+def main(disdat_config, args):  # @UnusedVariable
     """Convert cli args into luigi task and params and execute
 
     Args:
@@ -337,16 +398,18 @@ def main(disdat_config, args):
     input_tags = common.parse_args_tags(args.input_tag)
     output_tags = common.parse_args_tags(args.output_tag)
 
-    task_args = [args.input_bundle,
-                 args.output_bundle,
-                 args.pipe_cls,
-                 args.pipeline_args,
-                 backend,
-                 args.force,
-                 args.push_input_bundle,
-                 input_tags,
-                 output_tags
-                 ]
+    task_args = [
+        args.input_bundle,
+        args.output_bundle,
+        args.pipe_cls,
+        args.pipeline_args,
+        backend,
+        args.force,
+        args.push_input_bundle,
+        args.aws_session_token_duration[0],
+        input_tags,
+        output_tags
+    ]
 
     commit_pipe = RunTask(*task_args)
 

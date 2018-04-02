@@ -50,24 +50,6 @@ def _apply(args):
     apply.main(DisdatConfig.instance(), args)
 
 
-def _dockerize(args):
-    """
-
-    :param args:
-    :return:
-    """
-    dockerize.main(DisdatConfig.instance(), args)
-
-
-def _run(args):
-    """
-
-    :param args:
-    :return:
-    """
-    run.main(DisdatConfig.instance, args)
-
-
 def main():
     """
     Main as a function for testing convenience and as a package entry point.
@@ -75,7 +57,7 @@ def main():
     :return: (shape of input df, shape of pushed df)
     """
 
-    if getattr( sys, 'frozen', False ) :
+    if getattr(sys, 'frozen', False):
         here = os.path.join(sys._MEIPASS, 'disdat')
     else:
         here = os.path.abspath(os.path.dirname(__file__))
@@ -101,51 +83,11 @@ def main():
     ls_p = subparsers.add_parser('init')
     ls_p.set_defaults(func=lambda args: DisdatConfig.init())
 
-    # autodock
-    dockerize_p = subparsers.add_parser('dockerize', description="Dockerizer a particular transform.")
-    dockerize_p.add_argument(
-        '--config-dir',
-        type=str,
-        default=None,
-        help="A directory containing configuration files for the operating system within the Docker image",
-    )
-    dockerize_p.add_argument('--os-type', type=str, default=None, help='The base operating system type for the Docker image')
-    dockerize_p.add_argument('--os-version', type=str, default=None, help='The base operating system version for the Docker image')
-    dockerize_p.add_argument(
-        '--push',
-        action='store_true',
-        help="Push the image to a remote Docker registry (default is to not push; must set 'docker_registry' in Disdat config)",
-    )
-    dockerize_p.add_argument(
-        '--no-build',
-        action='store_false',
-        help='Do not build an image (only copy files into the Docker build context)',
-        dest='build',
-    )
-    dockerize_p.add_argument(
-        "pipe_root",
-        type=str,
-        help="Root of the Python source tree containing the user-defined transform; must have a setuptools-style setup.py file"
-    )
-    dockerize_p.add_argument("pipe_cls", type=str, help="User-defined transform, e.g., module.PipeClass")
-    dockerize_p.set_defaults(func=lambda args: _dockerize(args))
+    # dockerize
+    subparsers = dockerize.add_arg_parser(subparsers)
 
     # run
-    run_p = subparsers.add_parser('run', description="Run containerized version of transform.")
-    run_p.add_argument('--backend', default=run.Backend.default(), type=str, choices=run.Backend.options(), help='An optional batch execution back-end to use')
-    run_p.add_argument("--force", action='store_true', help="If there are dependencies, force re-computation.")
-    run_p.add_argument("--no-push-input", action='store_false', help="Do not push the current committed input bundle before execution (default is to push)", dest='push_input_bundle')
-    run_p.add_argument('-cs', '--central-scheduler', action='store_true', default=False, help="Use a central Luigi scheduler (defaults to local scheduler)")
-    run_p.add_argument('-w', '--workers', type=int, default=1, help="Number of Luigi workers on this node")
-    run_p.add_argument('-it', '--input-tag', nargs=1, type=str, action='append',
-                       help="Input bundle tags: '-it authoritative:True -it version:0.7.1'")
-    run_p.add_argument('-ot', '--output-tag', nargs=1, type=str, action='append',
-                       help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'")
-    run_p.add_argument("input_bundle", type=str, help="Name of source data bundle.  '-' means no input bundle.")
-    run_p.add_argument("output_bundle", type=str, help="Name of destination bundle.  '-' means default output bundle.")
-    run_p.add_argument("pipe_cls", type=str, help="User-defined transform, e.g., module.PipeClass")
-    run_p.add_argument("pipeline_args", type=str,  nargs=argparse.REMAINDER, help="Optional set of parameters for this pipe '--parameter value'")
-    run_p.set_defaults(func=lambda args: _run(args))
+    subparsers = run.add_arg_parser(subparsers)
 
     # apply
     apply_p = subparsers.add_parser('apply', description="Apply a transform to an input bundle to produce an output bundle.")
