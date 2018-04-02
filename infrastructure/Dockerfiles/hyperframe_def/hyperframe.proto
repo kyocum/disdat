@@ -233,12 +233,24 @@ message DatabaseLink {
     /* Database url */
     string url = 1;
 
-    /* Database schema */
-    string schema = 2;
+    /* Database */
+    string database = 2;
 
-    /* Schema table */
-    string table = 3;
+    /* servername */
+    string servername = 3;
+
+    /* Database schema */
+    string schema = 4;
+
+    /* table */
+    string table = 5;
 
     /* Table columns */
-    repeated string columns = 4;
+    repeated string columns = 6;
+
+    /* Data Source Name */
+    string dsn = 7;
+
+    /* Server port */
+    int32 port = 8;
 }

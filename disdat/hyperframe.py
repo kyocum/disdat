@@ -40,6 +40,7 @@ It may be stored in an HFrame table as a byte blob and re-inflated without worry
 """
 
 import disdat.common as common
+from disdat.db_target import DBTarget
 from collections import namedtuple, defaultdict
 import hashlib
 import time
@@ -1331,9 +1332,10 @@ class FrameRecord(PBObject):
 
         super(FrameRecord, self).__init__()
 
-        assert( ((data is not None) and (hframes is None) and (links is None)) or
-                ((data is None) and (hframes is not None) and (links is None)) or
-                ((data is None) and (hframes is None) and (links is not None)) )
+        if not ((data is None) and (hframes is None) and (links is None)):
+            assert( ((data is not None) and (hframes is None) and (links is None)) or
+                    ((data is None) and (hframes is not None) and (links is None)) or
+                    ((data is None) and (hframes is None) and (links is not None)) )
 
         # TODO: REMOVE this dependency.   Means we have to be very careful about FR copies
         self.hframe_uuid = hframe_uuid
@@ -1343,8 +1345,8 @@ class FrameRecord(PBObject):
         self.pb.name = name
         self.pb.type = hyperframe_pb2.Type.Value(type)
 
-        assert(shape is not None)
-        self.pb.shape.extend(shape)
+        if shape is not None:
+            self.pb.shape.extend(shape)
 
         if hframes is not None:
             self.pb.hframes.extend([HyperFrameRecord.copy_from_pb(hfrcd.pb).pb for hfrcd in hframes])
@@ -1414,6 +1416,15 @@ class FrameRecord(PBObject):
                 'state': self.state,
                 'pb': self.pb.SerializeToString()}
 
+    def get_uuid(self):
+        """
+        Return the uuid for this frame.
+
+        Returns:
+            uuid (str)
+        """
+        return self.pb.uuid
+
     def get_hframes(self):
         """
         NOTE: This is returning copies!
@@ -1436,6 +1447,16 @@ class FrameRecord(PBObject):
         assert self.pb.type == hyperframe_pb2.LINK
         return [LinkBase.find_url(link) for link in self.pb.links]
 
+    def get_links(self):
+        """
+        Assuming a link FrameRecord, return all the links
+
+        Returns:
+            (:list:str):  An ordered set of link URLs
+
+        """
+        return self.pb.links
+
     @staticmethod
     def make_filename(uuid):
         return "{}_frame.pb".format(uuid)
@@ -1449,6 +1470,27 @@ class FrameRecord(PBObject):
         """
         return FrameRecord.make_filename(self.pb.uuid)
 
+    def add_links(self, links):
+        """
+        Add links to this frame.
+
+        Returns:
+            (`hyperframe.FrameRecord`)
+
+        """
+        assert(self.is_link_frame())
+        assert(len(self.pb.links) == 0)
+
+        self.pb.links.extend([LinkBase.copy_from_pb(lrcd.pb).pb for lrcd in links])
+
+        self.pb.shape.extend((len(links),))
+
+        self.pb.ClearField('hash')
+
+        self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
+
+        return self
+
     def mod_hfr_uuid(self, new_hfr_uuid):
         """
         Modify this frame.  Replace the hfr uuid.  Also replace the current uuid of this frame.
@@ -1457,7 +1499,7 @@ class FrameRecord(PBObject):
             new_hfr_uuid:
 
         Returns:
-
+            (`hyperframe.FrameRecord`)
         """
         self.hframe_uuid = new_hfr_uuid
 
@@ -1482,7 +1524,7 @@ class FrameRecord(PBObject):
             (bool): Whether the series | ndarray appears to be a link column
         """
 
-        # You want Python? I'll give you Python. Get the first element of
+        # Welcome to duck typing.   Get the first element of
         # the series and check to see if it is some kind of recognizable
         # file element. If we get a TypeError (does not implement
         # __getitem__) or an attribute error (not a string) then we
@@ -1491,11 +1533,12 @@ class FrameRecord(PBObject):
             tester = series_like[0]
             if isinstance(tester, luigi.Target):
                 return True
-            elif (
-                tester.startswith('file:///') or
-                tester.startswith('s3://') or
-                tester.startswith('vertica:///')
-            ):
+            elif isinstance(tester, DBTarget):
+                return True
+            elif (tester.startswith('file:///') or
+                  tester.startswith('s3://') or
+                  tester.startswith('db://')
+                  ):
                 return True
             else:
                 return False
@@ -1503,8 +1546,6 @@ class FrameRecord(PBObject):
             return False
         except TypeError:
             return False
-
-        return False
 
     def is_link_frame(self):
         """
@@ -1817,12 +1858,12 @@ class FrameRecord(PBObject):
 
     @staticmethod
     def make_link_frame(hfid, name, file_paths, managed_path):
-        """ Create link frame from file paths (file, s3, or vertica) or luigi.Target objects.
+        """ Create link frame from file paths (file, s3, or db) or luigi.Target objects.
 
-        Assumes file_paths are 'file:///' or 's3://' or 'vertica:///'
+        Assumes file_paths are 'file:///' or 's3://' or 'db://'
         Assumes that the files are already copied into the bundle directory.
 
-        Note: This will only store the *relative* path of the link object (except for vertica)
+        Note: This will only store the *relative* path of the link object (except for db)
 
         Note: No LinkAuth yet.
 
@@ -1836,34 +1877,53 @@ class FrameRecord(PBObject):
             (FrameRecord)
         """
 
-        if isinstance(file_paths[0], luigi.Target):
+        print ("File paths are {}".format(file_paths))
+
+        if isinstance(file_paths[0], luigi.LocalTarget):
             file_paths = ['file://{}'.format(lt.path) if lt.path.startswith('/') else lt.path for lt in file_paths]
 
-        if file_paths[0].startswith('file:///'):
+        if isinstance(file_paths[0], DBTarget):
+            link_type = DatabaseLinkRecord
+        elif file_paths[0].startswith('file:///'):
             link_type = FileLinkRecord
         elif file_paths[0].startswith('s3://'):
             link_type = S3LinkRecord
-        elif file_paths[0].startswith('vertica:///'):
-            link_type = DatabaseLinkRecord
+        elif file_paths[0].startswith('db://'):
+            _logger.error("Found string-based database reference[{}], use DBTarget object instead.".format(file_paths[0]))
+            raise Exception("hyperframe:make_link_frame: error trying to copy in string-based database reference.")
         else:
             raise ValueError("Bad file paths -- cannot determine link type: example path {}".format(file_paths[0]))
 
         if link_type is FileLinkRecord:
             to_remove = "file:///" + managed_path
-            file_paths = [common.BUNDLE_URI_SCHEME + fn[len(to_remove):] for fn in file_paths]
         elif link_type is S3LinkRecord:
             to_remove = "s3://" + managed_path
-            file_paths = [common.BUNDLE_URI_SCHEME + fn[len(to_remove):] for fn in file_paths]
-        else:
-            _logger.warn("make_link_frame: unimplemented: relative vertica table paths.")
 
-        links = [link_type(hfid, None, fn) for fn in file_paths]
         frame = FrameRecord(name=name,
                             hframe_uuid=hfid,
-                            type='LINK',
-                            shape=(len(links),),
-                            links=links)
-        return frame
+                            type='LINK')
+
+        frame_uuid = frame.get_uuid()
+
+        if link_type is DatabaseLinkRecord:
+            # What the user sees in a db link URL
+            # db://<database>.<schema>.<disdat>_<context>_<virt_name>_<uuid prefix>@servername
+            links = [link_type(frame_uuid,  # hframe_uuid
+                               None,  # linkauth_uuid
+                               db_tgt.url(remove_context=True), # url
+                               db_tgt.servername, # servername
+                               db_tgt.database,   # database
+                               db_tgt.schema,     # schema
+                               db_tgt.tn, # table name, i.e, no schema, disdat_prefix, context, or uuid
+                               None, # columns
+                               db_tgt.port, # port
+                               db_tgt.dsn # data source name
+                               ) for db_tgt in file_paths]
+        else:
+            file_paths = [common.BUNDLE_URI_SCHEME + fn[len(to_remove):] for fn in file_paths]
+            links = [link_type(frame_uuid, None, fn) for fn in file_paths]
+
+        return frame.add_links(links)
 
 """
 Tables
@@ -2097,7 +2157,8 @@ class LinkBase(PBObject):
 
     def _write_row(self):
         """
-        :return: dictionary of key columns (from _create_table) and values.
+        Returns:
+             (dict): Dictionary of key columns (from _create_table) and values.
         """
         assert (self.pb is not None)
 
@@ -2134,10 +2195,13 @@ class LinkBase(PBObject):
 class FileLinkRecord(LinkBase):
     def __init__(self, hframe_uuid, linkauth_uuid, path):
         """
-        :param path:  local path to file
+
+        Args:
+            hframe_uuid (str):
+            linkauth_uuid (str):
+            path (str):  Local path to file
         """
         super(FileLinkRecord, self).__init__(hframe_uuid, linkauth_uuid)
-        #assert (path.startswith('file:///'))
         assert (path.startswith(common.BUNDLE_URI_SCHEME))
         self.pb.local.path = path
 
@@ -2150,11 +2214,13 @@ class FileLinkRecord(LinkBase):
 class S3LinkRecord(LinkBase):
     def __init__(self, hframe_uuid, linkauth_uuid, url):
         """
-        :param linkauth_uuid:
-        :param url:
+
+        Args:
+            hframe_uuid:
+            linkauth_uuid:
+            url:
         """
         super(S3LinkRecord, self).__init__(hframe_uuid, linkauth_uuid)
-        #assert (url.startswith('s3://'))
         assert (url.startswith(common.BUNDLE_URI_SCHEME))
         self.pb.s3.url = url
 
@@ -2165,30 +2231,39 @@ class S3LinkRecord(LinkBase):
 
 
 class DatabaseLinkRecord(LinkBase):
-    def __init__(self, hframe_uuid, linkauth_uuid, url, schema, table, columns):
+    def __init__(self, hframe_uuid, linkauth_uuid, url, servername, database, schema, table, columns, port, dsn):
         """
-        :param url:  needed?
-        :param schema:  name representing set of tables
-        :param table:  table
-        :param columns:  array of column names
+
+        At this time we store the DSN in the database_link.   This is to avoid users placing userids and passwords
+        in code to create DBTargets.  Only committed bundles can be shared, so only the user creating the bundle
+        should be able to commit it.
+
+        Args:
+            hframe_uuid (str):  The UUID of the hyperframe
+            linkauth_uuid (str): The UUID of the linkauth.  Currently unused.
+            url (str): The string passed to the user representing this resource: "db://<virt-table>".  Note that we transform
+            this into the presented name in the bundle based on the context, uuid, and whether this bundle is committed.
+            servername (str):  DNS name for the database in question
+            database (str):    The name of the database containing the schema
+            schema (str):      The schema name
+            table (str):       The virtual table name
+            columns (list:str): A list of strings of column names.  Currently unused.
+            port (int):  The port at which the server is listening
+            dsn (str): data source name
         """
         super(DatabaseLinkRecord, self).__init__(hframe_uuid, linkauth_uuid)
-        assert (url.startswith('vertica:///'))
+        assert (url.startswith('db://'))
         self.pb.database.url = url
+        self.pb.database.servername = servername
+        self.pb.database.database = database
         self.pb.database.schema = schema
         self.pb.database.table = table
         self.pb.database.columns.extend(columns)
+        self.pb.database.port = port
+        self.pb.database.dsn = dsn
 
         self.pb.ClearField('hash')
         self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
         assert (self.pb.IsInitialized())
-
-
-
-
-
-
-
-
 
 

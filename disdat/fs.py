@@ -198,7 +198,7 @@ class DisdatFS(object):
                 try:
                     self.__curr_context = self._all_contexts[self._mangled_curr_context_name]
                 except KeyError as ke:
-                    print "No current local context, please change context with 'dsdt checkout'"
+                    print "No current local context, please change context with 'dsdt switch'"
             self.save()
         return self.__curr_context
 
@@ -251,6 +251,19 @@ class DisdatFS(object):
         :return:
         """
         return self._curr_context and self._curr_context.is_valid()
+
+    def commit_db_links(self, hfr):
+        """
+        Commit the db_links in this bundle
+
+        Args:
+            hfr:
+
+        Returns:
+            None
+
+        """
+        self._curr_context.commit_db_links(hfr)
 
     def atomic_update_hframe(self, hfr):
         """Update an existing HFR on disk and in the database.
@@ -338,7 +351,7 @@ class DisdatFS(object):
 
         DisdatFS.put_path_cache(pipe, uuid, dir, True, is_left_edge_task)
 
-    def rm(self, human_name=None, rm_all=False, rm_old_only=False, tags=None):
+    def rm(self, human_name=None, rm_all=False, rm_old_only=False, tags=None, force=False):
         """
         Remove bundle with human_name or tag_value
 
@@ -351,6 +364,7 @@ class DisdatFS(object):
             rm_all:      Remove all the bundles matching name, tags.
             rm_old_only: Remove everything but the latest bundle matching name, tags
             tags (:dict):   A dict of (key,value) to find bundles
+            force (bool): If a committed bundle has a db link backing a view, you have to force removal.
 
         Returns:
             results (list:str):  List of strings of removed bundles
@@ -371,12 +385,12 @@ class DisdatFS(object):
 
             if rm_old_only or rm_all:
                 for hfr in hfrs[1:]:
-                    self._curr_context.rm_hframe(hfr.pb.uuid)
-                    return_strings.append("Removing old bundle {}".format(hfr.to_string()))
+                    if self._curr_context.rm_hframe(hfr.pb.uuid, force=force):
+                        return_strings.append("Removing old bundle {}".format(hfr.to_string()))
 
             if not rm_old_only:
-                self._curr_context.rm_hframe(hfrs[0].pb.uuid)
-                return_strings.append("Removing latest bundle {}".format(hfrs[0].to_string()))
+                if self._curr_context.rm_hframe(hfrs[0].pb.uuid, force=force):
+                    return_strings.append("Removing latest bundle {}".format(hfrs[0].to_string()))
 
             return return_strings
 
@@ -717,7 +731,7 @@ class DisdatFS(object):
         ctxt_dir = os.path.join(DisdatConfig.instance().get_context_dir(), local_context)
 
         if local_context == self._curr_context_name:
-            print("Disdat on context {}, please 'dsdt checkout <otherbranch>' before deleting.".format(local_context))
+            print("Disdat on context {}, please 'dsdt switch <otherbranch>' before deleting.".format(local_context))
             return
 
         if local_context in self._all_contexts:
@@ -778,15 +792,9 @@ class DisdatFS(object):
 
     def commit(self, bundle_name, input_tags):
         """   Commit indicates that this is a primary version of this bundle.
-        Everything else up to this point could be deleted (including prior committed versions? No).
-        And we could, like git, batch up all the commits when we do a push.
 
-        Note:  We used to have a third 'force_uuid' optional parameter.  However, commit no longer
-        creates new bundles, and this no longer applies.
-
-        Note: Commit in place.  Do not make a new bundle.  Re-use existing bundle and add the commit tag.  Thus this
-        will not use the commit_hf_uuid.  Because we don't make a new bundle, we don't use a pipe task here.  If we
-        need to, then we can find the hyperframe and put it in the PCE for the task to find.
+        Commit in place.  Re-use existing bundle and add the commit tag.
+        Database links are special.  Commits materialize special views of the physical table.
 
         Args:
             bundle_name (str): the name of the bundle to commit
@@ -815,13 +823,16 @@ class DisdatFS(object):
 
         tags = {'committed': 'True'}
 
-        # Commit first in memory:
+        # Commit in memory:
         existing_tags = hfr.get_tags()
         existing_tags.update(tags)
         hfr.replace_tags(existing_tags)
 
         # Commit to disk:
         self.atomic_update_hframe(hfr)
+
+        # Commit DBTarget links if present:
+        self.commit_db_links(hfr)
 
     def _get_all_link_frames(self, outer_hfr, local_fs_frames=False, s3_frames=False, db_frames=False):
         """
@@ -1426,7 +1437,7 @@ def _pull(fs, args):
 
 
 def _rm(fs, args):
-    for f in fs.rm(args.bundle, rm_all=args.all, tags=common.parse_args_tags(args.tag)):
+    for f in fs.rm(args.bundle, rm_all=args.all, tags=common.parse_args_tags(args.tag), force=args.force):
         print f
 
 
@@ -1470,7 +1481,7 @@ def init_fs_cl(subparsers):
 
     # context
     checkout_p = subparsers.add_parser('context')
-    checkout_p.add_argument('-f','--force', action='store_true', help='Force remove of a dirty local context')
+    checkout_p.add_argument('-f', '--force', action='store_true', help='Force remove of a dirty local context')
     checkout_p.add_argument('-d','--delete', action='store_true', help='Delete local context')
     checkout_p.add_argument(
         'context',
@@ -1505,6 +1516,7 @@ def init_fs_cl(subparsers):
     # rm
     rm_p = subparsers.add_parser('rm')
     rm_p.add_argument('bundle',  type=str, help='The destination bundle in the current context')
+    rm_p.add_argument('-f', '--force', action='store_true', default=False, help='Force remove of a committed bundle')
     rm_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
                       help="Having a specific tag: 'dsdt rm -t committed:True -t version:0.7.1'")
     rm_p.add_argument('--all', action='store_true',
