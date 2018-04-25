@@ -314,13 +314,15 @@ def resolve_bundle(pfs, pipe, is_left_edge_task):
         pfs.new_output_hframe(pipe, is_left_edge_task)
 
     # 4.) Check the inputs -- assumes we have processed upstream tasks already
-    for task in pipe.requires():
+    for i, task in enumerate(pipe.requires()):
         """ Are we re-running an upstream input (look in path cache)?
         At this time the only bundles a task depends on are the ones created by its upstream tasks.
         We have to look through its *current* list of possible upstream tasks, not the ones it had
-        on its prior run (old re-run logic below).
+        on its prior run (old re-run logic below).   If the UUID has changed relative to lineage, then
+        we need to re-run.
         """
         pce = pfs.get_path_cache(task)
+
         if pce is None:
             # this can happen with bundles created by other pipelines.
             # still surface the warning, but no longer raise exception
@@ -333,39 +335,21 @@ def resolve_bundle(pfs, pipe, is_left_edge_task):
                 pfs.new_output_hframe(pipe, is_left_edge_task)
                 return
 
-    if False:
-        """  Old re-run logic
-        Looking through the lineage graph is not a good way of determining what to re-run.
-        1.) The user could have updated their requires.  this means that we aren't seeing all the inputs we might have.
-        That means, we might see everything we used to have and determine that because they haven't changed that we
-        don't need to re-run.
-        2.) Also incorrect because I was checking when the upstream that should exist, doesn't exist.  That would happen
-        if our context was corrupt.
-        """
-        for dep in lng.pb.depends_on:
-            # Search by specific processing name, not the pipeline_id
-            _logger.debug("Found dependency processing_name {} uuid {}".format(dep.hframe_name, dep.hframe_uuid))
-            if verbose: print "resolve_bundle: Found dependency processing_name {} uuid {}".format(dep.hframe_name, dep.hframe_uuid)
-            input_bndl = pfs.get_hframe_by_proc(dep.hframe_name)
+            local_bundle = pfs.get_hframe_by_proc(task.task_id)
+            assert(local_bundle is not None)
 
-            # No existing input bundle or it has a newer version
-
-            # If the input_bndl is None -- I ran, but my upstream doesn't exist,
-            # the lineage may not reflect the new requires of this task.
-            if input_bndl is None or input_bndl.pb.uuid != dep.hframe_uuid:
-                if verbose: print "resolve_bundle: no input bundle {} or uuid of bundle ne uuid {}\n".format(input_bndl,
-                                                                                                 dep.hframe_uuid)
-                pfs.new_output_hframe(pipe, is_left_edge_task)
-                return
-
-            # Are we re-running an upstream input (look in path cache)
-            rslt = fs.DisdatFS.get_path_cache_by_name(dep.hframe_name)
-            if rslt is None:
-                # this can happen with bundles created by other pipelines.
-                # still surface the warning, but no longer raise exception
-                _logger.debug("Resolve bundles: input bundle {} with no path cache entry.  Likely produced by other pipesline".format(dep.hframe_name))
-            else:
-                if rslt.rerun:
+            """ Now we need to check if the one we have cached is an old one
+            POLICY
+            1.) if the date is more recent, it is "new" data.
+            2.) if it is older, we should require force (but currently do not and re-run).
+            XXX TODO: Add date to the depends_on pb data structure to enforce 2 XXX
+            """
+            for tup in lng.pb.depends_on:
+                if tup.hframe_name == local_bundle.pb.processing_name and tup.hframe_uuid != local_bundle.pb.uuid:
+                    if verbose: print "Resolve_bundle: prior input bundle {} {} has new uuid {}\n".format(
+                        task.task_id,
+                        tup.hframe_uuid,
+                        local_bundle.pb.uuid)
                     pfs.new_output_hframe(pipe, is_left_edge_task)
                     return
 

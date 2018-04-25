@@ -1877,7 +1877,7 @@ class FrameRecord(PBObject):
             (FrameRecord)
         """
 
-        print ("File paths are {}".format(file_paths))
+        #print ("File paths are {}".format(file_paths))
 
         if isinstance(file_paths[0], luigi.LocalTarget):
             file_paths = ['file://{}'.format(lt.path) if lt.path.startswith('/') else lt.path for lt in file_paths]
