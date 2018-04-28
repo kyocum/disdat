@@ -1,6 +1,7 @@
 include infrastructure/Dockerfiles/hyperframe_def/*
 include infrastructure/dockerizer/Makefile
 include infrastructure/dockerizer/config.mk.template
+include infrastructure/dockerizer/config/*
 include LICENSE.txt
 include setup.py
 include disdat/VERSION
