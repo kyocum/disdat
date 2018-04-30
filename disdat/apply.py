@@ -314,7 +314,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task):
         pfs.new_output_hframe(pipe, is_left_edge_task)
 
     # 4.) Check the inputs -- assumes we have processed upstream tasks already
-    for i, task in enumerate(pipe.requires()):
+    for task in pipe.requires():
         """ Are we re-running an upstream input (look in path cache)?
         At this time the only bundles a task depends on are the ones created by its upstream tasks.
         We have to look through its *current* list of possible upstream tasks, not the ones it had
