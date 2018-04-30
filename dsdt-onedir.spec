@@ -2,10 +2,7 @@
 
 block_cipher = None
 
-added_files = [ ('disdat', 'disdat'),
-('setup.py','.'),
-('infrastructure/dockerizer', 'infrastructure/dockerizer'),
-('infrastructure/__init__.py', 'infrastructure/.')]
+added_files = [ ('disdat', 'disdat'), ]
 
 a = Analysis(['disdat/dsdt.py'],
              pathex=['/Users/kyocum/Code/disdat'],

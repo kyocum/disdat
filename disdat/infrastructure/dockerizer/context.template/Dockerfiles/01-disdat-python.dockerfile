@@ -19,9 +19,8 @@ ARG DISDAT_SDIST
 COPY disdat $BUILD_ROOT/disdat
 
 # ...and install Disdat
-
-RUN $KICKSTART_ROOT/bin/kickstart-python.sh -n $VIRTUAL_ENV
-RUN $KICKSTART_ROOT/bin/install-python-package-from-source-tree.sh $VIRTUAL_ENV $BUILD_ROOT/disdat/dockerizer/context.template/$DISDAT_SDIST
+RUN virtualenv $VIRTUAL_ENV; $VIRTUAL_ENV/bin/activate
+RUN pip install $BUILD_ROOT/disdat/dockerizer/context.template/$DISDAT_SDIST; deactivate
 
 # Add the virtual environment Python to the head of the PATH; running
 # `python` will then get you the installed virtual environment and the

@@ -225,7 +225,7 @@ else
 	# Whatever happens now, make sure we deactivate the virtual environment
 	old_cwd=$PWD
 	requirements_from_setup=$(mktemp)
-	function atexit_deactkickstart-python.shivate {
+	function atexit_deactivate {
 		if [ x$debug == 'x' ]; then
 			rm -f $requirements_from_setup
 		fi
