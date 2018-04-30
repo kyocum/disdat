@@ -29,7 +29,7 @@ and run pipelines within Python code.
 Install the CLI
 ---------------
 
-Build and install the single-file ``dsdt`` executable.   The deactivate command is optional if you're currently in an existing Python virtual environment.
+Build and install the single-file ``dsdt`` executable.   The deactivate command is optional if you're currently in an existing Python virtual environment.  We assume that you have installed virtualenvwrapper in your base Python environment.  See http://virtualenvwrapper.readthedocs.io/en/latest/install.html for instructions. 
 
 .. code-block:: console
 
