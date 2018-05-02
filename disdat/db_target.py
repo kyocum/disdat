@@ -61,7 +61,7 @@ def single_query(dsn, query, cursor=None):
     #print ("query: Running query:{}".format(query))
 
     get_rows = True
-    if "DROP" in query or "CREATE" in query:
+    if "DROP" in query or "CREATE" in query or "ALTER" in query:
         get_rows = False
 
     def _query(cursor, query):
@@ -173,7 +173,7 @@ def drop_table_vertica(dsn, table, run=True):
         (unicode): The unicode string containing the query
 
     """
-    query = u"DROP TABLE if exists {};".format(table)
+    query = u'DROP TABLE if exists {};'.format(table)
 
     if run:
         result = single_query(dsn, query)
@@ -195,7 +195,7 @@ def drop_view_vertica(dsn, table, run=True):
         (unicode): The unicode string containing the query
 
     """
-    query = u"DROP VIEW if exists {};".format(table)
+    query = u'DROP VIEW if exists {};'.format(table)
 
     if run:
         result = single_query(dsn, query)
@@ -216,7 +216,7 @@ def database_name_vertica(dsn):
         (unicode): The name of the database
 
     """
-    query = u"SELECT CURRENT_DATABASE();"
+    query = u'SELECT CURRENT_DATABASE();'
 
     result = single_query(dsn, query)
 
@@ -306,16 +306,20 @@ class DBTarget(Target):
         self.virt_name = None
         self.phys_name = None
         self.schema = schema_name
-        self.uuid = uuid
         self.committed = False
+
+        self.uuid = uuid
+        if self.uuid is None:
+            pce = self.pipe.pfs.get_path_cache(self.pipe)
+            assert(pce is not None)
+            self.uuid = pce.uuid
+        self.sql_name_uuid = self.uuid.replace('-', '')
 
         self.init()
 
         # If this is a user, they must add the pipe argument, and we
         # keep track of the different db_targets they create.
         if self.pipe is not None: self.pipe.add_db_target(self)
-
-        #print "Created a DBTarget with params: {}".format(self.__dict__)
 
     def init(self):
         """
@@ -329,11 +333,6 @@ class DBTarget(Target):
             None
         """
 
-        if self.uuid is None:
-            pce = self.pipe.pfs.get_path_cache(self.pipe)
-            assert(pce is not None)
-            self.uuid = pce.uuid
-
         if ENABLE_DISDAT_SCHEMAS:
             """
             Here the schema contains <disdat_prefix>_<context>
@@ -346,7 +345,7 @@ class DBTarget(Target):
                 """.format(self.schema)
                 single_query(self.dsn, query)
 
-            self.phys_name = u"{}.{}_{}".format(self.schema, self.table_name, self.uuid[:8])
+            self.phys_name = u"{}.{}_{}".format(self.schema, self.table_name, self.sql_name_uuid)
         else:
             """
             Here the name is prefixed by <disdat_prefix>_<context>
@@ -356,7 +355,7 @@ class DBTarget(Target):
                                                       self.disdat_prefix,
                                                       self.context.get_local_name(),
                                                       self.table_name,
-                                                      self.uuid)
+                                                      self.sql_name_uuid)
 
         """ The fully qualified physical name is the text representation of the link stored in the bundle """
         self.phys_name_url = self.url()
@@ -429,7 +428,7 @@ class DBTarget(Target):
         WHERE table_name ilike '{}'
         AND table_schema ilike '{}'
         AND view_definition ilike '%{}%';
-        """.format(table_name, schema, self.uuid)
+        """.format(table_name, schema, self.sql_name_uuid)
 
         try:
             result = single_query(self.dsn, query)

@@ -20,9 +20,12 @@ ifeq ($(DISDAT_ROOT), )
 $(error DISDAT_ROOT variable not set or invalid)
 endif
 
+# The current Disdat source distribution path
+DISDAT_SDIST := $(shell basename `find $(DISDAT_ROOT)/disdat/infrastructure/dockerizer/context.template/*.tar.gz -type f`)
+
 # The root of an extra user configuration files (O/S package dependencies,
 # etc.)
-CONFIG_ROOT ?= $(DISDAT_ROOT)/infrastructure/dockerizer/config
+CONFIG_ROOT ?= $(DISDAT_ROOT)/disdat/infrastructure/dockerizer/config
 CONFIG_ROOT := $(shell echo $(CONFIG_ROOT) | sed 's/\/*$$//')
 ifeq ($(CONFIG_ROOT), )
 $(error CONFIG_ROOT variable not set or invalid)
@@ -30,7 +33,7 @@ endif
 
 # The root of the Docker context template (Dockerfiles, kickstart scripts,
 # etc.)
-DOCKER_CONTEXT_TEMPLATE ?= $(DISDAT_ROOT)/infrastructure/dockerizer/context.template
+DOCKER_CONTEXT_TEMPLATE ?= $(DISDAT_ROOT)/disdat/infrastructure/dockerizer/context.template
 DOCKER_CONTEXT_TEMPLATE := $(shell echo $(DOCKER_CONTEXT_TEMPLATE) | sed 's/\/*$$//')
 ifeq ($(DOCKER_CONTEXT_TEMPLATE), )
 $(error DOCKER_CONTEXT_TEMPLATE variable not set or invalid)
@@ -124,6 +127,7 @@ build-01: $(DOCKER_CONTEXT) $(DOCKER_CONTEXT)/disdat
 	docker build \
 		--build-arg IMAGE_LAYER=$(IMAGE_00_LAYER) \
 		--build-arg BUILD_ROOT=$(IMAGE_BUILD_ROOT) \
+		--build-arg DISDAT_SDIST=$(DISDAT_SDIST) \
 		--file $(DOCKER_CONTEXT)/Dockerfiles/01-disdat-python.dockerfile  \
 		--tag $(IMAGE_01_LAYER) \
 		$(DOCKER_CONTEXT)
@@ -160,12 +164,10 @@ $(DOCKER_CONTEXT)/config: $(DOCKER_CONTEXT) $(shell find $(CONFIG_ROOT) -type f)
 	@touch $@
 
 # Copy Disdat into the Docker context
-$(DOCKER_CONTEXT)/disdat: $(DOCKER_CONTEXT) $(DISDAT_ROOT)/setup.py $(shell find $(DISDAT_ROOT)/disdat -type f) $(shell find $(DISDAT_ROOT)/infrastructure/dockerizer -type f)
+$(DOCKER_CONTEXT)/disdat: $(DOCKER_CONTEXT) $(shell find $(DISDAT_ROOT)/disdat -type f)
 	@echo "----- Copying Disdat files from $(DISDAT_ROOT)"
 	rsync -av --delete --force --quiet \
-		$(DISDAT_ROOT)/setup.py $(DISDAT_ROOT)/disdat $@
-	rsync -av --delete --force --quiet \
-		$(DISDAT_ROOT)/infrastructure/dockerizer $(DISDAT_ROOT)/infrastructure $@
+		$(DISDAT_ROOT)/disdat/infrastructure/dockerizer $(DISDAT_ROOT)/disdat/infrastructure $@
 	@touch $@
 
 # Copy the user pipeline package into the Docker context. For this copy,

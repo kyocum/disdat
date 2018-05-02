@@ -33,7 +33,9 @@ pip install pyinstaller
 rm `find . -name '*.pyc'`
 
 #pyinstaller --clean --onefile --name dsdt disdat/dsdt.py
-pyinstaller  --onefile --name dsdt dsdt-mod.spec
+#pyinstaller  --onedir --name dsdt dsdt-onedir.spec
+pyinstaller  --onefile --name dsdt dsdt-onefile.spec
+
 
 if false; then
     # At one point, pyinstaller was failing.   No longer apears to be the case, but holding on to vistigial code.

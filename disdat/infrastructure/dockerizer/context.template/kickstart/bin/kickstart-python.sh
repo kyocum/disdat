@@ -31,7 +31,7 @@ $USAGE
 
 Positional arguments:
     VIRTUAL_ENV : The destination virtual environment path
-    REQUIREMENTS_FILE : A pip-style requirements file
+    REQUIREMENTS_FILE : An optional pip-style requirements file
 
 Options:
     -h : Get help
@@ -93,11 +93,10 @@ if [ x$virtual_env == 'x' ]; then
 	exit 1
 fi
 
+has_requirements=yes
 requirements=${2}
 if [ x$requirements == 'x' ]; then
-	error "Could not find REQUIREMENTS_FILE argument"
-	echo $USAGE
-	exit 1
+     has_requirements=''
 elif [ ! -e $requirements ]; then
 	error "Could not find requirements file $requirements"
 	exit 1
@@ -108,16 +107,18 @@ fi
 
 # If the 'requirements' file is actually a source distribution, extract the
 # setup.py file.
-package_name_maybe=$(basename $requirements .tar.gz)
-setup_py_dir=
-if [ $(basename $requirements) == ${package_name_maybe}.tar.gz ]; then
-	# Sorry - no cleanup if the script dies...
-	setup_py_dir=$(mktemp -d)
-	if ! tar xvzf $requirements -C $setup_py_dir $package_name_maybe/setup.py; then
-		error "Got invalid Python sdist $requirements"
-		exit 1
-	fi
-	requirements=$setup_py_dir/$package_name_maybe/setup.py
+if [ x$has_requirements != 'x' ]; then
+    package_name_maybe=$(basename $requirements .tar.gz)
+    setup_py_dir=
+    if [ $(basename $requirements) == ${package_name_maybe}.tar.gz ]; then
+        # Sorry - no cleanup if the script dies...
+        setup_py_dir=$(mktemp -d)
+        if ! tar xvzf $requirements -C $setup_py_dir $package_name_maybe/setup.py; then
+            error "Got invalid Python sdist $requirements"
+            exit 1
+        fi
+        requirements=$setup_py_dir/$package_name_maybe/setup.py
+    fi
 fi
 
 if [ x$use_conda != 'x' -a x$force_pip != 'x' ]; then
@@ -170,19 +171,21 @@ if [ \( x$use_conda != 'x' -o -x $virtual_env/bin/conda \) -a x$force_pip == 'x'
 	# Install whatever Continuum doesn't provide. If the input was a
 	# setup.py file, we have to use the recycled output from
 	# select_conda_packages.py.
-	if [ $(basename $requirements) == "setup.py" ]; then
-		if [ x$(wc -w $non_conda_requirements | awk '{print $1}') != 'x0' ]; then
-			if ! pip --disable-pip-version-check $no_cache install -r $non_conda_requirements; then
-				error "Failed to install pip-only Python requirements"
-				exit 1
-			fi
-		fi
-	else
-		if ! pip --disable-pip-version-check $no_cache install -r $requirements; then
-			error "Failed to install pip-only Python requirements"
-			exit 1
-		fi
-	fi
+	if [ x$has_requirements != 'x' ]; then
+        if [ $(basename $requirements) == "setup.py" ]; then
+            if [ x$(wc -w $non_conda_requirements | awk '{print $1}') != 'x0' ]; then
+                if ! pip --disable-pip-version-check $no_cache install -r $non_conda_requirements; then
+                    error "Failed to install pip-only Python requirements"
+                    exit 1
+                fi
+            fi
+        else
+            if ! pip --disable-pip-version-check $no_cache install -r $requirements; then
+                error "Failed to install pip-only Python requirements"
+                exit 1
+            fi
+        fi
+    fi
 
 	if [ x$no_cache != 'x' ]; then
 		if ! conda clean -a -y; then
@@ -244,25 +247,26 @@ else
 	# weak, or (b) for anyone that actually wants to get work done instead
 	# of dorking around for hours with arcane 'pip install' misfires, so
 	# it must be installed outside of 'pip install -r requirements.txt'.
-
-	if [ $(basename $requirements) == "setup.py" ]; then
-		$SH_DIR/find_packages_from_setup.py $requirements > $requirements_from_setup
-		requirements=$requirements_from_setup
-	fi
-	numpy=$(grep ^numpy $requirements)
-	if [ -n "$numpy" ] && ! pip --disable-pip-version-check $no_cache install $numpy; then
-		error "Failed to install $numpy"
-		exit 1
-	fi
-	scipy=$(grep ^scipy $requirements)
-	if [ -n "$scipy" ] && ! pip --disable-pip-version-check $no_cache install $scipy; then
-		error "Failed to install $scipy"
-		exit 1
-	fi
-	if ! pip --disable-pip-version-check $no_cache install -r $requirements; then
-		error "Failed to install Python requirements"
-		exit 1
-	fi
+    if [ x$has_requirements != 'x' ]; then
+        if [ $(basename $requirements) == "setup.py" ]; then
+            $SH_DIR/find_packages_from_setup.py $requirements > $requirements_from_setup
+            requirements=$requirements_from_setup
+        fi
+        numpy=$(grep ^numpy $requirements)
+        if [ -n "$numpy" ] && ! pip --disable-pip-version-check $no_cache install $numpy; then
+            error "Failed to install $numpy"
+            exit 1
+        fi
+        scipy=$(grep ^scipy $requirements)
+        if [ -n "$scipy" ] && ! pip --disable-pip-version-check $no_cache install $scipy; then
+            error "Failed to install $scipy"
+            exit 1
+        fi
+        if ! pip --disable-pip-version-check $no_cache install -r $requirements; then
+            error "Failed to install Python requirements"
+            exit 1
+        fi
+    fi
 fi
 
 success "Successfully installed the Python virtual environment"
