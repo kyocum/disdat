@@ -19,8 +19,8 @@ ARG DISDAT_SDIST
 COPY disdat $BUILD_ROOT/disdat
 
 # ...and install Disdat
-RUN virtualenv $VIRTUAL_ENV; source $VIRTUAL_ENV/bin/activate
-RUN pip install $BUILD_ROOT/disdat/dockerizer/context.template/$DISDAT_SDIST; deactivate
+RUN virtualenv $VIRTUAL_ENV
+RUN ["/bin/bash", "-c", "source $VIRTUAL_ENV/bin/activate; pip install $BUILD_ROOT/disdat/dockerizer/context.template/$DISDAT_SDIST; deactivate"]
 
 # Add the virtual environment Python to the head of the PATH; running
 # `python` will then get you the installed virtual environment and the
