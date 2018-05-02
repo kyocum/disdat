@@ -58,8 +58,6 @@ setup(
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
     packages=find_packages(exclude=['tests*',
-                                    'infrastructure.aws',
-                                    'infrastructure.kubernetes',
                                     'infrastructure.tests*']),
 
     # Include non-python files found in each package in the install, if in your MANIFEST.in
