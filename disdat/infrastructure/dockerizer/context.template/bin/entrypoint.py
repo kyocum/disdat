@@ -90,22 +90,22 @@ def _apply(input_bundle_name, output_bundle_name, pipeline_class_name, pipeline_
     return p.exitcode == 0
 
 
-def _branch_and_checkout(fs, branch_name=None):
-    """Create and check out a new Disdat branch.
+def _context_and_switch(fs, context_name=None):
+    """Create and check out a new Disdat context.
 
     :param fs: A Disdat file system handle.
-    :param branch_name: A fully-qualified branch name.
+    :param context_name: A fully-qualified context name. remote-context/local-context
     """
-    if branch_name is None:
-        _logger.error("Got an invalid branch name '{}'".format(branch_name))
+    if context_name is None:
+        _logger.error("Got an invalid context name '{}'".format(context_name))
         return False
-    if len(branch_name.split('/')) <= 1:
-        _logger.error("Got a partial branch name: Expected <context>/<branch-name>, got branch name '{}' with no context".format(branch_name))
+    if len(context_name.split('/')) <= 1:
+        _logger.error("Got a partial context name: Expected <remote-context>/<local-context>, got context name '{}' with no context".format(context_name))
         return False
-    # These operations are idempotent, so if the context and branch already
+    # These operations are idempotent, so if the context and context already
     # exist these become no-ops.
-    fs.branch(branch_name)
-    fs.checkout(branch_name)
+    fs.branch(context_name)
+    fs.checkout(context_name)
     return True
 
 
@@ -213,7 +213,7 @@ def add_argument_help_string(help_string, default=None):
         return "{} (default '{}')".format(help_string, default)
 
 
-if __name__ == '__main__':
+def main(input_args):
     # To simplify configuring and building pipeline images, we keep all
     # of the various defaults parameter values in the Docker image makefile,
     # and pass them on as Docker ENV variables.
@@ -272,16 +272,27 @@ if __name__ == '__main__':
         required=True,
         help='The fully-qualified Disdat branch to use when running',
     )
+    #pipeline_parser.add_argument(
+    #    '--input-tags',
+    #    type=str,
+    #    help='A JSON-encoded dictionary of tags to choose input bundle',
+    #)
+
     pipeline_parser.add_argument(
-        '--input-tags',
-        type=str,
-        help='A JSON-encoded dictionary of tags to choose input bundle',
-    )
+        '-it', '--input-tag',
+        nargs=1, type=str, action='append',
+        help="Input bundle tags: '-it authoritative:True -it version:0.7.1'")
+
     pipeline_parser.add_argument(
-        '--output-tags',
-        type=str,
-        help='A JSON-encoded dictionary of tags to attach to the output bundle',
-    )
+        '-ot', '--output-tag',
+        nargs=1, type=str, action='append',
+        help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'")
+
+    #pipeline_parser.add_argument(
+    #    '--output-tags',
+    #    type=str,
+    #    help='A JSON-encoded dictionary of tags to attach to the output bundle',
+    #)
     pipeline_parser.add_argument(
         '--output-bundle-uuid',
         default=None,
@@ -309,17 +320,20 @@ if __name__ == '__main__':
         type=str,
         help='One or more optional arguments to pass on to the pipeline class, of the form \'--param-name param-value\'; note that parameter values are NOT optional!',
     )
-    args = parser.parse_args()
+
+    args = parser.parse_args(input_args)
 
     logging.basicConfig(level=args.debug_level)
     _logger.setLevel(args.debug_level)
+
+    print "My args are {}".format(args)
 
     # Check to make sure that we have initialized the Disdat environment
     if not os.path.exists(os.path.join(os.environ['HOME'], '.config', 'disdat')):
         _logger.warning('Disdat environment possibly uninitialized?')
     # Get a Disdat file system handle and create the branch if necessary.
     fs = disdat.fs.DisdatFS()
-    if not _branch_and_checkout(fs, args.branch):
+    if not _context_and_switch(fs, args.branch):
         _logger.error('Failed to branch and check out \'{}\''.format(args.branch))
         sys.exit(os.EX_IOERR)
     # If we received JSON, convert it into a temporary tab-separated file,
@@ -337,13 +351,13 @@ if __name__ == '__main__':
                 _logger.error('Failed to add JSON to input bundle \'{}\''.format(args.input))
                 sys.exit(os.EX_IOERR)
 
-    # If specified, decode the JSON-encoded tags.
+    # If specified, decode the ordinary 'key:value' strings into a dictionary of tags.
     input_tags = {}
-    if args.input_tags is not None:
-        input_tags = json.loads(args.input_tags)
+    if args.input_tag is not None:
+        input_tags = disdat.common.parse_args_tags(args.input_tag)
     output_tags = {}
-    if args.output_tags is not None:
-        output_tags = json.loads(args.output_tags)
+    if args.output_tag is not None:
+        output_tags = disdat.common.parse_args_tags(args.output_tag)
 
     if False:
         print "Container Running with command (output uuid {}, input_tags {}, output_tags {}):".format(args.output_bundle_uuid,
@@ -373,3 +387,9 @@ if __name__ == '__main__':
     else:
         _logger.error('Failed to run pipeline')
         sys.exit(os.EX_IOERR)
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
+
+

@@ -229,8 +229,26 @@ def make_pipeline_image_name(pipeline_class_name):
     return '-'.join(['disdat'] + pipeline_class_name.split('.')[:-1]).lower()
 
 
+def make_sagemaker_pipeline_image_name(pipeline_class_name):
+    """ Create the string for the image for this pipeline if it uses sagemaker's
+    calling convention
+
+    Args:
+        pipeline_class_name:
+
+    Returns:
+        str: The name of the image 'disdat-module[-submodule]...-sagemaker'
+    """
+
+    return make_pipeline_image_name(pipeline_class_name) + "-sagemaker"
+
+
 def make_pipeline_repository_name(docker_repository_prefix, pipeline_class_name):
     return '/'.join(([docker_repository_prefix.strip('/')] if docker_repository_prefix is not None else []) + [make_pipeline_image_name(pipeline_class_name)])
+
+
+def make_sagemaker_pipeline_repository_name(docker_repository_prefix, pipeline_class_name):
+    return '/'.join(([docker_repository_prefix.strip('/')] if docker_repository_prefix is not None else []) + [make_sagemaker_pipeline_image_name(pipeline_class_name)])
 
 
 #
@@ -263,31 +281,38 @@ def make_run_command(
         '--branch', local_ctxt,
     ]
     if len(input_tags) > 0:
-        args += ['--input-tags', "'" + json.dumps(dict(input_tags)) + "'"]
+        for next_tag in input_tags:
+            args += ['--input-tag', next_tag]
     if len(output_tags) > 0:
-        args += ['--output-tags', "'" + json.dumps(dict(output_tags)) + "'"]
+        for next_tag in output_tags:
+            args += ['--output-tag', next_tag]
     args += [input_bundle, output_bundle]
     return [x.strip() for x in args + pipeline_params]
 
 
-def parse_args_tags(args_tag):
+def parse_args_tags(args_tag, to='dict'):
     """ parse argument string of tags 'tag:value tag:value'
     into a dictionary.
 
     Args:
         args_tag (str): tags in string format 'tag:value tag:value'
-
+        to (str): Make a 'list' or 'dict' (default)
     Returns:
-        (dict):
-
+        (list(str) or dict(str)):
     """
 
-    if args_tag:
-        tag_dict = {k: v for k, v in [kv[0].split(':') for kv in args_tag]}
+    if to == 'list':
+        tag_thing = []
     else:
-        tag_dict = {}
+        tag_thing = {}
 
-    return tag_dict
+    if args_tag:
+        if to == 'list':
+            tag_thing = ['{}'.format(kv[0]) for kv in args_tag]
+        if to == 'dict':
+            tag_thing = {k: v for k, v in [kv[0].split(':') for kv in args_tag]}
+
+    return tag_thing
 
 
 def parse_params(params):
