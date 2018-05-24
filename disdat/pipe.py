@@ -40,6 +40,7 @@ import shutil
 import luigi
 import logging
 import json
+import os
 
 
 CLOSURE_PIPE_INPUT = 'pipeline_input'
@@ -136,6 +137,9 @@ class PipeTask(luigi.Task, PipeBase):
     force = luigi.BoolParameter(default=False, significant=False)
     output_tags = luigi.DictParameter(default={}, significant=True)
 
+    # Each pipeline executes wrt a data context.
+    data_context = luigi.Parameter(significant=False)
+
     def __init__(self, *args, **kwargs):
         """
         This has the same signature as luigi.Task.
@@ -165,7 +169,7 @@ class PipeTask(luigi.Task, PipeBase):
         # Get the presentable input params from the closure_hframe
         if self.closure_hframe is not None:
             assert self.closure_hframe.is_presentable()
-            self.presentable_inputs = self.pfs.get_curr_context().present_hfr(self.closure_hframe)
+            self.presentable_inputs = self.data_context.present_hfr(self.closure_hframe)
         else:
             self.presentable_inputs = None
         self.user_set_human_name = None
@@ -272,7 +276,7 @@ class PipeTask(luigi.Task, PipeBase):
         hfrs = []
         for t in tasks:
             hfid = t.get_hframe_uuid()
-            hfrs.append(self.pfs.get_hframe_by_uuid(hfid))
+            hfrs.append(self.pfs.get_hframe_by_uuid(hfid, data_context=self.data_context))
 
         return hfrs
 
@@ -321,7 +325,8 @@ class PipeTask(luigi.Task, PipeBase):
                     'closure_bundle_uuid_root': self.closure_bundle_uuid,
                     'driver_output_bundle': None,  # allow intermediate tasks pipe_id to be independent of root task.
                     'force': self.force,
-                    'output_tags': dict({})  # do not pass output_tags up beyond root task
+                    'output_tags': dict({}),  # do not pass output_tags up beyond root task
+                    'data_context': self.data_context  # all operations wrt this context
                 })
                 tasks.append(pipe_class(**params))
 
@@ -352,32 +357,6 @@ class PipeTask(luigi.Task, PipeBase):
 
         """
 
-        def rm_bundle_dir():
-            """
-            We created a directory (managed path) to hold the bundle and any files.   The files have been
-            copied in.   Removing the directory removes any created files.  However we also need to
-            clean up any temporary tables as well.
-
-            TODO: Integrate with data_context bundle remove.   That deals with information already
-            stored in the local DB.
-
-            ASSUMES:  That we haven't actually updated the local DB with information on this bundle.
-
-            Returns:
-                None
-            """
-            try:
-                shutil.rmtree(pce.path)
-
-                # if people create s3 files, s3 file targets, inside of an s3 context,
-                # then we will have to clean those up as well.
-
-                for t in self.db_targets:
-                    t.drop_table()
-
-            except IOError as why:
-                _logger.error("Removal of hyperframe directory {} failed with error {}. Continuing removal...".format(
-                    pce.uuid, why))
 
         kwargs = self.prepare_pipe_kwargs(for_run=True)
 
@@ -389,11 +368,11 @@ class PipeTask(luigi.Task, PipeBase):
             user_rtn_val = self.pipe_run(**kwargs)
         except Exception as error:
             """ If user's pipe fails for any reason, remove bundle dir and raise """
-            rm_bundle_dir()
+            PipeBase.rm_bundle_dir(pce.path, pce.uuid, self.db_targets)
             raise
 
         try:
-            hfr = self.parse_pipe_return_val(pce.uuid, user_rtn_val, human_name=self.pipeline_id())
+            hfr = PipeBase.parse_pipe_return_val(pce.uuid, user_rtn_val, self.data_context, self.pipeline_id())
 
             if self.output_tags:
                 self.user_tags.update(self.output_tags)
@@ -404,10 +383,10 @@ class PipeTask(luigi.Task, PipeBase):
             if self.user_tags:
                 hfr.replace_tags(self.user_tags)
 
-            self.pfs.write_hframe(hfr)
+            self.data_context.write_hframe(hfr)
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
-            rm_bundle_dir()
+            PipeBase.rm_bundle_dir(pce.path, pce.uuid, self.db_targets)
             raise
 
         return hfr
@@ -454,11 +433,11 @@ class PipeTask(luigi.Task, PipeBase):
         if for_run:
             upstream_tasks = [(t.user_arg_name, self.pfs.get_path_cache(t)) for t in self.requires()]
             for user_arg_name, pce in [u for u in upstream_tasks if u[1] is not None]:
-                hfr = self.pfs.get_hframe_by_uuid(pce.uuid)
+                hfr = self.pfs.get_hframe_by_uuid(pce.uuid, data_context=self.data_context)
                 assert hfr.is_presentable()
                 if pce.instance.user_arg_name in kwargs:
                     _logger.warning('Task human name {} reused when naming task dependencies: Dependency hyperframe shadowed'.format(pce.instance.user_arg_name))
-                kwargs[user_arg_name] = self.pfs.get_curr_context().present_hfr(hfr)
+                kwargs[user_arg_name] = self.data_context.present_hfr(hfr)
         return kwargs
 
     """
@@ -572,6 +551,31 @@ class PipeTask(luigi.Task, PipeBase):
         """
 
         return self.make_luigi_targets_from_basename(filename)
+
+    def create_output_dir(self, dirname):
+        """
+        Disdat Pipe API Function
+
+        Given basename directory name, return a fully qualified path whose prefix is the
+        local output directory for this bundle in the current context.  This call creates the
+        output directory as well.
+
+        Args:
+            dirname (str): The name of the output directory, i.e., "models"
+
+        Returns:
+            output_dir (str):  Fully qualified path of a directory whose prefix is the bundle's local output directory.
+
+        """
+
+        prefix_dir = self.get_output_dir()
+        fqp = os.path.join(prefix_dir, dirname)
+        try:
+            os.makedirs(fqp)
+        except IOError as why:
+            _logger.error("Creating directory in bundle directory failed:".format(why))
+
+        return fqp
 
     def get_output_dir(self):
         """

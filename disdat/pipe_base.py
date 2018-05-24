@@ -16,6 +16,7 @@ from disdat.hyperframe import LineageRecord, HyperFrameRecord, FrameRecord
 
 import disdat.common as common
 import os
+import shutil
 import logging
 import luigi
 import getpass
@@ -58,12 +59,14 @@ def _run_git_cmd(git_dir, git_cmd, get_output=False):
 
 
 def get_pipe_version(pipe_instance):
-    '''Get a pipe version record.
+    """Get a pipe version record.
 
-    :param pipe_instance: An instance of a pipe class.
-    :return: a version record
-    :rtype: a code:`CodeVersion` named tuple
-    '''
+    Args:
+        pipe_instance: An instance of a pipe class.
+
+    Returns:
+        rtype: a code:`CodeVersion` named tuple
+    """
     source_file = inspect.getsourcefile(pipe_instance.__class__)
     git_dir = os.path.dirname(source_file)
 
@@ -192,8 +195,9 @@ class PipeBase(object):
 
         return hframe
 
-    def make_hframe(self, output_frames, output_bundle_uuid, depends_on,
-                    human_name=None, processing_name=None, tags=None, presentation=hyperframe_pb2.DEFAULT):
+    @staticmethod
+    def make_hframe(output_frames, output_bundle_uuid, depends_on,
+                    human_name, processing_name, class_to_version, tags=None, presentation=hyperframe_pb2.DEFAULT):
         """
         Create HyperFrameRecord or HFR
         HFR contains a LineageRecord
@@ -210,6 +214,7 @@ class PipeBase(object):
             depends_on (:list:tuple):  must be the processing_name, uuid of the upstream pipes / base bundles
             human_name:
             processing_name:
+            class_to_version: A python class whose file is under git control
             tags:
             presentation (enum):  how to present this hframe when we use it as input to a function -- default None
 
@@ -219,21 +224,10 @@ class PipeBase(object):
             `HyperFrameRecord`
         """
 
-        # Set up the bundle name and the processing_name.  These default bundle "tags" identify bundles
-        if human_name is None:
-            output_bundle_name = self.pipeline_id()
-        else:
-            output_bundle_name = human_name
-
-        if processing_name is None:
-            output_processing_name = self.pipe_id()
-        else:
-            output_processing_name = processing_name
-
         # Grab code version and path cache entry -- only called if we ran
-        cv = get_pipe_version(self)
+        cv = get_pipe_version(class_to_version)
 
-        lr = LineageRecord(hframe_name=output_processing_name,
+        lr = LineageRecord(hframe_name=processing_name,
                            hframe_uuid=output_bundle_uuid,
                            code_repo=cv.url,
                            code_name='unknown',
@@ -243,8 +237,8 @@ class PipeBase(object):
                            depends_on=depends_on)
 
         hfr = HyperFrameRecord(owner=getpass.getuser(),
-                               human_name=output_bundle_name,
-                               processing_name=output_processing_name,
+                               human_name=human_name,
+                               processing_name=processing_name,
                                uuid=output_bundle_uuid,
                                frames=output_frames,
                                lin_obj=lr,
@@ -330,7 +324,36 @@ class PipeBase(object):
 
         return luigi_outputs
 
-    def parse_pipe_return_val(self, hfid, val, human_name=None):
+    @staticmethod
+    def rm_bundle_dir(output_path, uuid, db_targets):
+        """
+        We created a directory (managed path) to hold the bundle and any files.   The files have been
+        copied in.   Removing the directory removes any created files.  However we also need to
+        clean up any temporary tables as well.
+
+        TODO: Integrate with data_context bundle remove.   That deals with information already
+        stored in the local DB.
+
+        ASSUMES:  That we haven't actually updated the local DB with information on this bundle.
+
+        Returns:
+            None
+        """
+        try:
+            shutil.rmtree(output_path)
+
+            # if people create s3 files, s3 file targets, inside of an s3 context,
+            # then we will have to clean those up as well.
+
+            for t in db_targets:
+                t.drop_table()
+
+        except IOError as why:
+            _logger.error("Removal of hyperframe directory {} failed with error {}. Continuing removal...".format(
+                uuid, why))
+
+    @staticmethod
+    def parse_pipe_return_val(hfid, val, data_context, human_name):
         """
 
         Interpret the return values and create an HFrame to wrap them.
@@ -346,6 +369,8 @@ class PipeBase(object):
         Args:
             hfid:
             val:
+            data_context (`disdat.data_context.DataContext`):
+            human_name:
 
         Returns:
             Frames, Presentation
@@ -353,14 +378,14 @@ class PipeBase(object):
         """
         frames = []
 
-        managed_path = os.path.join(self.pfs.get_curr_context().get_object_dir(), hfid)
+        managed_path = os.path.join(data_context.get_object_dir(), hfid)
 
         if val is None:
             presentation = hyperframe_pb2.HF
 
         elif isinstance(val, HyperFrameRecord):
             presentation = hyperframe_pb2.HF
-            frames.append(FrameRecord.make_hframe_frame(hfid, self.pipeline_id(), [val]))
+            frames.append(FrameRecord.make_hframe_frame(hfid, human_name, [val]))
 
         elif isinstance(val, np.ndarray) or isinstance(val, list):
             presentation = hyperframe_pb2.TENSOR
@@ -390,9 +415,9 @@ class PipeBase(object):
             presentation = hyperframe_pb2.SCALAR
             frames.append(DataContext.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
 
-        hfr = self.make_hframe(frames, hfid, self.bundle_inputs(),
-                               human_name=human_name,
-                               tags={"presentable": "True"},
-                               presentation=presentation)
+        hfr = PipeBase.make_hframe(frames, hfid, self.bundle_inputs(),
+                                   human_name, self.pipe_id(), self,
+                                   tags={"presentable": "True"},
+                                   presentation=presentation)
 
         return hfr

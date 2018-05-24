@@ -73,6 +73,7 @@ class DriverTask(luigi.WrapperTask, PipeBase):
     input_tags = luigi.DictParameter()
     output_tags = luigi.DictParameter()
     force = luigi.BoolParameter(default=False)
+    data_context = luigi.Parameter(significant=False)
 
     def __init__(self, *args, **kwargs):
         """
@@ -86,7 +87,8 @@ class DriverTask(luigi.WrapperTask, PipeBase):
         super(DriverTask, self).__init__(*args, **kwargs)
 
         if self.input_bundle != '-':  # '-' means no input bundle
-            self.input_bundle_obj = self.pfs.get_latest_hframe(self.input_bundle, tags=self.input_tags)
+            self.input_bundle_obj = self.pfs.get_latest_hframe(self.input_bundle, tags=self.input_tags,
+                                                               data_context=self.data_context)
             if self.input_bundle_obj is None:
                 raise Exception("Driver unable to find input bundle {}".format(self.input_bundle))
         else:
@@ -318,7 +320,10 @@ class DriverTask(luigi.WrapperTask, PipeBase):
                        'closure_bundle_uuid_root': closure_bundle_uuid,
                        'driver_output_bundle': self.output_bundle,
                        'force': self.force,
-                       'output_tags': json.dumps(dict(self.output_tags))}  # Ugly re-stringifying dict
+                       'output_tags': json.dumps(dict(self.output_tags)), # Ugly re-stringifying dict
+                       'data_context': self.data_context
+                       }
+
         task_params.update(param_dfs_json)
 
         t = DriverTask.inflate_cls(self.pipe_cls, task_params)
@@ -352,7 +357,7 @@ class DriverTask(luigi.WrapperTask, PipeBase):
 
             # Explore hyperframes contained in the next level
             if level >= curr_level:
-                for fr in next_hf.get_frames(self.pfs.get_curr_context()):
+                for fr in next_hf.get_frames(self.data_context):
                     if fr.is_hfr_frame():
                         for hfr in fr.get_hframes():  # making a copy from the pb in this frame
                             hf_frontier.appendleft(hfr)
