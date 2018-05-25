@@ -251,7 +251,7 @@ class Bundle(object):
         """
         assert (self.open and not self.closed)
 
-        fqp = os.path.join(self.local_dir, dirname)
+        fqp = os.path.join(self.local_dir, dir_name)
         try:
             os.makedirs(fqp)
         except IOError as why:
