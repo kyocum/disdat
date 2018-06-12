@@ -35,7 +35,15 @@ _DOCKERIZER_ROOT = os.path.dirname(inspect.getsourcefile(infrastructure.dockeriz
 _logger = logging.getLogger(__name__)
 
 
-def dockerize(disdat_config, pipeline_root, pipeline_class_name, config_dir=None, os_type=None, os_version=None, build=True, push=False):
+def dockerize(disdat_config,
+              pipeline_root,
+              pipeline_class_name,
+              config_dir=None,
+              os_type=None,
+              os_version=None,
+              build=True,
+              push=False,
+              sagemaker=False):
     """ Create a Docker image for running a pipeline.
 
     Args:
@@ -43,11 +51,12 @@ def dockerize(disdat_config, pipeline_root, pipeline_class_name, config_dir=None
         pipeline_root: Root of the Python source tree containing the
         user-defined transform; must have a setuptools-style setup.py file.
         pipeline_class_name: The fully-qualified name of the pipeline
-        class
-        build:
-        config_dir:
-        push:
-
+        config_dir (str):  Configuration of image (.deb, requires.txt, etc.)
+        os_type (str): OS type string
+        os_version (str): Version of OS
+        build (bool): Build the image (default True)
+        push (bool): Push to registry listed in Disdat config file
+        sagemaker (bool): Build a container for 'train' or 'serve' in SageMaker
     Returns:
 
     """
@@ -91,6 +100,9 @@ def dockerize(disdat_config, pipeline_root, pipeline_class_name, config_dir=None
         ]
         if config_dir is not None:
             build_command.append('CONFIG_ROOT={}'.format(config_dir))
+        if sagemaker:
+            build_command.append('SAGEMAKER_TRAIN_IMAGE_NAME={}'.format(disdat.common.make_sagemaker_pipeline_image_name(pipeline_class_name)))
+            build_command.append('sagemaker')
         subprocess.check_call(build_command)
 
     if push:
@@ -98,7 +110,11 @@ def dockerize(disdat_config, pipeline_root, pipeline_class_name, config_dir=None
         repository_name_prefix = None
         if disdat_config.parser.has_option('docker', 'repository_prefix'):
             repository_name_prefix = disdat_config.parser.get('docker', 'repository_prefix')
-        repository_name = disdat.common.make_pipeline_repository_name(repository_name_prefix, pipeline_class_name)
+        if sagemaker:
+            repository_name = disdat.common.make_sagemaker_pipeline_repository_name(repository_name_prefix, pipeline_class_name)
+            pipeline_image_name = disdat.common.make_sagemaker_pipeline_image_name(pipeline_class_name)
+        else:
+            repository_name = disdat.common.make_pipeline_repository_name(repository_name_prefix, pipeline_class_name)
         # Figure out the fully-qualified repository name, i.e., the name
         # including the registry.
         registry_name = disdat_config.parser.get('docker', 'registry').strip('/')
@@ -150,6 +166,12 @@ def add_arg_parser(parsers):
         help="Push the image to a remote Docker registry (default is to not push; must set 'docker_registry' in Disdat config)",
     )
     dockerize_p.add_argument(
+        '--sagemaker',
+        action='store_true',
+        default=False,
+        help="Create a Docker image executable as a SageMaker container.",
+    )
+    dockerize_p.add_argument(
         '--no-build',
         action='store_false',
         help='Do not build an image (only copy files into the Docker build context)',
@@ -185,4 +207,5 @@ def main(disdat_config, args):
         os_version=args.os_version,
         build=args.build,
         push=args.push,
+        sagemaker=args.sagemaker
     )

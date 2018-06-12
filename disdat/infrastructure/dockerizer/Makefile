@@ -112,6 +112,9 @@ all: build
 build: $(DOCKER_CONTEXT) build-00 build-01 build-02
 	@echo "----- Built Docker image for the $(PIPELINE_IMAGE_NAME) pipeline on $(OS_NAME)"
 
+sagemaker: build build-03
+	@echo "----- Built SageMaker Docker image for the $(PIPELINE_IMAGE_NAME) pipeline on $(OS_NAME)"
+
 build-00: $(DOCKER_CONTEXT)
 	@echo "---------- Building base operating system environment"
 	docker build \
@@ -141,6 +144,14 @@ build-02: $(DOCKER_CONTEXT) $(DOCKER_CONTEXT)/config $(DOCKER_CONTEXT)/pipeline
 		--build-arg PIPELINE_CLASS=$(PIPELINE_CLASS) \
 		--file $(DOCKER_CONTEXT)/Dockerfiles/02-user.dockerfile \
 		--tag $(PIPELINE_IMAGE_NAME) \
+		$(DOCKER_CONTEXT)
+
+build-03: $(DOCKER_CONTEXT)
+	@echo "---------- Using SageMaker entrypoint"
+	docker build \
+		--build-arg IMAGE_LAYER=$(PIPELINE_IMAGE_NAME) \
+		--file $(DOCKER_CONTEXT)/Dockerfiles/03-sagemaker.dockerfile \
+		--tag $(SAGEMAKER_TRAIN_IMAGE_NAME) \
 		$(DOCKER_CONTEXT)
 
 #
