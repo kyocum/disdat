@@ -29,3 +29,7 @@ ENV PATH $VIRTUAL_ENV/bin:$PATH
 
 # Initialize the Disdat environment
 RUN dsdt init
+
+# Local environment may have its own pip index, support pip.conf files
+COPY pip.conf /opt/pip.conf
+ENV PIP_CONFIG_FILE /opt/pip.conf
