@@ -20,6 +20,7 @@ import logging
 import os
 import subprocess
 import tempfile
+import shutil
 
 # Third-party imports
 import disdat.common
@@ -80,7 +81,21 @@ def dockerize(disdat_config,
         os.path.join(_DOCKERIZER_ROOT, 'context.template', ''),
         docker_context,
     ]
+
     subprocess.check_call(rsync_command)
+
+    # Overwrite pip.conf in the context.template in your repo if they have set the option, else just create empty file
+    # At this time, the Dockerfile always sets the PIP_CONFIG_FILE ENV var to this file.
+    if disdat_config.parser.has_option(_MODULE_NAME, 'dot_pip_file'):
+        dot_pip_file = os.path.expanduser(disdat_config.parser.get(_MODULE_NAME, 'dot_pip_file'))
+        shutil.copy(dot_pip_file, docker_context)
+        print ("Copying dot pip file {} into {}".format(dot_pip_file, docker_context))
+    else:
+        touch_command = [
+            'touch',
+            os.path.join(docker_context, 'pip.conf')
+        ]
+        subprocess.check_call(touch_command)
 
     pipeline_image_name = disdat.common.make_pipeline_image_name(pipeline_class_name)
     DEFAULT_DISDAT_HOME = os.path.join('/', *os.path.dirname(disdat.dockerize.__file__).split('/')[:-1])
