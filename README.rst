@@ -14,28 +14,40 @@ multiple file attachments, searching through Slack for the most recent S3 file p
 Getting Started
 ---------------
 
-Disdat includes both an API and a CLI (command-line interface).  To install:
+Disdat includes both an API and a CLI (command-line interface).  To install both into your Python environment:
 
 .. code-block:: console
     
     $ pip install disdat
 
-Or if you want to work with the latest from the disdat code repository:
+At this point you can start using Disdat to author and share pipelines and data sets. 
+
+Install for developers
+----------------------
+
+Clone the disdat code repository and create a virtual environment in which to develop:
 
 .. code-block:: console
 
     $ git clone git@github.com:kyocum/disdat.git
 
-At this point you can either install the stand-alone version ( `Install the CLI`_) or you can install the package (`Install the API/Package`_).
-The first will install a ``dsdt`` binary that can be used independent from any Python virtual environment.   The second
-will install the CLI within a particular virtual environment, but also install the Disdat API so that you can manage data
-and run pipelines within Python code.
+Install disdat
 
+.. code-block:: console
+    $ mkvirtualenv disdat
+    $ cd disdat
+    $ pip install -e .
 
-Install the CLI
+Execute disdat:
+
+.. code-block:: console
+
+    $ dsdt
+
+Optional: A standalone `dsdt` binary
 ---------------
 
-Build and install the single-file ``dsdt`` executable.   The deactivate command is optional if you're currently in an existing Python virtual environment.  We assume that you have installed virtualenvwrapper in your base Python environment.  See http://virtualenvwrapper.readthedocs.io/en/latest/install.html for instructions. 
+We also provide an optional standlone binary that may be run on Mac OS X.  You will have needed to cloned the repository to build and install the standalone binary.   The deactivate command is optional if you're currently in an existing Python virtual environment.  We assume that you have installed virtualenvwrapper in your base Python environment.  See http://virtualenvwrapper.readthedocs.io/en/latest/install.html for instructions. 
 
 .. code-block:: console
 
@@ -47,49 +59,11 @@ Build and install the single-file ``dsdt`` executable.   The deactivate command 
 
 You now have a functioning ``dsdt`` excutable that you can use create and pull bundles, as well as run Disdat pipelines.
 
-
-Install the API/Package
------------------------
-
-If you want to write Python code that works directly with bundles and pipelines, then you'll need to install the
-source distribution.  Assume you are already in your virtual environment.
-
-Install disdat
-
-.. code-block:: console
-
-    $ cd disdat
-    $ python setup.py install
-
-
-Install for developers
-----------------------
-
-Create a new virtual environment for Disdat:
-
-.. code-block:: console
-
-    $ mkvirtualenv disdat
-
-Install disdat
-
-.. code-block:: console
-
-    $ cd disdat
-    $ pip install -e .
-
-Execute disdat:
-
-.. code-block:: console
-
-    $ dsdt
-
 Tutorial
 --------
 
 We've implemented a simple TensorFlow example as a three-task Disdat pipeline in `examples/pipelines/mnist.py`.   The
 README in `examples` has more information.
-
 
 Short Test Drive
 ----------------
