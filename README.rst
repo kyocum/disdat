@@ -14,7 +14,13 @@ multiple file attachments, searching through Slack for the most recent S3 file p
 Getting Started
 ---------------
 
-Disdat includes both an API and a CLI (command-line interface).  To install either, first clone the disdat code repository:
+Disdat includes both an API and a CLI (command-line interface).  To install:
+
+.. code-block:: console
+    
+    $ pip install disdat
+
+Or if you want to work with the latest from the disdat code repository:
 
 .. code-block:: console
 
