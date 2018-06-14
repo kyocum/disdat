@@ -10,6 +10,8 @@ it easy to produce and then share the latest outputs with other users.  Instead 
 multiple file attachments, searching through Slack for the most recent S3 file path, users can instead
 ``dsdt pull awesome_data`` to get the latest 'awesome_data.'
 
+In addition, Disdat can 'dockerize' pipelines into containers that run locally, on AWS Batch, or on AWS SageMaker.   Whether running as a container or running the pipeline natively, Disdat manages the data produced by your pipeline so you don't have to.  Instead of having to find new names for the same logical dataset, e.g., "the-most-recent-today-with-the-latest-fix.csv" , Disdat manages the outputs in your local FS or S3 for you.  
+
 
 Getting Started
 ---------------
@@ -20,7 +22,12 @@ Disdat includes both an API and a CLI (command-line interface).  To install both
     
     $ pip install disdat
 
-At this point you can start using Disdat to author and share pipelines and data sets. 
+At this point you can start using Disdat to author and share pipelines and data sets.  Check that you're running at least this version:
+
+.. code-block:: console
+
+    $ dsdt --version
+    Running Disdat version 0.7.1rc0
 
 Install for developers
 ----------------------
@@ -34,6 +41,7 @@ Clone the disdat code repository and create a virtual environment in which to de
 Install disdat
 
 .. code-block:: console
+
     $ mkvirtualenv disdat
     $ cd disdat
     $ pip install -e .
