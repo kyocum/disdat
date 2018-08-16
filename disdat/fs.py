@@ -554,7 +554,7 @@ class DisdatFS(object):
             committed = 'False'
 
         output_string = "{:20}\t{:20}\t{:8}\t{:18}\t{:8}\t{:40}".format(hfr.pb.human_name,
-                                                                   hfr.pb.processing_name[:20],
+                                                                   hfr.pb.processing_name[:],
                                                                    hfr.pb.owner,
                                                                    time.strftime("%m-%d-%y %H:%M:%S ",time.gmtime(hfr.pb.lineage.creation_date)),
                                                                    committed,
