@@ -272,11 +272,6 @@ def main(input_args):
         required=True,
         help='The fully-qualified Disdat branch to use when running',
     )
-    #pipeline_parser.add_argument(
-    #    '--input-tags',
-    #    type=str,
-    #    help='A JSON-encoded dictionary of tags to choose input bundle',
-    #)
 
     pipeline_parser.add_argument(
         '-it', '--input-tag',
@@ -288,11 +283,11 @@ def main(input_args):
         nargs=1, type=str, action='append',
         help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'")
 
-    #pipeline_parser.add_argument(
-    #    '--output-tags',
-    #    type=str,
-    #    help='A JSON-encoded dictionary of tags to attach to the output bundle',
-    #)
+    pipeline_parser.add_argument(
+        '-f', '--fetch',
+        nargs=1, type=str, action='append',
+        help="Fetch a bundle before execution: '-f some.input.bundle'")
+
     pipeline_parser.add_argument(
         '--output-bundle-uuid',
         default=None,
@@ -358,6 +353,9 @@ def main(input_args):
     output_tags = {}
     if args.output_tag is not None:
         output_tags = disdat.common.parse_args_tags(args.output_tag)
+    fetch_list = []
+    if args.fetch is not None:
+        fetch_list =  ['{}'.format(kv[0]) for kv in args.fetch]
 
     if False:
         print "Container Running with command (output uuid {}, input_tags {}, output_tags {}):".format(args.output_bundle_uuid,
@@ -365,6 +363,11 @@ def main(input_args):
         print "\t dsdt apply {} {} {} {} ".format(args.input_bundle, args.output_bundle, args.pipeline, args.pipeline_args)
 
     # Let it rip!
+    if len(fetch_list) > 0 and (args.remote is not None):
+        _remote(fs, args.remote)
+        for b in fetch_list:
+            _pull(fs, bundle_name=b)
+
     if (
         ((args.no_pull and args.no_push) or (args.remote is None) or _remote(fs, args.remote)) and
         (args.no_pull or (args.input_json is not None) or _pull(fs, bundle_name=args.input_bundle)) and

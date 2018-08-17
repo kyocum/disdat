@@ -273,6 +273,7 @@ def make_run_command(
         local_ctxt,
         input_tags,
         output_tags,
+        fetch_list,
         pipeline_params,
 ):
     args = [
@@ -286,6 +287,10 @@ def make_run_command(
     if len(output_tags) > 0:
         for next_tag in output_tags:
             args += ['--output-tag', next_tag]
+    if len(fetch_list) > 0:
+        for next_bundle in fetch_list:
+            args += ['--fetch', next_bundle]
+
     args += [input_bundle, output_bundle]
     return [x.strip() for x in args + pipeline_params]
 
