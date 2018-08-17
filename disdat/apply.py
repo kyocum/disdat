@@ -243,10 +243,11 @@ def different_code_versions(code_version, lineage_obj):
 
     conf = common.DisdatConfig.instance()
 
+    if conf.ignore_code_version:
+        return False
+
     # If there were uncommitted changes, then we have to re-run, mark as different
     if code_version.dirty:
-        if conf.ignore_code_version:
-            return False
         return True
 
     if code_version.semver != lineage_obj.pb.code_semver:
@@ -289,7 +290,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task):
     if bndl is None:
         if verbose: print "resolve_bundle: No bundle with proc_name {}, getting new output bundle.\n".format(pipe.pipe_id())
         # no bundle, force recompute
-        # pfs.new_output_hframe(pipe, is_left_edge_task)
+        pfs.new_output_hframe(pipe, is_left_edge_task)
         return
 
     # 2.) Bundle exists - lineage object tells us input bundles.
