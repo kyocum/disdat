@@ -96,6 +96,7 @@ class RunTask(luigi.Task, PipeBase):
         push_input_bundle (bool): Push the input bundle from local context to remote.
         input_tags (list(str)): The tags used to find the input bundle from command line ['key:value','key:value']
         output_tags (list(str)): The tags for the output bundle from command line ['key:value','key:value']
+        fetch_list (list(str)):  A list of bundles to fetch before executing.
 
     """
     input_bundle = luigi.Parameter(default=None)
@@ -108,6 +109,7 @@ class RunTask(luigi.Task, PipeBase):
     aws_session_token_duration = luigi.IntParameter(default=0)
     input_tags = luigi.ListParameter()
     output_tags = luigi.ListParameter()
+    fetch_list = luigi.ListParameter()
 
     def __init__(self, *args, **kwargs):
         """
@@ -198,7 +200,8 @@ class RunTask(luigi.Task, PipeBase):
             push_input_bundle=bool(self.push_input_bundle),
             aws_session_token_duration=self.aws_session_token_duration,
             input_tags=self.input_tags,
-            output_tags=self.output_tags
+            output_tags=self.output_tags,
+            fetch_list=self.fetch_list
         )
 
 
@@ -473,7 +476,8 @@ def _run(
     push_input_bundle=True,
     aws_session_token_duration=0,
     input_tags=None,
-    output_tags=None
+    output_tags=None,
+    fetch_list=None
 ):
     """Run the dockerized version of a pipeline.
 
@@ -488,6 +492,7 @@ def _run(
             requirements (default `False`)
         input_tags (list(str)): Find bundle with these tags ['key:value',...]
         output_tags (list(str)): Push result bundle with these tags ['key:value',...]
+        fetch_list (list(str)): Fetch these bundles before starting pipeline
 
     Returns:
         `None`
@@ -502,7 +507,7 @@ def _run(
         return
 
     arglist = common.make_run_command(input_bundle, output_bundle, output_bundle_uuid, remote, branch_name,
-                                      input_tags, output_tags, pipeline_params)
+                                      input_tags, output_tags, fetch_list, pipeline_params)
 
     if backend == Backend.AWSBatch or backend == Backend.SageMaker:
 
@@ -549,6 +554,8 @@ def add_arg_parser(parsers):
         help='Use a temporary AWS session token to access the remote, valid for AWS_SESSION_TOKEN_DURATION seconds',
         dest='aws_session_token_duration',
     )
+    run_p.add_argument('-f', '--fetch', nargs=1, type=str, action='append',
+                       help="Fetch bundle into context: '-f some.input.bundle'")
     run_p.add_argument('-it', '--input-tag', nargs=1, type=str, action='append',
                        help="Input bundle tags: '-it authoritative:True -it version:0.7.1'")
     run_p.add_argument('-ot', '--output-tag', nargs=1, type=str, action='append',
@@ -586,6 +593,11 @@ def main(args):
     input_tags = common.parse_args_tags(args.input_tag, to='list')
     output_tags = common.parse_args_tags(args.output_tag, to='list')
 
+    if args.fetch:
+        fetch_list = ['{}'.format(kv[0]) for kv in args.fetch]
+    else:
+        fetch_list = []
+
     task_args = [
         args.input_bundle,
         args.output_bundle,
@@ -596,7 +608,8 @@ def main(args):
         args.push_input_bundle,
         args.aws_session_token_duration[0],
         input_tags,
-        output_tags
+        output_tags,
+        fetch_list
     ]
 
     commit_pipe = RunTask(*task_args)
