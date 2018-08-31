@@ -99,14 +99,14 @@ setup(
                       'boto3>=1.7.19',
                       'boto3-session-cache',
                       'termcolor',
-                      'docker>=3.5.0',
-                      'pyodbc>=4.0',
+                      'docker>=2.5.1', # >=2.5.1 (was up to 3.5.0
+                      'pyodbc>=3.1.1', # >= 3.1.1 was 4..0
                       'luigi<=2.7.5', # 2.7.6 uses python-daemon 2.2.0 which breaks on docutils.core
                       'pandas<=0.23.4', # 0.21.0 causes pyinstaller built binary to crap out, 0.20.3 uses numpy 1.7.0
                       'numpy<=1.14.5',  # just for pandas 0.23.4 so it doesn't use 1.15.0 and spill warnings.
                       'enum34>=',
                       'sqlalchemy>=',
-                      'protobuf>=3.6.0'
+                      'protobuf>=3.3.0' # 3.6.0
                       ],
 
     # List additional groups of dependencies here (e.g. development
