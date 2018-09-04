@@ -68,7 +68,7 @@ class SimpleTree(PipeTask):
 
         """
 
-        for i in range(2):
+        for i in range(1):
             self.add_dependency('B_{}'.format(i), B, {'task_label': str(i), 'uuid': '12340000'})
         return
 
@@ -84,7 +84,8 @@ class SimpleTree(PipeTask):
 
         """
 
-        return
+        return "Shark Bait"
+
 
 if __name__ == "__main__":
     api.apply('examples', '-', 'SimpleTree.example.output', 'SimpleTree')

@@ -42,8 +42,11 @@ def _run_git_cmd(git_dir, git_cmd, get_output=False):
     :param get_output: If :code:`True`, return the command standard output
         as a string; default is to return the command exit code.
     '''
+
+    verbose = False
+
     cmd = ['git', '-C', git_dir] + git_cmd.split()
-    _logger.debug('Running git command {}'.format(cmd))
+    if verbose: _logger.debug('Running git command {}'.format(cmd))
     if get_output:
         try:
             with open(os.devnull, 'w') as null_file:

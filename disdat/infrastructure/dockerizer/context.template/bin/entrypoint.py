@@ -11,6 +11,7 @@ import argparse
 import disdat.apply
 import disdat.common
 import disdat.fs
+import disdat.api
 import json
 import logging
 import os
@@ -146,6 +147,11 @@ def _commit(fs, bundle_name, input_tags):
 
 def _pull(fs, bundle_name):
     _logger.debug("Pulling '{}'".format(bundle_name))
+
+    if bundle_name == '-':
+        print("_pull found '-' bundle name and performing no-op")
+        return True
+
     context = fs.get_curr_context()
     if context is None:
         _logger.error('Not pulling: No current context')
@@ -321,16 +327,25 @@ def main(input_args):
     logging.basicConfig(level=args.debug_level)
     _logger.setLevel(args.debug_level)
 
-    print "My args are {}".format(args)
+    print "Entrypoint running with args: {}".format(args)
 
     # Check to make sure that we have initialized the Disdat environment
     if not os.path.exists(os.path.join(os.environ['HOME'], '.config', 'disdat')):
-        _logger.warning('Disdat environment possibly uninitialized?')
+        _logger.warning("Disdat environment possibly uninitialized?")
+
     # Get a Disdat file system handle and create the branch if necessary.
     fs = disdat.fs.DisdatFS()
     if not _context_and_switch(fs, args.branch):
-        _logger.error('Failed to branch and check out \'{}\''.format(args.branch))
+        _logger.error("Failed to branch and check out \'{}\'".format(args.branch))
         sys.exit(os.EX_IOERR)
+
+    # Pull the remote branch into the local branch.
+    # This will pull everything.  Since we're still using Disdat re-run logic
+    # we will also need to all of our intermediate results.
+    if not disdat.api.pull(args.branch, bndl, uuid, tags):
+        _logger.error("Failed to pull and localize all bundles from context {}".format(args.branch))
+        sys.exit(os.EX_IOERR)
+
     # If we received JSON, convert it into a temporary tab-separated file,
     # and use that as the input bundle.
     if args.input_json is not None:
@@ -338,12 +353,12 @@ def main(input_args):
             # To be nice, strip newlines and any single-quotes left over by
             # the shell
             input_json = args.input_json.strip('\'\n')
-            _logger.debug('Adding JSON {}'.format(input_json))
+            _logger.debug("Adding JSON {}".format(input_json))
             input_path = input_file.name
-            _logger.debug('Saving JSON data to temporary file {}'.format(input_file.name))
+            _logger.debug("Saving JSON data to temporary file {}".format(input_file.name))
             pd.read_json(input_json).to_csv(input_path, sep='\t')
             if not _add(fs, bundle_name=args.input_bundle, input_path=input_file.name):
-                _logger.error('Failed to add JSON to input bundle \'{}\''.format(args.input))
+                _logger.error("Failed to add JSON to input bundle \'{}\'".format(args.input))
                 sys.exit(os.EX_IOERR)
 
     # If specified, decode the ordinary 'key:value' strings into a dictionary of tags.

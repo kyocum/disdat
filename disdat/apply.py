@@ -319,10 +319,32 @@ def resolve_bundle(pfs, pipe, is_left_edge_task):
         """ Are we re-running an upstream input (look in path cache)?
         At this time the only bundles a task depends on are the ones created by its upstream tasks.
         We have to look through its *current* list of possible upstream tasks, not the ones it had
-        on its prior run (old re-run logic below).   If the UUID has changed relative to lineage, then
+        on its prior run.   If the UUID has changed relative to lineage, then
         we need to re-run.
+        
+        In general, the only reason we should re-run an upstream is b/c of a code change.  And that change
+        did not change the tasks parameters.  So it looks the same, but it is actually different.  OR someone 
+        re-runs a sql query and the table has changed and the output changes those the parameters are the same. 
+        Sometimes folks remove an output to force a single stage to re-run, just for that reason. 
+        
+        But if an output exists and we want to ignore code version and ignore data changes then
+        while we do this, we should re-use our bundle independent of whether an upstream needs to re-run 
+        or whether one of our inputs is out of date. 
+        
+        So one option is to ignore upstreams that need to be re-run.  Re-use blindly.  Like Luigi.  
+        
+        Another option is that anytime we don't have an input bundle, we attempt to read it not just
+        locally, but remotely as well.   
+        
         """
         pce = pfs.get_path_cache(task)
+
+        LUIGI_RERUN = False
+
+        if LUIGI_RERUN:
+            # Ignore whether upstreams had to be re-run b/c they didn't have bundles.
+            # Ignore whether this has to be re-run because existing inputs are newer
+            continue
 
         if pce is None:
             # this can happen with bundles created by other pipelines.
@@ -339,7 +361,8 @@ def resolve_bundle(pfs, pipe, is_left_edge_task):
             local_bundle = pfs.get_hframe_by_proc(task.task_id)
             assert(local_bundle is not None)
 
-            """ Now we need to check if the one we have cached is an old one
+            """ Now we need to check if we should re-run this task because an upstream input exists and has been updated        
+            Go through each of the inputs used for this current task.  
             POLICY
             1.) if the date is more recent, it is "new" data.
             2.) if it is older, we should require force (but currently do not and re-run).
