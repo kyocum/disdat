@@ -167,10 +167,11 @@ class AddTask(luigi.Task, PipeBase):
         tags.update(self.tags)
 
         task_hfr = self.make_hframe(frames, add_hf_uuid, self.bundle_inputs(),
+                                    self.pipeline_id(), self.pipe_id(), self,
                                     tags=tags,
                                     presentation=presentation)
 
-        self.pfs.write_hframe(task_hfr)
+        self.pfs.get_curr_context().write_hframe(task_hfr)
 
 if __name__ == '__main__':
     luigi.run()
