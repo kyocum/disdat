@@ -635,7 +635,7 @@ class DisdatFS(object):
                 repo = None
                 local_context = fq_context_name
         except ValueError:
-            error = "Invalid context_name: Expected <repo>/<context name> or <context name> but got '%s'" % (fq_context_name)
+            error = "Invalid context_name: Expected <remote context>/<local context> or <local context> but got '%s'" % (fq_context_name)
             _logger.error(error)
             raise Exception(error)
 
@@ -742,7 +742,7 @@ class DisdatFS(object):
 
         return self._all_contexts[local_context]
 
-    def checkout(self, local_context_name, save=True):
+    def switch(self, local_context_name, save=True):
         """
         Switch to a different local context.
 
@@ -780,7 +780,7 @@ class DisdatFS(object):
 
         return prior_context_name
 
-    def commit(self, bundle_name, input_tags, data_context=None):
+    def commit(self, bundle_name, input_tags, uuid=None, data_context=None):
         """   Commit indicates that this is a primary version of this bundle.
 
         Commit in place.  Re-use existing bundle and add the commit tag.
@@ -789,6 +789,7 @@ class DisdatFS(object):
         Args:
             bundle_name (str): The name of the bundle to commit
             input_tags (dict): Commit the bundle that has these tags
+            uuid (str): The uuid of the bundle to commit.
             data_context (`disdat.data_context.DataContext`): Optional data context in which to find / commit bundle.
 
         Returns:
@@ -804,9 +805,19 @@ class DisdatFS(object):
 
         _logger.debug('Committing bundle {} in context {}'.format(bundle_name, data_context.get_repo_name()))
 
-        hfr = self.get_latest_hframe(str(bundle_name),
-                                     tags=input_tags if len(input_tags) > 0 else None,
-                                     data_context=data_context)
+        if uuid is not None:
+            hfr = self.get_hframe_by_uuid(uuid,
+                                          tags=input_tags,
+                                          data_context=data_context)
+        elif bundle_name is not None:
+            hfr = self.get_latest_hframe(str(bundle_name),
+                                         tags=input_tags if len(input_tags) > 0 else None,
+                                         data_context=data_context)
+        else:
+            print "Push requires either a human name or a uuid to identify the hyperframe."
+            return None
+
+
 
         if hfr is None:
             print "No bundle with human name {} found.".format(bundle_name)
@@ -1154,20 +1165,11 @@ class DisdatFS(object):
             fr = hyperframe.FrameRecord.make_link_frame(new_hfr_uuid, fr.pb.name, new_paths, managed_path)
         return fr
 
-    def push(self, human_name=None, uuid=None, tags=None, force_uuid=None):
+    def push(self, human_name=None, uuid=None, tags=None, data_context=None):
         """
 
         Push a particular hyperframe to our remote context.   This only pushes the most recent (in time) version of
         the hyperframe.  It does not look for committed hyperframes (that's v2).
-
-        Pushing also can modify the contents of a bundle.  If there is a link frame containing local files, we need to
-        make a new version of this hyperframe.
-
-        We do not tag this bundle with the "local" version.   It wouldn't make sense to another user.
-        We allow "localize" to be a separate command.   This could be something that interprets the s3 paths as local paths,
-        b/c all we need is the context / branch directory.  Once we have that, then we could simply cache the files in
-        s3 locally.   So we're interpreting the bundle differently.   That would be easiest in a sister "cache" directory
-        that could be blown away.   But we're not going to worry about this in the short term.
 
         If current context is bound, copy bundle / files to s3, updating link frames to point to new paths.
         Assumes s3 paths have already been sanitized (point to files in our context)
@@ -1183,7 +1185,7 @@ class DisdatFS(object):
             human_name (str): The name of this bundle
             uuid (str) : Uniquely identify the bundle to push.
             tags (:dict): Set of tags bundle must have
-            force_uuid:
+            data_context (`disdat.data_context.DataContext`): Optional data context in which to find / commit bundle.
 
         Returns:
             (`hyperframe.HyperFrameRecord`): The, possibly new, pushed hyperframe.
@@ -1200,9 +1202,13 @@ class DisdatFS(object):
         tags['committed'] = 'True'
 
         if uuid is not None:
-            hfr = self.get_hframe_by_uuid(uuid, tags=tags)
+            hfr = self.get_hframe_by_uuid(uuid,
+                                          tags=tags,
+                                          data_context=data_context)
         elif human_name is not None:
-            hfr = self.get_latest_hframe(human_name, tags=tags)
+            hfr = self.get_latest_hframe(human_name,
+                                         tags=tags,
+                                         data_context=data_context)
         else:
             print "Push requires either a human name or a uuid to identify the hyperframe."
             return None
@@ -1266,17 +1272,19 @@ class DisdatFS(object):
         Returns:
             None
 
+        Raise:
+            UserWarning: If we are not in a valid context.
         """
 
         if data_context is None:
             if not self.in_context():
                 _logger.warning('Not in a data context')
-                return
+                raise UserWarning("Not in a data context")
             data_context = self.get_curr_context()
 
         if data_context.remote_ctxt_url is None:
             print "Pull cannot execute.  Local context {} on remote {} not bound.".format(data_context.local_ctxt, data_context.remote_ctxt)
-            return
+            raise UserWarning("Local context {} has no remote".format(data_context.local_ctxt))
 
         possible_hframe_objects = aws_s3.ls_s3_url_objects(data_context.get_remote_object_dir())
 
@@ -1348,12 +1356,12 @@ class DisdatFS(object):
                     DisdatFS._localize_hfr(self.get_hframe_by_uuid(s3_uuid, data_context=data_context),
                                            s3_uuid, data_context)
 
-    def remote_add(self, context, s3_url, force):
+    def remote_add(self, remote_context, s3_url, force, ):
         """
         Bind the context name to this s3path.   For all branches with context name, set remote to s3path.
 
         Args:
-            context (str):  the name of the remote context
+            remote_context (str):  the name of the remote context
             s3_url (str):   the s3 path to bind to this remote context
             force (bool):
 
@@ -1361,7 +1369,7 @@ class DisdatFS(object):
             None
         """
 
-        self.get_curr_context().bind_remote_ctxt(context, s3_url, self, force=force)
+        self.get_curr_context().bind_remote_ctxt(remote_context, s3_url, force=force)
 
     def status(self, human_name):
         """
@@ -1396,10 +1404,6 @@ class DisdatFS(object):
                 return_strings.append('No hyperframe with that name found')
 
         return return_strings
-
-
-def _checkout(fs, args):
-    fs.checkout(args.context)
 
 
 def _branch(fs, args):
@@ -1488,23 +1492,23 @@ def init_fs_cl(subparsers):
     fs = DisdatFS()
 
     # context
-    checkout_p = subparsers.add_parser('context')
-    checkout_p.add_argument('-f', '--force', action='store_true', help='Force remove of a dirty local context')
-    checkout_p.add_argument('-d','--delete', action='store_true', help='Delete local context')
-    checkout_p.add_argument(
+    context_p = subparsers.add_parser('context')
+    context_p.add_argument('-f', '--force', action='store_true', help='Force remove of a dirty local context')
+    context_p.add_argument('-d','--delete', action='store_true', help='Delete local context')
+    context_p.add_argument(
         'context',
         nargs='?',
         type=str,
         help="Create a new data context using <remote context>/<local context> or <local context>")
-    checkout_p.set_defaults(func=lambda args: _branch(fs, args))
+    context_p.set_defaults(func=lambda args: _branch(fs, args))
 
     # switch contexts
-    checkout_p = subparsers.add_parser('switch')
-    checkout_p.add_argument(
+    switch_p = subparsers.add_parser('switch')
+    switch_p.add_argument(
         'context',
         type=str,
         help='Switch contexts to "<local context>".')
-    checkout_p.set_defaults(func=lambda args: _checkout(fs, args))
+    switch_p.set_defaults(func=lambda args: fs.switch(args.context))
 
     # add
     add_p = subparsers.add_parser('add', description='Create a bundle from a .csv, .tsv, or a directory of files.')

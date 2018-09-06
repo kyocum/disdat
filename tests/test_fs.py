@@ -79,7 +79,7 @@ def test_load_context(disdatfs):
     print "Found disdat fs {}".format(disdatfs)
 
     disdatfs.branch(branch_name)
-    disdatfs.checkout(branch_name)
+    disdatfs.switch(branch_name)
 
     return
 
@@ -95,7 +95,7 @@ def test_add_and_load_file(disdatfs):
     branch_name = "dsdt-test-add-branch"
 
     disdatfs.branch(branch_name)
-    disdatfs.checkout(branch_name)
+    disdatfs.switch(branch_name)
 
     hf_name     = 'dsdt-test-hframe'
 
@@ -120,7 +120,7 @@ def _add_and_load_dir(disdatfs):
     branch_name = "dsdt-test-add-branch"
 
     disdatfs.branch(branch_name)
-    disdatfs.checkout(branch_name)
+    disdatfs.switch(branch_name)
 
     hf_name     = 'dsdt-test-hframe'
 

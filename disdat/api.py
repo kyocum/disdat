@@ -79,7 +79,7 @@ Bundle Creation
 
 class Bundle(object):
 
-    def __init__(self, local_context, name):
+    def __init__(self, local_context):
         """ Given name and a local context, create a handle that users can
         work with to:
         a.) Create files / directories / dbtables (i.e., Bundle Links)
@@ -93,7 +93,6 @@ class Bundle(object):
 
         Args:
             local_context (str): Where this bundle will be output or where it was sourced from.
-            name (str): Human name for this output dataset
         """
 
         try:
@@ -102,7 +101,10 @@ class Bundle(object):
             _logger.error("Unable to allocate bundle in context: {} ".format(local_context, e))
             return
 
-        self.name = name
+        self.name = None
+        self.processing_name = None
+        self.owner = None
+
         self.local_dir = None
         self.remote_dir = None
 
@@ -110,12 +112,37 @@ class Bundle(object):
         self.closed = False
 
         self.input_data = None  # The df, array, dictionary the user wants to store
-        self.input_tags = {}    # The dictionary of (str):(str) tags the user wants to attach
+        self.tags = {}    # The dictionary of (str):(str) tags the user wants to attach
         self.db_targets = []    # list of created db targets
         self.data = None
 
         self.uuid = None        # Internal uuid of this bundle.
-        self.hfr = None
+        self.presentation = None
+        self._hfr = None        # debating whether to include this
+
+    def fill_from_hfr(self, hfr):
+        """ Given an internal hyperframe, copy out the information to this user-side Bundle object.
+
+        Args:
+            hfr:
+
+        Returns:
+            None
+
+        """
+
+        self.open = False
+        self.closed = True
+
+        self.name = hfr.pb.human_name
+        self.processing_name = hfr.pb.processing_name
+        self.uuid = hfr.pb.uuid
+        self.presentation = hfr.pb.presentation
+
+        self.data = self.data_context.convert_hfr2df(hfr)
+        self.tags = hfr.tag_dict
+
+        self._hfr = hfr
 
     def open(self):
         """ Add the bundle to this local context
@@ -148,9 +175,9 @@ class Bundle(object):
 
             hfr = PipeBase.parse_pipe_return_val(self.uuid, self.data, self.data_context, human_name=self.name)
 
-            self.input_tags.update({'MadeByTask': 'False'})
+            self.tags.update({'APIBundle': 'True'})
 
-            hfr.replace_tags(self.input_tags)
+            hfr.replace_tags(self.tags)
 
             self.data_context.write_hframe(hfr)
 
@@ -184,8 +211,18 @@ class Bundle(object):
             _logger.warn("Close bundle to convert to dataframe")
             return None
 
+    def commit(self):
+        """
+        TODO: should do this or use the api below?  If we have the HFR we don't have to find it.
+
+        Returns:
+
+        """
+        raise NotImplementedError
+
     def push(self):
         """
+        TODO: should do this or use the api below?  If we have the HFR we don't have to find it.
 
         Args:
             remote:
@@ -215,7 +252,7 @@ class Bundle(object):
         if self.closed:
             _logger.warn("Unable to modify tags in a closed bundle.")
             return
-        self.input_tags[key] = value
+        self.tags[key] = value
 
     def db_table(self, dsn, table_name, schema_name):
         """
@@ -275,6 +312,27 @@ class Bundle(object):
 
         return self.make_luigi_targets_from_basename(filename)
 
+
+def _get_context(context_name):
+    """Retrieve data context given name.   Raise exception if not found.
+
+    Args:
+        context_name(str): <remote context>/<local context> or <local context>
+
+    Returns:
+        (`disdat.data_context.DataContext`)
+    """
+
+    data_context = fs.get_context(context_name)
+
+    if data_context is None:
+        error_msg = "Unable to perform operation: could not find context {}".format(context_name)
+        _logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    return data_context
+
+
 def contexts():
     """ Return list of contexts and their remotes
 
@@ -282,47 +340,121 @@ def contexts():
         List[Tuple(str,str)]: Return a list of tuples containing <local context>, <remote context>@<remote string>
 
     """
-
     # TODO: have the fs object provide a wrapper function
     return [ctxt for ctxt in fs._all_contexts.keys()]
 
 
-def remote(local_context, remote_context, s3_url, force=False):
-    """ Add a remote to a context
+def branch(context_name):
+    """ Create a new context
 
     Args:
-        local_context:
-        remote_context:
-        s3_url:
+        context_name(str): <remote context>/<local context> or <local context>
 
     Returns:
-        bool: True on success, False otherwise
+        None
+    """
+    fs.branch(context_name)
+
+
+def delete_branch(context_name, force=False):
+    """ Delete a context
+
+    Args:
+        context_name (str): <remote context>/<local context> or <local context>
+        force (bool): Force deletion if dirty
+
+    Returns:
+        None
+    """
+    fs.delete_branch(context_name, force=force)
+
+
+def switch(context_name):
+    """ Stateful switch to a different context.
+    This changes the current default context used by the CLI commands.
+
+    Args:
+        context_name(str): <remote context>/<local context> or <local context>
+
+    Returns:
+        None
+    """
+    fs.switch(context_name)
+
+
+def remote(local_context, remote_context, remote_url, force=False):
+    """ Add a remote to local_context
+
+    Args:
+        local_context (str): <remote context>/<local context> or <local context>
+        remote_context (str):
+        remote_url (str):
+        force (bool):
+
+    Returns:
+        None
 
     """
-    raise NotImplementedError
+    _logger.debug("Adding remote context {} at URL {} on local context '{}'".format(remote_context,
+                                                                                    remote_url,
+                                                                                    local_context))
+
+    # Be generous and fix up S3 URLs to end on a directory.
+    remote_url = '{}/'.format(remote_url.rstrip('/'))
+
+    data_context = _get_context(local_context)
+
+    data_context.bind_remote_ctxt(remote_context, remote_url, force=force)
 
 
-def ls(local_context, search_name=None, print_tags=False, print_intermediates=False, print_long=False, tags=None):
+def search(local_context, search_name=None, search_tags=None, is_committed=None, find_intermediates=False, find_roots=False):
     """ Search for bundle in a context.
+    Allow for searching by human name, is_committed, is intermediate or is root task output, and tags.
+
+    At this time the SQL interface in disdat.fs does not allow searching for entries without particular tags.
+
+    So we loop through results to ensure we get the right results.
 
     Args:
-        local_context (str): Context in which to perform ls
+        local_context (str): <remote context>/<local context> or <local context>
         search_name: May be None.  Interpret as a simple regex (one kleene star)
-        print_tags (bool): Whether to print the bundle tags
-        print_intermediates (bool): Whether to show intermediate bundles
-        tags: Optional. A dictionary of tags to search for.
+        search_tags (bool): A set of key:values the bundles must have
+        is_committed (bool): If None (default): ignore committed, If True return committed, If False return uncommitted
+        find_intermediates (bool):  Results must be intermediates
+        find_roots (bool): Results must be final outputs
 
     Returns:
-
+        [](Bundle): List of API bundle objects
     """
 
-    data_context = fs.get_context(local_context)
+    results = []
 
-    if data_context is None:
-        _logger.error("Unable to perform ls: couldn't find context {}".format(local_context))
-        return
+    data_context = _get_context(local_context)
 
-    results = fs.ls(search_name, print_tags, print_intermediates, print_long, tags=tags)
+    if search_tags is None and (find_roots or find_intermediates):
+        search_tags = {}
+
+    if find_roots:
+        search_tags.update({'root_task': True})
+
+    for i, r in enumerate(data_context.get_hframes(human_name=search_name, tags=search_tags)):
+
+        if find_intermediates:
+            if r.get_tag('root_task') is not None:
+                continue
+
+        if is_committed is not None:
+            if is_committed:
+                if r.get_tag('committed') is None:
+                    continue
+            else:
+                if r.get_tag('committed') is not None:
+                    continue
+
+        # We have filtered out
+        bundle = Bundle(local_context)
+        bundle.fill_from_hfr(r)
+        results.append(bundle)
 
     return results
 
@@ -335,7 +467,7 @@ def get(local_context, bundle_name, uuid=None, tags=None):
     This is a deconstructed fs.cat() call.
 
     Args:
-        local_context:
+        local_context: <remote context>/<local context> or <local context>
         bundle_name:
         uuid:
         tags:
@@ -345,11 +477,7 @@ def get(local_context, bundle_name, uuid=None, tags=None):
 
     """
 
-    data_context = fs.get_context(local_context)
-
-    if data_context is None:
-        _logger.error("Unable to perform bundle_to_df: couldn't find context {}".format(local_context))
-        return
+    data_context = _get_context(local_context)
 
     if uuid is None:
         hfr = fs.get_latest_hframe(bundle_name, tags=tags, data_context=data_context)
@@ -371,53 +499,88 @@ def get(local_context, bundle_name, uuid=None, tags=None):
     return b
 
 
-def commit(local_context, bundle_name,  tags=None):
+def cat(local_context, bundle_name):
+    """Get dataframe representation of bundle
+
+    Args:
+        local_context: <remote context>/<local context> or <local context>
+        bundle_name: The human name of bundle to get df from
+
+    Returns:
+        (`pandas.DataFrame`)
+
+    """
+
+    data_context = _get_context(local_context)
+
+    return fs.cat(bundle_name, data_context=data_context)
+
+
+def commit(local_context, bundle_name, tags=None, uuid=None):
     """ Commit bundle in this local context.  Call commit on the bundle
     object after it has been closed / saved.
 
     Args:
+        local_context (str): <remote context>/<local context> or <local context>
         bundle_name (str): The human name of the bundle to commit
-        local_context (str): The local context to use on add.
         tags (dict(str:str)): Optional dictionary of tags with which to find bundle.
-
+        uuid (str): UUID of the bundle to commit.
     """
 
-    data_context = fs.get_context(local_context)
-
-    if data_context is None:
-        _logger.error("Unable to perform commit: {} ".format(e))
-        return
+    data_context = _get_context(local_context)
 
     if tags is None:
         tags = {}
 
-    fs.commit(bundle_name, tags, data_context=data_context)
+    fs.commit(bundle_name, tags, uuid=uuid, data_context=data_context)
+
+
+def push(local_context, bundle_name, tags=None, uuid=None):
+    """ Push a bundle to a remote repository.
+
+    Args:
+        local_context (str): <remote context>/<local context> or <local context>
+        bundle_name (str): human name of the bundle to push
+        tags (dict): Tags that bundle should have
+        uuid (str): Optional UUID of the bundle to push.  If specified with bundle_name, UUID takes precedence.
+
+    Returns:
+        None
+
+    """
+    _logger.debug('disdat.api.push on bundle \'{}\''.format(bundle_name))
+
+    data_context = _get_context(local_context)
+
+    if data_context.get_remote_object_dir() is None:
+        raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(data_context.get_repo_name(),
+                                                                                      data_context.get_local_name()))
+
+    fs.push(human_name=bundle_name, uuid=uuid, tags=tags, data_context=data_context)
 
 
 def pull(local_context, bundle_name=None, uuid=None, localize=False):
-    """
+    """ Pull bundles from the remote context into this local context.
+    If there is no remote context associated with this context, then this is
+    a no-op.  fs.pull will raise UserWarning if there is no local or remote context.
 
     Args:
-        local_context (str):
+        local_context (str): <remote context>/<local context> or <local context>
         bundle_name (str):
-        uuid:
+        uuid (str):
         localize (bool): Whether to bring linked files directly into bundle directory
 
     Returns:
         Bundle:
     """
 
-    data_context = fs.get_context(local_context)
-
-    if data_context is None:
-        _logger.error("Unable to perform commit: {} ".format(e))
-        return
+    data_context = _get_context(local_context)
 
     fs.pull(human_name=bundle_name, uuid=uuid, localize=localize, data_context=data_context)
 
 
 def apply(local_context, input_bundle, output_bundle, transform,
-          input_tags=None, output_tags=None, force=False, params=None,
+          input_tags=None, output_tags=None, force=False, params=None, output_bundle_uuid=None,
           central_scheduler=False, workers=1):
     """
     Similar to apply.main() but we create our inputs and supply the context
@@ -432,6 +595,7 @@ def apply(local_context, input_bundle, output_bundle, transform,
         output_tags: optional tags dictionary to tag output bundle
         force: Force re-running this transform, default False
         params: optional parameters dictionary
+        output_bundle_uuid: Force UUID of output bundle
         central_scheduler (bool): Use a central scheduler, default False, i.e., use local scheduler
         workers (int): Number of workers, default 1.
 
@@ -439,11 +603,7 @@ def apply(local_context, input_bundle, output_bundle, transform,
 
     """
 
-    data_context = fs.get_context(local_context)
-
-    if data_context is None:
-        _logger.error("Unable to perform apply: {} ".format(local_context))
-        return
+    data_context = _get_context(local_context)
 
     if input_tags is None:
         input_tags = {}
@@ -451,22 +611,18 @@ def apply(local_context, input_bundle, output_bundle, transform,
     if output_tags is None:
         output_tags = {}
 
+    if params is None:
+        params = {}
+
     try:
-
-        if params is None:
-            params = {}
-
         dynamic_params = json.dumps(params)
         disdat.apply.apply(input_bundle, output_bundle, dynamic_params, transform,
-                           input_tags, output_tags, force,
+                           input_tags, output_tags, force, output_bundle_uuid=output_bundle_uuid,
                            sysexit=False, central_scheduler=central_scheduler,
                            workers=workers, data_context=data_context)
 
     except SystemExit as se:
-        print "SystemExist caught: {}".format(se)
-
-    except Exception as e:
-        print "Exception in apply: {}".format(e)
+        print "SystemExit caught: {}".format(se)
 
 
 def run(local_context, input_bundle, output_bundle, transform, input_tags, output_tags, force=False, **kwargs):
@@ -492,6 +648,7 @@ def run(local_context, input_bundle, output_bundle, transform, input_tags, outpu
 def _no_op():
     # pyinstaller hack for including api in single-image binary
     pass
+
 
 if __name__ == '__main__':
     apply('tester', 'demo', 'treeout', 'pipelines.simple_tree.SimpleTree', force=True)

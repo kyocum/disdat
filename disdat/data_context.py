@@ -122,7 +122,7 @@ class DataContext(object):
 
         self.local_engine.dispose()
 
-    def bind_remote_ctxt(self, context, s3_url, pfs, force=False):
+    def bind_remote_ctxt(self, remote_context, s3_url, force=False):
         """
         A local branch can be bound to a remote shared FS where you can push/pull hyperframes.
         If the remote_context directory does not exist, a push will create it.  Note that pull is lazy.
@@ -134,31 +134,31 @@ class DataContext(object):
         track of the prior bound locations or asking the user when the push fails for the prior s3 path.
 
         Args:
-            context (str): remote context name
+            remote_context (str): remote context name
             s3_url (str):  remote context url -- this points to the root of all disdat data -- does not include context dir
-            pfs (`fs.DisdatFS`) : DisdatFS
+            force (bool): whether to force rebinding if a remote_context is already bound
         Returns:
             None
 
         """
         assert (urlparse(s3_url).scheme == 's3')
 
-        if self.remote_ctxt_url is not None and self.remote_ctxt == context and \
+        if self.remote_ctxt_url is not None and self.remote_ctxt == remote_context and \
                         os.path.normpath(os.path.dirname(self.remote_ctxt_url)) == os.path.normpath(s3_url):
             print "Context already bound to remote at {}".format(s3_url)
             return
 
-        if self.remote_ctxt != context:
+        if self.remote_ctxt != remote_context:
             if not force:
                 _logger.error("Unable to bind because branch {} ".format(self.local_ctxt) +
-                              "is not on remote context {} (it is on remote context {}). Use '--force'".format(context,
+                              "is not on remote context {} (it is on remote context {}). Use '--force'".format(remote_context,
                                                                                                                self.remote_ctxt))
                 return
             else:
-                self.remote_ctxt = context
+                self.remote_ctxt = remote_context
 
         if not aws_s3.s3_path_exists(s3_url):
-            _logger.error("Unable to bind context {} because URL {} does not exist.".format(context, s3_url))
+            _logger.error("Unable to bind context {} because URL {} does not exist.".format(remote_context, s3_url))
             return
 
         if self.remote_ctxt_url is None:
@@ -614,7 +614,7 @@ class DataContext(object):
             groupby (bool): group by search
 
         Returns:
-            results (list): list of HyperFrameRecords (or rows if groupby=True) ordered youngest to oldest
+            (list:`disdat.hyperframe.HyperFrameRecord'): list of HyperFrameRecords (or rows if groupby=True) ordered youngest to oldest
 
         """
         found = hyperframe.select_hfr_db(self.local_engine,
