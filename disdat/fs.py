@@ -303,7 +303,7 @@ class DisdatFS(object):
 
         DisdatFS.put_path_cache(pipe, uuid, dir, True, is_left_edge_task)
 
-    def rm(self, human_name=None, rm_all=False, rm_old_only=False, tags=None, force=False):
+    def rm(self, human_name=None, rm_all=False, rm_old_only=False, uuid=None, tags=None, force=False, data_context=None):
         """
         Remove bundle with human_name or tag_value
 
@@ -315,21 +315,29 @@ class DisdatFS(object):
             human_name:  The human-given name for this hyperframe / bundle
             rm_all:      Remove all the bundles matching name, tags.
             rm_old_only: Remove everything but the latest bundle matching name, tags
+            uuid (str): Remove the particular bundle
             tags (:dict):   A dict of (key,value) to find bundles
             force (bool): If a committed bundle has a db link backing a view, you have to force removal.
+            data_context (`disdat.data_context.DataContext`): Context for particular removal
 
         Returns:
             results (list:str):  List of strings of removed bundles
         """
         return_strings = []
 
+        if data_context is None:
+            if not self.in_context():
+                _logger.warning('Not in a data context')
+                return []
+            data_context = self.get_curr_context()
+
         if not self.in_context():
             return_strings.append('[None]')
         else:
-            return_strings.append("Disdat Context {}".format(self._curr_context.get_repo_name()))
-            return_strings.append("On local branch {}".format(self._curr_context.get_local_name()))
+            return_strings.append("Disdat Context {}".format(data_context.get_repo_name()))
+            return_strings.append("On local branch {}".format(data_context.get_local_name()))
 
-            hfrs = self._curr_context.get_hframes(human_name=human_name, tags=tags)
+            hfrs = data_context.get_hframes(human_name=human_name, uuid=uuid, tags=tags)
 
             if len(hfrs) == 0:
                 return_strings.append("No bundles to remove.")
@@ -337,11 +345,11 @@ class DisdatFS(object):
 
             if rm_old_only or rm_all:
                 for hfr in hfrs[1:]:
-                    if self._curr_context.rm_hframe(hfr.pb.uuid, force=force):
+                    if data_context.rm_hframe(hfr.pb.uuid, force=force):
                         return_strings.append("Removing old bundle {}".format(hfr.to_string()))
 
             if not rm_old_only:
-                if self._curr_context.rm_hframe(hfrs[0].pb.uuid, force=force):
+                if data_context.rm_hframe(hfrs[0].pb.uuid, force=force):
                     return_strings.append("Removing latest bundle {}".format(hfrs[0].to_string()))
 
             return return_strings
@@ -471,7 +479,7 @@ class DisdatFS(object):
         else:
             return None
 
-    def ls(self, search_name, print_tags, print_intermediates, print_long, tags=None, data_context=None):
+    def ls(self, search_name, print_tags, print_intermediates, print_long, committed=None, maxbydate=False, tags=None, data_context=None):
         """
         Enumerate bundles (hyperframes) in this context.
 
@@ -479,6 +487,8 @@ class DisdatFS(object):
             search_name: May be None.  Interpret as a simple regex (one kleene star)
             print_tags (bool): Whether to print the bundle tags
             print_intermediates (bool): Whether to show intermediate bundles
+            committed (bool): If True, just committed, if False, just uncommitted, if None then ignore.
+            maxbydate (bool): return the latest by date
             tags: Optional. A dictionary of tags to search for.
             data_context (`disdat.data_context.DataContext`): Optional data context to operate in
 
@@ -503,7 +513,15 @@ class DisdatFS(object):
         if print_long:
             output_strings.append(DisdatFS._pretty_print_header())
 
-        for i, r in enumerate(data_context.get_hframes(human_name=search_name, tags=tags)):
+        for i, r in enumerate(data_context.get_hframes(human_name=search_name, tags=tags, maxbydate=maxbydate)):
+            if committed is not None:
+                if committed:
+                    if not r.get_tag('committed'):
+                        continue
+                else:
+                    if r.get_tag('committed'):
+                        continue
+
             if print_long:
                 output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags))
             else:
@@ -817,10 +835,8 @@ class DisdatFS(object):
             print "Push requires either a human name or a uuid to identify the hyperframe."
             return None
 
-
-
         if hfr is None:
-            print "No bundle with human name {} found.".format(bundle_name)
+            print "No bundle with human name [{}] or uuid [{}] found.".format(bundle_name, uuid)
             return
 
         commit_tag = hfr.get_tag('committed')
@@ -1419,7 +1435,7 @@ def _add(fs, args):
 
 
 def _commit(fs, args):
-    fs.commit(args.bundle, common.parse_args_tags(args.tag))
+    fs.commit(args.bundle, common.parse_args_tags(args.tag), uuid=args.uuid)
 
 
 def _remote(fs, args):
@@ -1449,7 +1465,7 @@ def _pull(fs, args):
 
 
 def _rm(fs, args):
-    for f in fs.rm(args.bundle, rm_all=args.all, tags=common.parse_args_tags(args.tag), force=args.force):
+    for f in fs.rm(args.bundle, rm_all=args.all, rm_old_only=args.old, tags=common.parse_args_tags(args.tag), uuid=args.uuid, force=args.force):
         print f
 
 
@@ -1462,7 +1478,20 @@ def _ls(fs, args):
     else:
         arg = None
 
-    for f in fs.ls(arg, args.print_tags, args.intermediates, args.verbose, tags=common.parse_args_tags(args.tag)):
+    if args.committed:
+        committed = True
+    elif args.uncommitted:
+        committed = False
+    else:
+        committed = None
+
+    for f in fs.ls(arg,
+                   args.print_tags,
+                   args.intermediates,
+                   args.verbose,
+                   committed=committed,
+                   maxbydate=args.latest_by_date,
+                   tags=common.parse_args_tags(args.tag)):
         print f
 
 
@@ -1520,27 +1549,38 @@ def init_fs_cl(subparsers):
 
     # commit
     commit_p = subparsers.add_parser('commit', description='Commit most recent bundle of name <bundle>.')
-    commit_p.add_argument('bundle', type=str, help='The name of the bundle to commit in the current context')
+    commit_p.add_argument('bundle', type=str, nargs='?', default=None,
+                          help='Bundle name to commit in the current context (optional)')
+    commit_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to commit')
     commit_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
                           help="Having a specific tag: 'dsdt rm -t committed:True -t version:0.7.1'")
     commit_p.set_defaults(func=lambda args: _commit(fs, args))
 
     # rm
     rm_p = subparsers.add_parser('rm')
-    rm_p.add_argument('bundle',  type=str, help='The destination bundle in the current context')
+    rm_p.add_argument('bundle', nargs='?', type=str, default=None, help='The destination bundle in the current context')
     rm_p.add_argument('-f', '--force', action='store_true', default=False, help='Force remove of a committed bundle')
+    rm_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to remove')
     rm_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
                       help="Having a specific tag: 'dsdt rm -t committed:True -t version:0.7.1'")
     rm_p.add_argument('--all', action='store_true',
                       help='Remove the current version and all history.  Otherwise just remove history')
+    rm_p.add_argument('--old', action='store_true', default=False,
+                      help='Remove everything except the most recent bundle.')
     rm_p.set_defaults(func=lambda args: _rm(fs, args))
 
     # ls
     ls_p = subparsers.add_parser('ls')
     ls_p.add_argument('bundle', nargs='*', type=str, help="Show all bundles 'dsdt ls' or explicit bundle 'dsdt ls <somebundle>' in current context")
-    ls_p.add_argument('-pt', '--print-tags', action='store_true', help="Print each bundle's tags.")
+    ls_p.add_argument('-p', '--print-tags', action='store_true', help="Print each bundle's tags.")
     ls_p.add_argument('-i', '--intermediates', action='store_true',
                       help="List all bundles, including intermediate outputs.")
+    ls_p.add_argument('-c', '--committed', action='store_true',
+                      help="List only committed bundles.")
+    ls_p.add_argument('-u', '--uncommitted', action='store_true',
+                      help="List only uncommitted bundles.")
+    ls_p.add_argument('-l', '--latest-by-date', action='store_true',
+                      help="Return the most recent bundle for any name.")
     ls_p.add_argument('-v', '--verbose', action='store_true',
                       help="Print bundles with more information.")
     ls_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
@@ -1558,7 +1598,7 @@ def init_fs_cl(subparsers):
 
     # status
     status_p = subparsers.add_parser('status')
-    status_p.add_argument('-b', '--bundle', type=str, help='A bundle in the current context')
+    status_p.add_argument('bundle', type=str, help='A bundle in the current context')
     status_p.set_defaults(func=lambda args: _status(fs, args))
 
     # remote add <name> <s3_url>
@@ -1571,15 +1611,16 @@ def init_fs_cl(subparsers):
 
     # push <name> --uuid <uuid>
     push_p = subparsers.add_parser('push')
-    push_p.add_argument('-b', '--bundle', type=str, help='The bundle name in the current context')
+    push_p.add_argument('bundle', type=str, nargs='?', default=None,
+                        help='The bundle name in the current context')
     push_p.add_argument('-u', '--uuid', type=str, help='A UUID of a bundle in the current context')
     push_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
-                      help="Having a specific tag: 'dsdt ls -t committed:True -t version:0.7.1'")
+                        help="Having a specific tag: 'dsdt ls -t committed:True -t version:0.7.1'")
     push_p.set_defaults(func=lambda args: _push(fs, args))
 
     # pull <name --uuid <uuid>
     pull_p = subparsers.add_parser('pull')
-    pull_p.add_argument('-b', '--bundle', type=str, help='The bundle name in the current context')
+    pull_p.add_argument('bundle', type=str, nargs='?', default=None, help='The bundle name in the current context')
     pull_p.add_argument('-u', '--uuid', type=str, help='A UUID of a bundle in the current context')
     pull_p.add_argument('-l', '--localize', action='store_true', help='Pull files with the bundle.  Default to leaving files at remote.')
     pull_p.set_defaults(func=lambda args: _pull(fs, args))

@@ -598,7 +598,7 @@ class DataContext(object):
             _logger.error("Removal of hyperframe directory {} failed with error {}.".format(self.implicit_hframe_path(hfr_uuid), why))
             return False
 
-    def get_hframes(self, human_name=None, processing_name=None, uuid=None, tags=None, state=None, groupby=False):
+    def get_hframes(self, human_name=None, processing_name=None, uuid=None, tags=None, state=None, groupby=False, maxbydate=False):
         """
         Find all hframes with the given bundle_name
 
@@ -612,6 +612,7 @@ class DataContext(object):
             tags (dict):
             state:
             groupby (bool): group by search
+            maxbydate (bool): Return latest if we have groupby enabled
 
         Returns:
             (list:`disdat.hyperframe.HyperFrameRecord'): list of HyperFrameRecords (or rows if groupby=True) ordered youngest to oldest
@@ -624,7 +625,8 @@ class DataContext(object):
                                          tags=tags,
                                          state=state,
                                          orderby=True,
-                                         groupby=groupby)
+                                         groupby=groupby,
+                                         maxbydate=maxbydate)
 
         return found
 

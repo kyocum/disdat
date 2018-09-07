@@ -110,6 +110,8 @@ class RunTask(luigi.Task, PipeBase):
     input_tags = luigi.ListParameter()
     output_tags = luigi.ListParameter()
     fetch_list = luigi.ListParameter()
+    context = luigi.Parameter(default=None)
+    remote = luigi.Parameter(default=None)
 
     def __init__(self, *args, **kwargs):
         """
@@ -201,7 +203,9 @@ class RunTask(luigi.Task, PipeBase):
             aws_session_token_duration=self.aws_session_token_duration,
             input_tags=self.input_tags,
             output_tags=self.output_tags,
-            fetch_list=self.fetch_list
+            fetch_list=self.fetch_list,
+            context = self.context,
+            remote = self.remote
         )
 
 
@@ -477,7 +481,9 @@ def _run(
     aws_session_token_duration=0,
     input_tags=None,
     output_tags=None,
-    fetch_list=None
+    fetch_list=None,
+    context=None,
+    remote=None
 ):
     """Run the dockerized version of a pipeline.
 
@@ -493,6 +499,8 @@ def _run(
         input_tags (list(str)): Find bundle with these tags ['key:value',...]
         output_tags (list(str)): Push result bundle with these tags ['key:value',...]
         fetch_list (list(str)): Fetch these bundles before starting pipeline
+        context (str): <remote context>/<local context> context string
+        remote (str): The remote S3 URL.
 
     Returns:
         `None`
@@ -501,12 +509,15 @@ def _run(
     pfs = fs.DisdatFS()
 
     try:
-        output_bundle_uuid, remote, branch_name = common.get_run_command_parameters(pfs)
+        output_bundle_uuid = pfs.disdat_uuid()
+        if remote is None or context is None:
+            # If either is none, then both are, b/c we checked in calling function
+            remote, context = common.get_run_command_parameters(pfs)
     except ValueError:
         _logger.error("'run' requires a remote set with `dsdt remote <s3 url>`")
         return
 
-    arglist = common.make_run_command(input_bundle, output_bundle, output_bundle_uuid, remote, branch_name,
+    arglist = common.make_run_command(input_bundle, output_bundle, output_bundle_uuid, remote, context,
                                       input_tags, output_tags, fetch_list, pipeline_params)
 
     if backend == Backend.AWSBatch or backend == Backend.SageMaker:
@@ -554,6 +565,15 @@ def add_arg_parser(parsers):
         help='Use a temporary AWS session token to access the remote, valid for AWS_SESSION_TOKEN_DURATION seconds',
         dest='aws_session_token_duration',
     )
+
+    run_p.add_argument('-c', '--context',
+                       type=str,
+                       default=None,
+                       help="'<remote context>/<local context>', else use current context.")
+    run_p.add_argument('-r', '--remote',
+                       type=str,
+                       default=None,
+                       help="Remote URL, i.e, 's3://<bucket>/dsdt/', else use remote on current context")
     run_p.add_argument('-f', '--fetch', nargs=1, type=str, action='append',
                        help="Fetch bundle into context: '-f some.input.bundle'")
     run_p.add_argument('-it', '--input-tag', nargs=1, type=str, action='append',
@@ -581,9 +601,15 @@ def main(args):
 
     pfs = fs.DisdatFS()
 
-    if not pfs.in_context():
-        print "'Must be in a context to execute 'dsdt run'"
-        return
+    # if any set, the other must be set.  if a or b, then a and b are set
+    if args.context is not None or args.remote is not None:
+        if args.context is None or args.remote is None:
+            print "Must set both context [{}] and remote [{}] simultaneously.".format(args.context, args.remote)
+            return
+    else:
+        if not pfs.in_context():
+            print "'Must be in a context (or specify --context and --remote) to execute 'dsdt run'"
+            return
 
     if args.backend is not None:
         backend = Backend[args.backend]
@@ -609,7 +635,9 @@ def main(args):
         args.aws_session_token_duration[0],
         input_tags,
         output_tags,
-        fetch_list
+        fetch_list,
+        args.context,
+        args.remote
     ]
 
     commit_pipe = RunTask(*task_args)

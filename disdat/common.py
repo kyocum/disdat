@@ -64,7 +64,12 @@ def setup_default_logging():
     Returns:
 
     """
+    global _logger
+
     logging.basicConfig(stream=sys.stderr, format=_logging_format_simple, level=_logging_default_level)
+
+    # so that the logger for this file is set up.
+    _logger = logging.getLogger(__name__)
 
 
 class SingletonType(type):
@@ -139,8 +144,7 @@ class DisdatConfig(object):
         Paths in the config might be relative.  If so, add the prefix to them.
         Next, see if there is a disdat.cfg in cwd.  Then configure disdat and (re)configure logging.
         """
-
-        _logger.debug("Loading config file [{}]".format(disdat_config_file))
+        # _logger.debug("Loading config file [{}]".format(disdat_config_file))
         config = ConfigParser.SafeConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
         config.read(disdat_config_file)
         self.meta_dir_root = os.path.expanduser(config.get('core', 'meta_dir_root'))
@@ -256,13 +260,12 @@ def make_sagemaker_pipeline_repository_name(docker_repository_prefix, pipeline_c
 #
 
 def get_run_command_parameters(pfs):
-    output_bundle_uuid = pfs.disdat_uuid()
     remote = pfs.get_curr_context().remote_ctxt_url
     if remote is None:
         raise ValueError
     remote = remote.replace('/{}'.format(DISDAT_CONTEXT_DIR), '')
     local_ctxt = "{}/{}".format(pfs.get_curr_context().remote_ctxt, pfs.get_curr_context().local_ctxt)
-    return output_bundle_uuid, remote, local_ctxt
+    return remote, local_ctxt
 
 
 def make_run_command(

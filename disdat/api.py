@@ -333,7 +333,7 @@ def _get_context(context_name):
     return data_context
 
 
-def contexts():
+def ls_contexts():
     """ Return list of contexts and their remotes
 
     Returns:
@@ -344,7 +344,7 @@ def contexts():
     return [ctxt for ctxt in fs._all_contexts.keys()]
 
 
-def branch(context_name):
+def context(context_name):
     """ Create a new context
 
     Args:
@@ -497,6 +497,20 @@ def get(local_context, bundle_name, uuid=None, tags=None):
     b.closed = True
 
     return b
+
+
+def rm(local_context, bundle_name, uuid=None):
+    """ Delete a bundle
+
+    Args:
+        local_context:
+        bundle_name:
+        uuid:
+
+    Returns:
+
+    """
+
 
 
 def cat(local_context, bundle_name):

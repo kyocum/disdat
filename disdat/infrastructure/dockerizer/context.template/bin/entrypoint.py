@@ -47,9 +47,11 @@ def _add(fs, bundle_name, input_path):
         raise RuntimeError()
     # We have to spawn the add task as a child process otherwise the entire
     # run process will exit after we complete adding the bundle.
+
     def _inner():
         fs.add(bundle_name, input_path)
         fs._context = disdat.fs.DataContext.load(fs.disdat_config.get_meta_dir())
+
     p = Process(target=_inner)
     p.start()
     p.join()
@@ -57,7 +59,10 @@ def _add(fs, bundle_name, input_path):
 
 
 def _context_and_switch(context_name, remote=None):
-    """Create a new Disdat context, bind it to remote, and switch to it.  Idempotent operations
+    """Create a new Disdat context and bind remote if not None.
+
+    Note we do not switch to the context, as running the container locally may inadvertently
+    change the context the CLI is in.
 
     Args:
         context_name (str): A fully-qualified context name. remote-context/local-context
@@ -68,12 +73,10 @@ def _context_and_switch(context_name, remote=None):
         _logger.error("Partial context name: Expected <remote-context>/<local-context>, got '{}'".format(context_name))
         return False
 
-    disdat.api.branch(context_name)
+    disdat.api.context(context_name)
 
     if remote is not None:
         _remote(context_name, remote)
-
-    disdat.api.switch(context_name)
 
     return True
 
