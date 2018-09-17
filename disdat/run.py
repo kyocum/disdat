@@ -112,6 +112,7 @@ class RunTask(luigi.Task, PipeBase):
     fetch_list = luigi.ListParameter()
     context = luigi.Parameter(default=None)
     remote = luigi.Parameter(default=None)
+    no_pull = luigi.BoolParameter(default=False)
 
     def __init__(self, *args, **kwargs):
         """
@@ -204,8 +205,9 @@ class RunTask(luigi.Task, PipeBase):
             input_tags=self.input_tags,
             output_tags=self.output_tags,
             fetch_list=self.fetch_list,
-            context = self.context,
-            remote = self.remote
+            context=self.context,
+            remote=self.remote,
+            no_pull=self.no_pull
         )
 
 
@@ -483,7 +485,8 @@ def _run(
     output_tags=None,
     fetch_list=None,
     context=None,
-    remote=None
+    remote=None,
+    no_pull=False
 ):
     """Run the dockerized version of a pipeline.
 
@@ -518,7 +521,7 @@ def _run(
         return
 
     arglist = common.make_run_command(input_bundle, output_bundle, output_bundle_uuid, remote, context,
-                                      input_tags, output_tags, fetch_list, pipeline_params)
+                                      input_tags, output_tags, fetch_list, no_pull, pipeline_params)
 
     if backend == Backend.AWSBatch or backend == Backend.SageMaker:
 
@@ -558,6 +561,11 @@ def add_arg_parser(parsers):
     run_p.add_argument("--no-push-input", action='store_false',
                        help="Do not push the current committed input bundle before execution (default is to push)", dest='push_input_bundle')
     run_p.add_argument(
+        '--no-pull',
+        action='store_true',
+        help='Do not pull (synchronize) remote repository with local repo.  This may cause entire pipeline to re-run.',
+    )
+    run_p.add_argument(
         '--use-aws-session-token',
         nargs=1,
         default=[0],
@@ -565,7 +573,6 @@ def add_arg_parser(parsers):
         help='Use a temporary AWS session token to access the remote, valid for AWS_SESSION_TOKEN_DURATION seconds',
         dest='aws_session_token_duration',
     )
-
     run_p.add_argument('-c', '--context',
                        type=str,
                        default=None,
@@ -637,7 +644,8 @@ def main(args):
         output_tags,
         fetch_list,
         args.context,
-        args.remote
+        args.remote,
+        args.no_pull
     ]
 
     commit_pipe = RunTask(*task_args)

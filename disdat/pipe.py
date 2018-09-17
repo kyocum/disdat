@@ -372,7 +372,7 @@ class PipeTask(luigi.Task, PipeBase):
             raise
 
         try:
-            hfr = PipeBase.parse_pipe_return_val(pce.uuid, user_rtn_val, self.data_context, self.pipeline_id())
+            hfr = PipeBase.parse_pipe_return_val(pce.uuid, user_rtn_val, self.data_context, self)
 
             if self.output_tags:
                 self.user_tags.update(self.output_tags)

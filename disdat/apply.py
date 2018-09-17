@@ -61,10 +61,10 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
         output_tags (dict):  Tags that need to be placed on the output bundle
         force (bool): whether to re-run this pipe
         output_bundle_uuid (str):  Optionally specify exactly the UUID of the output bundle IFF we actually need to produce it
-        sysexit: Run with sys exist return codes (will raise SystemExit) (default False)
+        sysexit: Run with sys exist return codes (will raise SystemExit) (default True)
         central_scheduler: Use a centralized Luigi scheduler (default False, i.e., --local-scheduler is used)
         workers: The number of luigi workers to use for this workflow (default 1)
-        data_context:
+        data_context: Actual context object or None and read current context.
 
     Returns:
         None
@@ -172,9 +172,6 @@ def topo_sort_tasks(root_task):
     while len(to_visit_fifo) > 0:
         next_node = to_visit_fifo.popleft()
         stack.append(next_node)
-
-        #print "DEPS CALL on {}".format(next_node.task_family)
-        
         to_visit_fifo.extend(next_node.deps())
         
     return stack
@@ -188,13 +185,13 @@ def is_left_edge_task(task):
     Returns: True or False
     """
     deps = task.deps()
+
     for task in deps:
-        # XXX This is broken python-ness.  You would like to use type(task) is cls
-        # but you can't, because reasons.
         if task.__class__.__name__ is 'PipesExternalBundle':
             continue
         else:
             return False
+
     return True
     
 
@@ -214,17 +211,14 @@ def resolve_workflow_bundles(root_task):
     :root_task:
     """
 
-    ## Get a DisdatFS object
     pfs = fs.DisdatFS()
 
-    ## Sort the tasks
     stack = topo_sort_tasks(root_task)
 
-    ## For each task in the sort order, figure out if we need a new bundle (re-run it)
+    # For each task in the sort order, figure out if we need a new bundle (re-run it)
     while len(stack) > 0:
         p = stack.pop()
-        #print "Working on pipe {} with task_id {}".format(p,p.task_id)
-        #print "WORKING {}".format(luigi.task.task_id_str(p.task_family, p.to_str_params(only_significant=True)))
+        # print "WORKING {}".format(luigi.task.task_id_str(p.task_family, p.to_str_params(only_significant=True)))
         if p.__class__.__name__ is 'PipesExternalBundle':
             # external files aren't included in the dag.
             continue
@@ -271,18 +265,19 @@ def different_code_versions(code_version, lineage_obj):
     return False
 
     
-def resolve_bundle(pfs, pipe, is_left_edge_task):
+def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
     """
     Args:
         pfs: pipe fs object
         pipe: the pipe to investigate
         is_left_edge_task: True if this task starts the DAG.
+        data_context: the data context object from which we should resolve bundles.
 
     Returns:
 
     """
 
-    verbose = False
+    verbose = True
 
     # 1.) Get output bundle for pipe_id (the specific pipeline/transform/param hash).
 
@@ -292,36 +287,48 @@ def resolve_bundle(pfs, pipe, is_left_edge_task):
         # Forcing recomputation through a manual --force directive
         _logger.debug("resolve_bundle: --force forcing a new output bundle.")
         if verbose: print "resolve_bundle: --force forcing a new output bundle.\n"
-        pfs.new_output_hframe(pipe, is_left_edge_task)
+        pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
         return
 
-    bndl = pfs.get_hframe_by_proc(pipe.pipe_id())
-    if bndl is None:
+    bndls = pfs.get_hframe_by_proc(pipe.pipe_id(), getall=True, data_context=data_context)
+    if bndls is None or len(bndls) <= 0:
         if verbose: print "resolve_bundle: No bundle with proc_name {}, getting new output bundle.\n".format(pipe.pipe_id())
         # no bundle, force recompute
-        pfs.new_output_hframe(pipe, is_left_edge_task)
+        pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
         return
+
+    bndl = bndls[0]  # our best guess is the most recent bundle with the same pipe_id()
 
     # 2.) Bundle exists - lineage object tells us input bundles.
     lng = bndl.get_lineage()
     if lng is None:
         if verbose: print "resolve_bundle: No lineage present, getting new output bundle.\n"
-        pfs.new_output_hframe(pipe, is_left_edge_task)
+        pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
         return
 
     # 3.) Lineage record exists -- if new code, re-run
     current_version = pipe_base.get_pipe_version(pipe)
     if different_code_versions(current_version, lng):
         if verbose: print "resolve_bundle: New code version, getting new output bundle.\n"
-        pfs.new_output_hframe(pipe, is_left_edge_task)
+        pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
         return
 
     # 3.5.) Have we changed the output human bundle name?  If so, re-run task.
+    # Note: we need to go through all the bundle versions with that processing_id.
+    # because, at the moment, we make new bundles when we change name.  When in some sense
+    # it's just a tag set that should include other names and the data should be the same.
+
     current_human_name = pipe.pipeline_id()
-    if current_human_name != bndl.get_human_name():
+    found = False
+    for bndl in bndls:
+        if current_human_name == bndl.get_human_name():
+            found = True
+            break
+    if not found:
         if verbose: print "resolve_bundle: New human name {} (prior {}), getting new output bundle.\n".format(
             current_human_name, bndl.get_human_name())
-        pfs.new_output_hframe(pipe, is_left_edge_task)
+        pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
+        return
 
     # 4.) Check the inputs -- assumes we have processed upstream tasks already
     for task in pipe.requires():
@@ -364,10 +371,10 @@ def resolve_bundle(pfs, pipe, is_left_edge_task):
         else:
             if pce.rerun:
                 if verbose: print "Resolve_bundle: an upstream task is in the pce and is being re-run, so we need to reun. getting new output bundle.\n"
-                pfs.new_output_hframe(pipe, is_left_edge_task)
+                pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
                 return
 
-            local_bundle = pfs.get_hframe_by_proc(task.task_id)
+            local_bundle = pfs.get_hframe_by_proc(task.task_id, data_context=data_context)
             assert(local_bundle is not None)
 
             """ Now we need to check if we should re-run this task because an upstream input exists and has been updated        
@@ -383,12 +390,12 @@ def resolve_bundle(pfs, pipe, is_left_edge_task):
                         task.task_id,
                         tup.hframe_uuid,
                         local_bundle.pb.uuid)
-                    pfs.new_output_hframe(pipe, is_left_edge_task)
+                    pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
                     return
 
     # 5.) Woot!  Reuse the found bundle.
     if verbose: print "resolve_bundle: reusing bundle\n"
-    pfs.reuse_hframe(pipe, bndl, is_left_edge_task)
+    pfs.reuse_hframe(pipe, bndl, is_left_edge_task, data_context=data_context)
     return
 
 
@@ -413,6 +420,10 @@ def main(disdat_config, args):
 
     output_tags = common.parse_args_tags(args.output_tag)
 
+
+    # NOTE: sysexit=False is required for us to pass a data_context object through luigi tasks.
+    # Else we build up arguments as strings to run_with_retcodes().  And it crashes because the data_context is
+    # not a string.
     apply(args.input_bundle, args.output_bundle, dynamic_params, args.pipe_cls, input_tags, output_tags,
-          args.force, central_scheduler=args.central_scheduler, workers=args.workers)
+          args.force, sysexit=False, central_scheduler=args.central_scheduler, workers=args.workers)
 

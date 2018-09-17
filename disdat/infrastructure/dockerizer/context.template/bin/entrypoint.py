@@ -12,12 +12,14 @@ import disdat.apply
 import disdat.common
 import disdat.fs
 import disdat.api
-import json
 import logging
 import os
 import pandas as pd
 import sys
 import tempfile
+
+import boto3
+from botocore.exceptions import ClientError
 
 from multiprocessing import Process
 
@@ -58,7 +60,7 @@ def _add(fs, bundle_name, input_path):
     return True
 
 
-def _context_and_switch(context_name, remote=None):
+def _context_and_remote(context_name, remote=None):
     """Create a new Disdat context and bind remote if not None.
 
     Note we do not switch to the context, as running the container locally may inadvertently
@@ -124,6 +126,49 @@ def _remove(fs, bundle_name):
     return fs.rm(bundle_name, rm_all=True)
 
 
+def retrieve_secret(secret_name):
+    """ Placeholder for ability to retrieve secrets needed by image
+
+    Returns:
+
+    """
+
+    raise NotImplementedError
+
+    # Modify these to get them from the current environment
+    endpoint_url = "https://secretsmanager.us-west-2.amazonaws.com"
+    region_name = "us-west-2"
+
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name,
+        endpoint_url=endpoint_url
+    )
+
+    try:
+        get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ResourceNotFoundException':
+            print("The requested secret " + secret_name + " was not found")
+        elif e.response['Error']['Code'] == 'InvalidRequestException':
+            print("The request was invalid due to:", e)
+        elif e.response['Error']['Code'] == 'InvalidParameterException':
+            print("The request had invalid params:", e)
+    else:
+        # Decrypted secret using the associated KMS CMK
+        # Depending on whether the secret was a string or binary, one of these fields will be populated
+        if 'SecretString' in get_secret_value_response:
+            secret = get_secret_value_response['SecretString']
+        else:
+            binary_secret_data = get_secret_value_response['SecretBinary']
+
+        print ("Found the secret string as ")
+        print secret
+
+
 def add_argument_help_string(help_string, default=None):
     if default is None:
         return '{}'.format(help_string)
@@ -149,8 +194,9 @@ def run_disdat_container(args):
         _logger.warning("Disdat environment possibly uninitialized?")
 
     # Create branch, add remote, and switch to it
-    if not _context_and_switch(args.branch, args.remote):
-        _logger.error("Failed to branch, bind, and check out \'{}\'".format(args.branch))
+    if not _context_and_remote(args.branch, args.remote):
+        _logger.error("Failed to branch to \'{}\' and optionally bind  to \'{}\'".format(args.branch,
+                                                                                         args.remote))
         sys.exit(os.EX_IOERR)
 
     # Pull the remote branch into the local branch or download individual items

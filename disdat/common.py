@@ -277,13 +277,16 @@ def make_run_command(
         input_tags,
         output_tags,
         fetch_list,
-        pipeline_params,
+        no_pull,
+        pipeline_params
 ):
     args = [
         '--output-bundle-uuid ', output_bundle_uuid,
         '--remote', remote,
         '--branch', local_ctxt,
     ]
+    if no_pull:
+        args += ['--no-pull']
     if len(input_tags) > 0:
         for next_tag in input_tags:
             args += ['--input-tag', next_tag]

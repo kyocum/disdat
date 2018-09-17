@@ -36,6 +36,7 @@ import time
 from enum import Enum
 import shutil
 import collections
+from multiprocessing import Pool, TimeoutError, cpu_count
 from luigi import retcodes
 import pandas as pd
 
@@ -252,7 +253,7 @@ class DisdatFS(object):
         """
         return self._curr_context and self._curr_context.is_valid()
 
-    def reuse_hframe(self, pipe, hframe, is_left_edge_task):
+    def reuse_hframe(self, pipe, hframe, is_left_edge_task, data_context=None):
         """
         Re-use this bundle, everything stays the same, just put in the cache
         Note: Currently doesn't use this FS instance, but to be consistent with
@@ -262,6 +263,7 @@ class DisdatFS(object):
             pipe:
             hframe:
             is_left_edge_task:
+            data_context:
 
         Returns:
             None
@@ -274,10 +276,16 @@ class DisdatFS(object):
             _logger.debug("reuse_hframe: Found a task in our dag already in the path cache: reusing!")
             return
 
-        dir = self._curr_context.implicit_hframe_path(hframe.pb.uuid)
+        if data_context is None:
+            if not self.in_context():
+                _logger.warning('Not in a data context')
+                raise RuntimeError('Not in a data context')
+            data_context = self.get_curr_context()
+
+        dir = data_context.implicit_hframe_path(hframe.pb.uuid)
         DisdatFS.put_path_cache(pipe, hframe.pb.uuid, dir, False, is_left_edge_task)
 
-    def new_output_hframe(self, pipe, is_left_edge_task, force_uuid=None):
+    def new_output_hframe(self, pipe, is_left_edge_task, force_uuid=None, data_context=None):
         """
         This proposes a new output hframe.
         1.) Create a new UUID
@@ -289,6 +297,14 @@ class DisdatFS(object):
         hframe to the context's directory.   On rebuild / restart we will delete the directory.
         However, the path_cache will hold on to this directory in memory.
 
+        Args:
+            pipe:
+            is_left_edge_task:
+            force_uuid:
+            data_context:
+
+        Returns:
+
         """
 
         pce  = self.get_path_cache(pipe)
@@ -299,7 +315,13 @@ class DisdatFS(object):
             _logger.debug("new_output_hframe: Found a task in our dag already in the path cache: reusing!")
             return
 
-        dir, uuid, _ = self._curr_context.make_managed_path(uuid=force_uuid)
+        if data_context is None:
+            if not self.in_context():
+                _logger.warning('Not in a data context')
+                raise RuntimeError('Not in a data context')
+            data_context = self.get_curr_context()
+
+        dir, uuid, _ = data_context.make_managed_path(uuid=force_uuid)
 
         DisdatFS.put_path_cache(pipe, uuid, dir, True, is_left_edge_task)
 
@@ -410,7 +432,7 @@ class DisdatFS(object):
         if data_context is None:
             if not self.in_context():
                 _logger.warning('Not in a data context')
-                return None
+                raise RuntimeError('Not in a data context')
             data_context = self.get_curr_context()
 
         found = data_context.get_hframes(human_name=human_name, tags=tags)
@@ -439,7 +461,7 @@ class DisdatFS(object):
         if data_context is None:
             if not self.in_context():
                 _logger.warning('Not in a data context')
-                return None
+                raise RuntimeError('Not in a data context')
             data_context = self.get_curr_context()
 
         found = data_context.get_hframes(uuid=uuid, tags=tags)
@@ -451,7 +473,7 @@ class DisdatFS(object):
         else:
             raise Exception("Many records {} found with uuid {}".format(len(found), uuid))
 
-    def get_hframe_by_proc(self, processing_name, getall=False):
+    def get_hframe_by_proc(self, processing_name, getall=False, data_context=None):
         """
         Given processing_name find Hyper Frame (aka bundle).  Return the most recent (latest)
         hframe by processing, unless
@@ -463,12 +485,20 @@ class DisdatFS(object):
 
         Args:
             processing_name:
+            getall: Retrieve all the frames that share that processing ID
+            data_context: The context from which to find the hframe.  If None, then use current one.
 
         Returns:
             None or HyperFrameRecord
         """
 
-        found = self._curr_context.get_hframes(processing_name=processing_name)
+        if data_context is None:
+            if not self.in_context():
+                _logger.warning('Not in a data context')
+                raise RuntimeError('Not in a data context')
+            data_context = self.get_curr_context()
+
+        found = data_context.get_hframes(processing_name=processing_name)
 
         # TODO: filter at SQL instead
         if len(found) > 0:
@@ -1262,12 +1292,57 @@ class DisdatFS(object):
             None
         """
         managed_path = os.path.join(data_context.get_object_dir(), s3_uuid)
-        for fr in local_hfr.get_frames():
+        for fr in local_hfr.get_frames(data_context):
             if fr.is_link_frame():
                 src_paths = data_context.actualize_link_urls(fr)
                 for f in src_paths:
                     print "Adding file {} to bundle".format(f)
                     DataContext.copy_in_files(f, managed_path)
+
+    def fast_pull(self, data_context, localize):
+        """
+
+        First edition, over-write everything.
+        Next edition, by smarter.  Basically implement "sync"
+
+
+        for crap/crap/objects/<uuid>
+        to  localcrap/crap/objects
+
+        split for by removing first part.
+
+
+
+        Args:
+            data_context:
+            localize (bool): If True pull all files in each bundle, else just pull *frame.pb
+
+        Returns:
+
+        """
+
+        MAX_WAIT = 12 * 60
+
+        pool = Pool(processes = cpu_count()) # I/O bound, so let it use at least cpu_count()
+
+        remote_s3_object_dir = data_context.get_remote_object_dir()
+        s3_bucket, remote_obj_dir = aws_s3.split_s3_url(remote_s3_object_dir)
+        all_objects = aws_s3.ls_s3_url_objects(remote_s3_object_dir)
+
+        if not localize:
+            all_objects = [obj for obj in all_objects if 'frame.pb' in obj.key]
+
+        multiple_results = []
+        for s3_obj in all_objects:
+            obj_basename = os.path.basename(s3_obj.key)
+            obj_suffix = s3_obj.key.replace(remote_obj_dir,'')
+            obj_suffix_dir = os.path.dirname(obj_suffix)
+            local_uuid_dir = os.path.join(data_context.get_object_dir(), obj_suffix_dir)
+            multiple_results.append(pool.apply_async(aws_s3.get_s3_key,
+                                                     (s3_bucket,s3_obj.key,os.path.join(local_uuid_dir, obj_basename))))
+
+        # TODO: exception handling
+        results = [res.get(timeout=MAX_WAIT) for res in multiple_results]
 
     def pull(self, human_name=None, uuid=None, localize=False, data_context=None):
         """
@@ -1275,8 +1350,6 @@ class DisdatFS(object):
         objects.   There is no DB at a remote.  We are left to reading the
         entire directory.  We leverage s3 facilities to give us all the
         hyperframe pb's within the current bound context.
-
-        TODO: Some of this needs to move to DataContext
 
         Args:
             hfr: optional filter
@@ -1302,12 +1375,22 @@ class DisdatFS(object):
             print "Pull cannot execute.  Local context {} on remote {} not bound.".format(data_context.local_ctxt, data_context.remote_ctxt)
             raise UserWarning("Local context {} has no remote".format(data_context.local_ctxt))
 
+        if human_name is None and uuid is None:
+            # NOTE: This is fast and loose.  Another command might be editing the db.  Unit test.
+            # NOTE: If we fail, we could have a partial DB.  Need to surface the rebuild command.
+            self.fast_pull(data_context, localize)
+            data_context.rebuild_db()
+            return
+
+        start = time.time()
         possible_hframe_objects = aws_s3.ls_s3_url_objects(data_context.get_remote_object_dir())
+        print "List time {} seconds".format(time.time() - start)
 
         hframe_objects = [obj for obj in possible_hframe_objects if '_hframe.pb' in obj.key]
 
         for s3_hfr_obj in hframe_objects:
             hfr_basename = os.path.basename(s3_hfr_obj.key)
+            # Note that this works because the UUID is prepended to the <uuid>_hframe.pb
             s3_uuid = hfr_basename.split('_')[0]
 
             if uuid is not None:   # filter by UUID

@@ -34,6 +34,7 @@ import pkg_resources
 from botocore.exceptions import ClientError
 from urlparse import urlparse
 
+
 _logger = logging.getLogger(__name__)
 
 
@@ -254,25 +255,54 @@ def ls_s3_url_objects(s3_url):
     """
     result = []
 
-    if s3_url[-1] is not '/':
-        s3_url += '/'
-
-    s3 = b3.resource('s3')
     bucket, s3_path = split_s3_url(s3_url)
 
-    if not s3_bucket_exists(bucket):
-        return result
+    #if not s3_bucket_exists(bucket):
+    #    return result
 
-    s3_b = s3.Bucket(bucket)
-    for i in s3_b.objects.filter(Prefix=s3_path, MaxKeys=1024):
-        result.append(i)
-    if len(result) == 1024:
-        _logger.warn("ls_s3_url_objects: hit MaxKeys 1024 limit in result set.")
+    if False:
+        client = b3.client('s3')
+        paginator = client.get_paginator('list_objects_v2')
+        # use delimiter to groupby, which means, list things only at this level.
+        #page_iterator = paginator.paginate(Bucket=bucket, Delimiter='/', Prefix=s3_path)
+        page_iterator = paginator.paginate(Bucket=bucket,Prefix=s3_path)
+        for page in page_iterator:
+            result += [obj['Key'] for obj in page['Contents']]
+    else:
+        s3 = b3.resource('s3')
+        s3_b = s3.Bucket(bucket)
+        for i in s3_b.objects.filter(Prefix=s3_path, MaxKeys=1024):
+            result.append(i)
+        if len(result) == 1024:
+            _logger.warn("ls_s3_url_objects: hit MaxKeys 1024 limit in result set.")
 
     return result
 
 
 def ls_s3_url(s3_url):
+    """
+
+    Args:
+        s3_url:
+
+    Returns:
+        list(dict)
+    """
+
+    bucket, s3_path = split_s3_url(s3_url)
+    result = []
+    client = b3.client('s3')
+    paginator = client.get_paginator('list_objects_v2')
+    # use delimiter to groupby, which means, list things only at this level.
+    #page_iterator = paginator.paginate(Bucket=bucket, Delimiter='/', Prefix=s3_path)
+    page_iterator = paginator.paginate(Bucket=bucket,Prefix=s3_path)
+    for page in page_iterator:
+        result += page['Contents']
+
+    return result
+
+
+def ls_s3_url_paths(s3_url):
     """
     Return path strings at this url
 
@@ -280,7 +310,7 @@ def ls_s3_url(s3_url):
         (bool) : removed
     """
 
-    return [os.path.join('s3://', obj.bucket_name, obj.key) for obj in ls_s3_url_objects(s3_url)]
+    return [os.path.join('s3://', r['Key']) for r in ls_s3_url(s3_url)]
 
 
 def delete_s3_dir(s3_url):
@@ -351,17 +381,46 @@ def put_s3_file(local_path, s3_root):
     return filename
 
 
-def get_s3_file(s3_url, filename=None):
+def get_s3_resource():
+    return b3.resource('s3')
+
+
+def get_s3_key(bucket, key, filename=None):
+    """
+
+    Args:
+        bucket:
+        key:
+        file_name:
+        s3: A boto3.resource('s3')
+
+    Returns:
+
+    """
+
+    #print "get_s3_key: bucket {}".format(bucket)
+    #print "get_s3_key: key {}".format(key)
+    #print "get_s3_key: filename {}".format(filename)
+
+    # s3 resource is not pickable
     s3 = b3.resource('s3')
-    bucket, s3_path = split_s3_url(s3_url)
+
     if filename is None:
-        filename = os.path.basename(s3_path)
+        filename = os.path.basename(key)
     else:
         path = os.path.dirname(filename)
         if not os.path.exists(path):
             os.makedirs(path)
-    s3.Object(bucket, s3_path).download_file(filename)
+
+    s3.Bucket(bucket).download_file(key, filename)
+    # KGY: let's avoid mucking with objects if we don't have to
+    # s3.Object(bucket, key).download_file(filename)
     return filename
+
+
+def get_s3_file(s3_url, filename=None):
+    bucket, s3_path = split_s3_url(s3_url)
+    return get_s3_key(bucket, s3_path, filename)
 
 
 def split_s3_url(s3_url):
@@ -375,6 +434,9 @@ def split_s3_url(s3_url):
         (str, str)
 
     """
+    if s3_url[-1] is not '/':
+        s3_url += '/'
+
     s3_schemes = ["s3n", "s3"]
     url = urlparse(s3_url)
     if url.scheme not in s3_schemes:

@@ -356,7 +356,7 @@ class PipeBase(object):
                 uuid, why))
 
     @staticmethod
-    def parse_pipe_return_val(hfid, val, data_context, human_name):
+    def parse_pipe_return_val(hfid, val, data_context, pipe):
         """
 
         Interpret the return values and create an HFrame to wrap them.
@@ -373,7 +373,7 @@ class PipeBase(object):
             hfid:
             val:
             data_context (`disdat.data_context.DataContext`):
-            human_name:
+            pipe: The disdat pipe producing these values, has human_name, bundle_inputs, and pipe_id()
 
         Returns:
             Frames, Presentation
@@ -388,7 +388,7 @@ class PipeBase(object):
 
         elif isinstance(val, HyperFrameRecord):
             presentation = hyperframe_pb2.HF
-            frames.append(FrameRecord.make_hframe_frame(hfid, human_name, [val]))
+            frames.append(FrameRecord.make_hframe_frame(hfid, pipe.pipeline_id(), [val]))
 
         elif isinstance(val, np.ndarray) or isinstance(val, list):
             presentation = hyperframe_pb2.TENSOR
@@ -418,9 +418,8 @@ class PipeBase(object):
             presentation = hyperframe_pb2.SCALAR
             frames.append(DataContext.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
 
-        hfr = PipeBase.make_hframe(frames, hfid, self.bundle_inputs(),
-                                   human_name, self.pipe_id(), self,
+        hfr = PipeBase.make_hframe(frames, hfid, pipe.bundle_inputs(),
+                                   pipe.pipeline_id(), pipe.pipe_id(), pipe,
                                    tags={"presentable": "True"},
                                    presentation=presentation)
-
         return hfr

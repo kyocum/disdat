@@ -315,7 +315,8 @@ class DataContext(object):
         'sqlite:///:memory:'
 
         Args:
-            meta_dir: Directory where we expect the current context to be cached.
+            in_memory: Directory where we expect the current context to be cached.
+            force_rebuild: Force the rebuild even if ctxt.db exists.
 
         Returns:
             None
@@ -409,7 +410,8 @@ class DataContext(object):
                 elif o.scheme == 'db':
                     _logger.warn("Disdat FS TODO support db tables in link columns")
                 elif o.scheme == 'bundle':
-                    _logger.warn("Disdat FS TODO check on bundle links")
+                    # this is OK.  file links are bundle urls.
+                    _logger.debug("Disdat FS TODO check on bundle links for {}".format(url))
                 elif o.scheme == 'file':
                     if not os.path.exists(o.path):
                         _logger.warn("Frame name {} contains file {} not found on disk.".format(fr.pb.name,
@@ -626,7 +628,7 @@ class DataContext(object):
                                          state=state,
                                          orderby=True,
                                          groupby=groupby,
-                                         maxbydate=maxbydate)
+                                         )
 
         return found
 
