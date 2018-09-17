@@ -1,4 +1,4 @@
-.. _Exampels:
+.. _Examples:
 
 Examples
 --------
