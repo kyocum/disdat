@@ -87,7 +87,7 @@ you will track and share.  Finally, switch into that context.   The commands ``d
     $ dsdt switch mycontext
 
 Now let's add some data.  Disdat wraps up collections of literals and files into a *bundle*.   You can make bundles
-from files, directories, or csv/tsv files.   We'll add `hello data <examples/hello_data.csv>`_, which contains different literals and
+from files, directories, or csv/tsv files.   We'll add `hello_data.csv <examples/hello_data.csv>`_, which contains different literals and
 some publicly available files on s3.
 
 .. code-block:: console
