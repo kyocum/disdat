@@ -172,7 +172,7 @@ If you ``dsdt cat MNIST.data.gz`` you'll notice something interesting.   Your bu
 
 .. code-block:: console
 
-    $ dsdt pull -b --localize MNIST.data.gz
+    $ dsdt pull -b MNIST.data.gz --localize
 
 Now all of your data is also local.
 
