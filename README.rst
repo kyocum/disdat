@@ -70,8 +70,8 @@ You now have a functioning ``dsdt`` excutable that you can use create and pull b
 Tutorial
 --------
 
-We've implemented a simple TensorFlow example as a `three-task Disdat pipeline <examples/pipelines/mnist.py>`.   The
-directory :ref:`Examples` has more information.
+We've implemented a simple TensorFlow example as a `three-task Disdat pipeline <examples/pipelines/mnist.py>`_.   The
+directory `examples <examples>`_ has more information.
 
 Short Test Drive
 ----------------
@@ -87,7 +87,7 @@ you will track and share.  Finally, switch into that context.   The commands ``d
     $ dsdt switch mycontext
 
 Now let's add some data.  Disdat wraps up collections of literals and files into a *bundle*.   You can make bundles
-from files, directories, or csv/tsv files.   We'll add `<examples/hello_data.csv>`, which contains different literals and
+from files, directories, or csv/tsv files.   We'll add `hello data <examples/hello_data.csv>`_, which contains different literals and
 some publicly available files on s3.
 
 .. code-block:: console

@@ -1,5 +1,3 @@
-.. _Examples:
-
 Examples
 --------
 
