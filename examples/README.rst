@@ -36,7 +36,7 @@ Example: MNIST
 ==============
 
 We've shamelessly adapted the Tensorflow example `here <https://www.tensorflow.org/get_started/mnist/pros>`_.  Here we've
-broken the example down into three steps in ``pipelines/mnist.py``, which you will see as three classes:
+broken the example down into three steps in `mnist.py <pipelines/mnist.py>`_, which you will see as three classes:
 
 * ``GetDataGz``: This downloads four gzip files and stores them in a bundle called ``MNIST.data.gz``
 
@@ -49,7 +49,7 @@ Dependencies
 ============
 
 A Disdat PipeTask consists of two functions: ``pipe_requires`` and ``pipe_run``.   If you know Luigi, these are analagous to
-`requires ``and ``run``.  Let's first describe what they do, and then we can describe how they are different from those analogs.
+``requires`` and ``run``.  Let's first describe what they do, and then we can describe how they are different from those analogs.
 
 * ``pipe_requires``: Here you declare the tasks that must run before this task.  To do so you write statements like: ``self.add_dependency("input_gzs", GetDataGz, {})``.   This says that the current task needs a ``GetDataGz`` instance to run with no parameters.  It also says that Disdat should setup the output of that task as a named parameter to ``pipe_run`` called ``'input_gzs'``.
 
@@ -165,14 +165,14 @@ Now all of your data is safely on S3.   To illustrate, let's delete our local co
 .. code-block:: console
 
     $ dsdt rm --all MNI.*
-    $ dsdt pull -b MNIST.eval; dsdt pull -b MNIST.data.gz; dsdt pull -b MNIST.trained
+    $ dsdt pull MNIST.eval; dsdt pull MNIST.data.gz; dsdt pull MNIST.trained
 
 
 If you ``dsdt cat MNIST.data.gz`` you'll notice something interesting.   Your bundle now has a bunch of s3 paths! That's because Disdat leaves your data on S3 unless you really want it locally.   To localize:
 
 .. code-block:: console
 
-    $ dsdt pull -b --localize MNIST.data.gz
+    $ dsdt pull --localize MNIST.data.gz
 
 Now all of your data is also local.
 
