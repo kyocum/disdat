@@ -44,7 +44,7 @@ META_FILE = 'info.json'
 
 
 def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
-          output_bundle_uuid=None, sysexit=True, central_scheduler=False, workers=1):
+          output_bundle_uuid=None, sysexit=True, central_scheduler=False, workers=1, data_context=None):
     """
     Given an input bundle, run the pipesline on the bundle.
     Note, we first make a copy of all tasks that are parameterized identically to the tasks we will run.
@@ -64,6 +64,7 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
         sysexit: Run with sys exist return codes (will raise SystemExit) (default False)
         central_scheduler: Use a centralized Luigi scheduler (default False, i.e., --local-scheduler is used)
         workers: The number of luigi workers to use for this workflow (default 1)
+        data_context:
 
     Returns:
         None
@@ -79,6 +80,14 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
     _logger.debug("central_scheduler {}".format(central_scheduler))
     _logger.debug("workers {}".format(workers))
 
+    pfs = fs.DisdatFS()
+
+    if data_context is None:
+        if not pfs.in_context():
+            _logger.warning('Not in a data context')
+            return None
+        data_context = pfs.get_curr_context()
+
     args = [driver.DriverTask.task_family]
 
     if not central_scheduler:
@@ -90,7 +99,8 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
              '--param-bundles', pipe_params,
              '--pipe-cls', pipe_cls,
              '--input-tags', json.dumps(input_tags),
-             '--output-tags', json.dumps(output_tags)
+             '--output-tags', json.dumps(output_tags),
+             '--data-context', data_context
              ]
 
     if force:
@@ -100,7 +110,7 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
     # Creates a cache of {pipe:path_cache_entry} in the pipesFS object.
     # This "task_path_cache" is used throughout execution to find output bundles.
     reexecute_dag = driver.DriverTask(input_bundle, output_bundle, pipe_params,
-                                      pipe_cls, input_tags, output_tags, force)
+                                      pipe_cls, input_tags, output_tags, force, data_context)
 
     resolve_workflow_bundles(reexecute_dag)
 
@@ -110,11 +120,10 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
     # TODO: don't replace if it already exists.
     if output_bundle_uuid is not None:
         users_root_task = reexecute_dag.deps()[0]
-        pfs = fs.DisdatFS()
         pce = pfs.get_path_cache(users_root_task)
         if pce.rerun: # if we have to re-run then replace it with our UUID
             # TODO: this is the same code as new_output_hframe, FIX!!!
-            dir, uuid, _ = pfs._curr_context.make_managed_path(output_bundle_uuid)
+            dir, uuid, _ = data_context.make_managed_path(output_bundle_uuid)
             fs.DisdatFS.put_path_cache(users_root_task,
                                        uuid,
                                        dir,

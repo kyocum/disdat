@@ -252,54 +252,6 @@ class DisdatFS(object):
         """
         return self._curr_context and self._curr_context.is_valid()
 
-    def commit_db_links(self, hfr):
-        """
-        Commit the db_links in this bundle
-
-        Args:
-            hfr:
-
-        Returns:
-            None
-
-        """
-        self._curr_context.commit_db_links(hfr)
-
-    def atomic_update_hframe(self, hfr):
-        """Update an existing HFR on disk and in the database.
-
-        This is used to add additional tags to a bundle.  This can not remove tags, only modify and add.
-
-        For now this is used internally for 'dsdt commit' to add a commit flag and for signaling intermediate
-        outputs.
-
-        Note: it is up for debate whether users can make changes to tags after bundle creation.   If tags can
-        affect data processing, then tag updates have to indicate new versions.
-
-        Args:
-            hfr (`hyperframe.HyperFrameRecord`):
-
-        Returns:
-            None or raise exception if we fail to move the file automically.
-
-        """
-
-        self._curr_context.atomic_update_hframe(hfr)
-
-    def write_hframe(self, hfr, to_remote=False):
-        """
-        Place bundle object into context and write to disk
-        Used to be 'write_bundle_obj'
-
-        Args:
-            hfr (`hyperframe.HyperFrameRecord`):
-            to_remote (bool):  push to remote (if exists) -- Default is False
-        Returns:
-            None
-        """
-
-        self._curr_context.write_hframe(hfr, to_remote=to_remote)
-
     def reuse_hframe(self, pipe, hframe, is_left_edge_task):
         """
         Re-use this bundle, everything stays the same, just put in the cache
@@ -433,7 +385,7 @@ class DisdatFS(object):
 
         retcodes.run_with_retcodes(args)
 
-    def get_latest_hframe(self, human_name, tags=None, getall=False):
+    def get_latest_hframe(self, human_name, tags=None, getall=False, data_context=None):
         """
         Given bundle_name, what is the most recent one (by date created) in this context?
 
@@ -441,12 +393,19 @@ class DisdatFS(object):
             human_name (str):
             tags (:dict):
             getall:
+            data_context (`disdat.data_context.DataContext`): Optional data context from which to source hframe
 
         Returns:
             None or (`hyperframe.HyperFrameRecord`): None or latest hframe
         """
 
-        found = self._curr_context.get_hframes(human_name=human_name, tags=tags)
+        if data_context is None:
+            if not self.in_context():
+                _logger.warning('Not in a data context')
+                return None
+            data_context = self.get_curr_context()
+
+        found = data_context.get_hframes(human_name=human_name, tags=tags)
 
         # TODO: filter at SQL instead
         if len(found) > 0:
@@ -457,18 +416,26 @@ class DisdatFS(object):
         else:
             return None
 
-    def get_hframe_by_uuid(self, uuid, tags=None):
+    def get_hframe_by_uuid(self, uuid, tags=None, data_context=None):
         """
         Given uuid, get object
         Args:
             uuid:
             tags (:dict):
+            data_context (`disdat.data_context.DataContext`): Optional data context from which to source hframe
 
         Returns:
-            None or HyperFrameRecord
+            `hyperframe.HyperFrameRecord`:
         """
 
-        found = self._curr_context.get_hframes(uuid=uuid, tags=tags)
+        if data_context is None:
+            if not self.in_context():
+                _logger.warning('Not in a data context')
+                return None
+            data_context = self.get_curr_context()
+
+        found = data_context.get_hframes(uuid=uuid, tags=tags)
+
         if len(found) == 1:
             return found[0]
         elif len(found) == 0:
@@ -504,7 +471,7 @@ class DisdatFS(object):
         else:
             return None
 
-    def ls(self, search_name, print_tags, print_intermediates, print_long, tags=None):
+    def ls(self, search_name, print_tags, print_intermediates, print_long, tags=None, data_context=None):
         """
         Enumerate bundles (hyperframes) in this context.
 
@@ -513,13 +480,17 @@ class DisdatFS(object):
             print_tags (bool): Whether to print the bundle tags
             print_intermediates (bool): Whether to show intermediate bundles
             tags: Optional. A dictionary of tags to search for.
+            data_context (`disdat.data_context.DataContext`): Optional data context to operate in
 
         Returns:
 
         """
-        if not self.in_context():
-            _logger.warning('Not in a data context')
-            return []
+
+        if data_context is None:
+            if not self.in_context():
+                _logger.warning('Not in a data context')
+                return []
+            data_context = self.get_curr_context()
 
         if not print_intermediates:
             if tags is not None:
@@ -532,7 +503,7 @@ class DisdatFS(object):
         if print_long:
             output_strings.append(DisdatFS._pretty_print_header())
 
-        for i, r in enumerate(self._curr_context.get_hframes(human_name=search_name, tags=tags)):
+        for i, r in enumerate(data_context.get_hframes(human_name=search_name, tags=tags)):
             if print_long:
                 output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags))
             else:
@@ -565,7 +536,7 @@ class DisdatFS(object):
 
         return output_string
 
-    def cat(self, human_name, uuid=None, tags=None, file=None):
+    def cat(self, human_name, uuid=None, tags=None, file=None, data_context=None):
         """
         Given a bundle name and optional uuid, return a dataframe with its contents
 
@@ -574,21 +545,25 @@ class DisdatFS(object):
             uuid (str):
             tags (:dict):
             file (str): output file
+            data_context (`disdat.data_context.DataContext`):
 
         Returns:
             (`DataFrame`):
         """
-        if not self.in_context():
-            _logger.warning('Not in a data context')
-            return []
+
+        if data_context is None:
+            if not self.in_context():
+                _logger.warning('Not in a data context')
+                return None
+            data_context = self.get_curr_context()
 
         if uuid is None:
-            hfr = self.get_latest_hframe(human_name, tags=tags)
+            hfr = self.get_latest_hframe(human_name, tags=tags, data_context=data_context)
         else:
-            hfr = self.get_hframe_by_uuid(uuid, tags=tags)
+            hfr = self.get_hframe_by_uuid(uuid, tags=tags, data_context=data_context)
 
         if hfr is not None:
-            df = self._curr_context.convert_hfr2df(hfr)
+            df = data_context.convert_hfr2df(hfr)
             if df is not None and file is not None:
                 print "Saving to file {}".format(file)
                 df.to_csv(file, sep=',', index=False)
@@ -747,23 +722,39 @@ class DisdatFS(object):
         else:
             _logger.info("Disdat local data context {} appears to already have been deleted.".format(local_context))
 
+    def get_context(self, local_context_name):
+        """
+        Return the context object for a given context name
+
+        Args:
+            local_context_name (str): May be <remote context>/<local context> or <local context>
+
+        Returns:
+            `disdat.data_context.DataContext`: the data context or None if not found.
+
+        """
+
+        repo, local_context = DisdatFS._parse_fq_context_name(local_context_name)
+
+        if local_context not in self._all_contexts:
+            _logger.error("Context {} not found.  Please create the context locally.".format(local_context, local_context))
+            return None
+
+        return self._all_contexts[local_context]
+
     def checkout(self, local_context_name, save=True):
         """
         Switch to a different local context.
 
         Args:
-            local_context_name (str): The name of the local context to change to
+            local_context_name (str): May be <remote context>/<local context> or <local context>
             save (bool): Whether to record context change on disk.
         Returns:
             prior_context_name (str):  String name of the prior context
 
         """
 
-        if local_context_name is None:
-            prior_context_name = self._curr_context_name
-            self._curr_context_name = None
-            self._curr_context = None
-            return prior_context_name
+        assert local_context_name is not None
 
         repo, local_context = DisdatFS._parse_fq_context_name(local_context_name)
 
@@ -775,42 +766,47 @@ class DisdatFS(object):
             _logger.info("Disdat already within a valid data context_name {}".format(local_context))
             return prior_context_name
 
-        if local_context not in self._all_contexts:
-            _logger.error("Context {} not found.  Please use 'dsdt context {}'".format(local_context, local_context))
-            return prior_context_name
+        new_context = self.get_context(local_context_name)
 
-        self._curr_context_name = local_context
-
-        self._curr_context = self._all_contexts[local_context]
-
-        print "curr context name {}".format(self._curr_context_name)
+        if new_context is not None:
+            self._curr_context_name = local_context
+            self._curr_context = new_context
+            print "Switched to context {}".format(self._curr_context_name)
+        else:
+            print "In context {}".format(self._curr_context_name)
 
         if save:
             self.save()
 
         return prior_context_name
 
-    def commit(self, bundle_name, input_tags):
+    def commit(self, bundle_name, input_tags, data_context=None):
         """   Commit indicates that this is a primary version of this bundle.
 
         Commit in place.  Re-use existing bundle and add the commit tag.
         Database links are special.  Commits materialize special views of the physical table.
 
         Args:
-            bundle_name (str): the name of the bundle to commit
-            input_tags (dict): tags the committed bundle must have
+            bundle_name (str): The name of the bundle to commit
+            input_tags (dict): Commit the bundle that has these tags
+            data_context (`disdat.data_context.DataContext`): Optional data context in which to find / commit bundle.
 
         Returns:
             None
 
         """
 
-        if not self.in_context():
-            _logger.warning('Not in a data context')
-            return
-        _logger.debug('Committing bundle {} in context {}'.format(bundle_name, self._curr_context.get_repo_name()))
+        if data_context is None:
+            if not self.in_context():
+                _logger.warning('Not in a data context')
+                return
+            data_context = self.get_curr_context()
 
-        hfr = self.get_latest_hframe(str(bundle_name), tags=input_tags if len(input_tags) > 0 else None)
+        _logger.debug('Committing bundle {} in context {}'.format(bundle_name, data_context.get_repo_name()))
+
+        hfr = self.get_latest_hframe(str(bundle_name),
+                                     tags=input_tags if len(input_tags) > 0 else None,
+                                     data_context=data_context)
 
         if hfr is None:
             print "No bundle with human name {} found.".format(bundle_name)
@@ -829,10 +825,10 @@ class DisdatFS(object):
         hfr.replace_tags(existing_tags)
 
         # Commit to disk:
-        self.atomic_update_hframe(hfr)
+        data_context.atomic_update_hframe(hfr)
 
         # Commit DBTarget links if present:
-        self.commit_db_links(hfr)
+        data_context.commit_db_links(hfr)
 
     def _get_all_link_frames(self, outer_hfr, local_fs_frames=False, s3_frames=False, db_frames=False):
         """
@@ -997,7 +993,7 @@ class DisdatFS(object):
         # Push hyperframe to remote
         # TODO: someone needs to check if it's already there!
         # print "---------------ROOT_HFR {}  MAKING NEW HFR {}  REMOTE".format(hfr.pb.uuid, new_hfr_uuid)
-        self.write_hframe(hfr, to_remote=to_remote)
+        self.get_curr_context().write_hframe(hfr, to_remote=to_remote)
 
         return
 
@@ -1125,12 +1121,12 @@ class DisdatFS(object):
             hfr = hfr.mod_uuid(new_hfr_uuid)
             hfr = hfr.mod_frames(frame_copies)
             # Need to write this hyperframe locally (with all paths pointing at s3)
-            self.write_hframe(hfr)
+            self.get_curr_context().write_hframe(hfr)
 
         # TODO: someone needs to check if it's already there!
         # make sure all hyperframes are on remote
         # print "---------------ROOT_HFR {}  MAKING NEW HFR {}  REMOTE".format(hfr.pb.uuid, new_hfr_uuid)
-        self.write_hframe(hfr, to_remote=True)
+        self.get_curr_context().write_hframe(hfr, to_remote=True)
 
         return need_to_copy
 
@@ -1228,7 +1224,8 @@ class DisdatFS(object):
 
         return hfr
 
-    def _localize_hfr(self, local_hfr, s3_uuid):
+    @staticmethod
+    def _localize_hfr(local_hfr, s3_uuid, data_context):
         """
         Given local hfr, read link frames and pull data from s3.
 
@@ -1237,19 +1234,20 @@ class DisdatFS(object):
         Args:
             local_hfr:
             s3_uuid:
+            data_context
 
         Returns:
             None
         """
-        managed_path = os.path.join(self.get_curr_context().get_object_dir(), s3_uuid)
-        for fr in local_hfr.get_frames(self.get_curr_context()):
+        managed_path = os.path.join(data_context.get_object_dir(), s3_uuid)
+        for fr in local_hfr.get_frames():
             if fr.is_link_frame():
-                src_paths = self.get_curr_context().actualize_link_urls(fr)
+                src_paths = data_context.actualize_link_urls(fr)
                 for f in src_paths:
                     print "Adding file {} to bundle".format(f)
                     DataContext.copy_in_files(f, managed_path)
 
-    def pull(self, human_name=None, uuid=None, localize=False):
+    def pull(self, human_name=None, uuid=None, localize=False, data_context=None):
         """
         Either pull in any versions of a particular object, or update all
         objects.   There is no DB at a remote.  We are left to reading the
@@ -1263,16 +1261,24 @@ class DisdatFS(object):
             human_name:
             uuid:
             localize: Whether to download the files in this bundle locally
+            data_context (`disdat.data_context.DataContext`): Optional data context from which to pull bundle.
 
         Returns:
             None
 
         """
-        if self._curr_context.remote_ctxt_url is None:
-            print "Pull cannot execute.  Local context {} on remote {} not bound.".format(self._curr_context.local_ctxt, self._curr_context.remote_ctxt)
+
+        if data_context is None:
+            if not self.in_context():
+                _logger.warning('Not in a data context')
+                return
+            data_context = self.get_curr_context()
+
+        if data_context.remote_ctxt_url is None:
+            print "Pull cannot execute.  Local context {} on remote {} not bound.".format(data_context.local_ctxt, data_context.remote_ctxt)
             return
 
-        possible_hframe_objects = aws_s3.ls_s3_url_objects(self.get_curr_context().get_remote_object_dir())
+        possible_hframe_objects = aws_s3.ls_s3_url_objects(data_context.get_remote_object_dir())
 
         hframe_objects = [obj for obj in possible_hframe_objects if '_hframe.pb' in obj.key]
 
@@ -1286,7 +1292,7 @@ class DisdatFS(object):
                 else:
                     print "Found remote bundle with UUID {}, checking local context for duplicates ...".format(uuid)
 
-            local_hfr = self.get_hframe_by_uuid(s3_uuid)
+            local_hfr = self.get_hframe_by_uuid(s3_uuid, data_context=data_context)
             if local_hfr is not None:
                 if not localize:
                     print "Found HyperFrame UUID {} present in local context, skipping . . .".format(s3_uuid)
@@ -1303,7 +1309,7 @@ class DisdatFS(object):
                                                                                                           hfr_test.pb.uuid)
 
                     # grab files for this hyperframe -- read the local HFR frames
-                    self._localize_hfr(local_hfr, s3_uuid)
+                    DisdatFS._localize_hfr(local_hfr, s3_uuid, data_context)
 
             else:
                 obj = s3_hfr_obj.Object().get()
@@ -1339,7 +1345,8 @@ class DisdatFS(object):
                 self.get_curr_context().write_hframe_db_only(hfr_test)
 
                 if localize:
-                    self._localize_hfr(self.get_hframe_by_uuid(s3_uuid), s3_uuid)
+                    DisdatFS._localize_hfr(self.get_hframe_by_uuid(s3_uuid, data_context=data_context),
+                                           s3_uuid, data_context)
 
     def remote_add(self, context, s3_url, force):
         """
@@ -1348,6 +1355,7 @@ class DisdatFS(object):
         Args:
             context (str):  the name of the remote context
             s3_url (str):   the s3 path to bind to this remote context
+            force (bool):
 
         Returns:
             None
