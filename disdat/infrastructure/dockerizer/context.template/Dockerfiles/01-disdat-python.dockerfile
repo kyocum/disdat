@@ -30,6 +30,10 @@ ENV PATH $VIRTUAL_ENV/bin:$PATH
 # Initialize the Disdat environment
 RUN dsdt init
 
-# Local environment may have its own pip index, support pip.conf files
+# Local environment may have its own pip index, support pip.conf files, if not set, copies empty file.
 COPY pip.conf /opt/pip.conf
 ENV PIP_CONFIG_FILE /opt/pip.conf
+
+# Local environmment may hvae its own odbc.ini file, if not set, copies empty file.
+COPY odbc.ini /opt/odbc.ini
+ENV ODBCINI /opt/odbc.ini

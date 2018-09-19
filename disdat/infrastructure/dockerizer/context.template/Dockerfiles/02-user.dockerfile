@@ -27,8 +27,16 @@ RUN if [ -f $BUILD_ROOT/config/$OS_NAME/deb.txt ]; then \
 	apt-get install -y $(cat $BUILD_ROOT/config/$OS_NAME/deb.txt); \
 fi
 RUN files=$(echo $BUILD_ROOT/config/$OS_NAME/*.deb); if [ "$files" != $BUILD_ROOT/config/$OS_NAME/'*.deb' ]; then \
-	for i in $files; do echo "Installing $i..."; gdebi -n $i; done; \
+	for i in $files; do echo "Installing $i..."; dpkg -i $i; apt-get install -y -f;  done; \
 fi
+
+# NOTE: We were installing gdebi in the slim.dockerfile.  It includes an enormous number of dependencies.
+# We can't use autoremove, since it removes more than we installed.   The below is one way to
+# use gdebi, only installing if they have actual .deb files to install.
+#	apt-get install -y gdebi; \
+#	for i in $files; do echo "Installing $i..."; gdebi -n $i; done; \
+#	apt-get -y purge gdebi; \
+
 
 # Install user Python sdist package dependencies
 RUN files=$(echo $BUILD_ROOT/config/python-sdist/*.tar.gz); if [ "$files" != $BUILD_ROOT/config/python-sdist/'*.tar.gz' ]; then \

@@ -80,131 +80,6 @@ class Backend(Enum):
         return [i.name for i in list(Backend)]
 
 
-class RunTask(luigi.Task, PipeBase):
-    """Run the dockerized version of a pipeline.  This may run locally or in a pre-configured
-    set of optional container execution services.  Currently we have support for AWS Batch
-
-    Properties:
-        input_bundle: The human name of the input bundle
-        output_bundle: The human name of the output bundle
-        pipeline_class_name: Name of the pipeline class to run
-        pipeline_params: Optional arguments to pass to the pipeline class
-        backend: The batch execution back-end to use (default
-            `Backend.Local`)
-        force: If `True` force recomputation of all upstream pipe
-            requirements (default `False`)
-        push_input_bundle (bool): Push the input bundle from local context to remote.
-        input_tags (list(str)): The tags used to find the input bundle from command line ['key:value','key:value']
-        output_tags (list(str)): The tags for the output bundle from command line ['key:value','key:value']
-        fetch_list (list(str)):  A list of bundles to fetch before executing.
-
-    """
-    input_bundle = luigi.Parameter(default=None)
-    output_bundle = luigi.Parameter(default=None)
-    pipeline_class_name = luigi.Parameter(default=None)
-    pipeline_params = luigi.ListParameter(default=[])
-    backend = luigi.EnumParameter(enum=Backend, default=Backend.default())
-    force = luigi.BoolParameter(default=False)
-    push_input_bundle = luigi.BoolParameter(default=True)
-    aws_session_token_duration = luigi.IntParameter(default=0)
-    input_tags = luigi.ListParameter()
-    output_tags = luigi.ListParameter()
-    fetch_list = luigi.ListParameter()
-
-    def __init__(self, *args, **kwargs):
-        """
-        Initialize some variables we'll use to track state.
-
-        Returns:
-        """
-        super(RunTask, self).__init__(*args, **kwargs)
-
-    def bundle_outputs(self):
-        """
-        Override PipeBase.bundle_outputs
-
-        Standard "operator" pipes first create a bundle and make an entry in the pce
-        before being called.
-
-        Returns: [(bundle_processing_name, uuid), ... ]
-        """
-
-        output_bundles = [(self.pipe_id(), self.pfs.get_path_cache(self).uuid)]
-        return output_bundles
-
-    def bundle_inputs(self):
-        """
-        Override PipeBase.bundle_inputs
-
-        This is a "base" data input bundle.  No inputs.
-
-        Returns: [(bundle_name, uuid), ... ]
-        """
-
-        return []
-
-    def pipe_id(self):
-        """
-        PipeBase.name_output_bundle
-
-        Given a pipe instance, return a unique string based on the class name and
-        the parameters.  This re-uses Luigi code for getting the unique string, placed in
-        LuigiTask.task_id.   Note that since one of the driver's parameters is the output_bundle_name,
-        this name includes the pipesline name (which is the output bundle name).
-
-        """
-
-        return self.task_id
-
-    def pipeline_id(self):
-        """
-        This is a "less unique" id than the unique id.  It is supposed to be the "human readable" name of the stage
-        this pipe occupies in the pipesline.
-
-        For the driver, we are producing the final user-named bundle.   The pipe version of this call produces
-        <driver_output_bundle_name>-<task_name>-<task_index>.    However, here there is no task_index and the task_name
-        is "Driver" and it is implicit.  So we only output the first part <driver_output_bundle_name>
-
-        Returns:
-            (str)
-        """
-        return self.output_bundle
-
-    def requires(self):
-        """ Operates with no upstream dependencies.
-        Returns:
-            None
-        """
-        return None
-
-    def output(self):
-        """ The driver output only the bundle meta files.  The actual driver bundle
-        consists of these files plus the output bundles of all pipes in the pipesline.
-
-        :return: {PipeBase.BUNDLE_META: luigifileobj, PipeBase.BUNDLE_LINEAGE, luigifileobj}
-        """
-
-        return PipeBase.add_bundle_meta_files(self)
-
-    def run(self):
-        """Interpret the luigi input params and call the internal run function
-        """
-
-        _run(
-            input_bundle=self.input_bundle,
-            output_bundle=self.output_bundle,
-            pipeline_class_name=self.pipeline_class_name,
-            pipeline_params=list(self.pipeline_params),  # for some reason ListParameter is creating a tuple
-            backend=self.backend,
-            force=bool(self.force),
-            push_input_bundle=bool(self.push_input_bundle),
-            aws_session_token_duration=self.aws_session_token_duration,
-            input_tags=self.input_tags,
-            output_tags=self.output_tags,
-            fetch_list=self.fetch_list
-        )
-
-
 def _run_local(arglist, pipeline_class_name, backend):
     """
     Run container locally or run sagemaker container locally
@@ -256,6 +131,8 @@ def _run_local(arglist, pipeline_class_name, backend):
 
         _logger.debug('Running image {} with arguments {}'.format(pipeline_image_name, args))
 
+        print('Running image {} with arguments {}'.format(pipeline_image_name, args))
+
         stdout = client.containers.run(pipeline_image_name, args, detach=False,
                                        environment=environment, init=True, stderr=True, volumes=volumes)
         print stdout
@@ -296,7 +173,7 @@ def get_fq_docker_repo_name(is_sagemaker, pipeline_class_name):
     return fq_repository_name
 
 
-def _run_aws_batch(arglist, job_name, pipeline_class_name, aws_session_token_duration):
+def _run_aws_batch(arglist, job_name, pipeline_class_name, aws_session_token_duration, vcpus, memory):
     """
     Run job on AWS Batch.   Sends to queue configured in disdat.cfg.
     This assumes that you have already created a cluster that will run the jobs
@@ -306,6 +183,8 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name, aws_session_token_dur
         arglist:
         pipeline_class_name:
         aws_session_token_duration:
+        vcpus:
+        memory:
 
     Returns:
 
@@ -330,7 +209,7 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name, aws_session_token_dur
     job_definition = aws.batch_get_job_definition(job_definition_name)
     if job_definition is None:
         fq_repository_name = get_fq_docker_repo_name(False, pipeline_class_name)
-        aws.batch_register_job_definition(job_definition_name, fq_repository_name)
+        aws.batch_register_job_definition(job_definition_name, fq_repository_name, vcpus=vcpus, memory=memory)
         job_definition = aws.batch_get_job_definition(job_definition_name)
     job_queue = disdat_config.parser.get(_MODULE_NAME, 'aws_batch_queue')
 
@@ -477,7 +356,12 @@ def _run(
     aws_session_token_duration=0,
     input_tags=None,
     output_tags=None,
-    fetch_list=None
+    fetch_list=None,
+    context=None,
+    remote=None,
+    no_pull=False,
+    vcpus=1,
+    memory=2000
 ):
     """Run the dockerized version of a pipeline.
 
@@ -493,6 +377,11 @@ def _run(
         input_tags (list(str)): Find bundle with these tags ['key:value',...]
         output_tags (list(str)): Push result bundle with these tags ['key:value',...]
         fetch_list (list(str)): Fetch these bundles before starting pipeline
+        context (str): <remote context>/<local context> context string
+        remote (str): The remote S3 URL.
+        no_pull:
+        vcpus:
+        memory:
 
     Returns:
         `None`
@@ -501,13 +390,16 @@ def _run(
     pfs = fs.DisdatFS()
 
     try:
-        output_bundle_uuid, remote, branch_name = common.get_run_command_parameters(pfs)
+        output_bundle_uuid = pfs.disdat_uuid()
+        if remote is None or context is None:
+            # If either is none, then both are, b/c we checked in calling function
+            remote, context = common.get_run_command_parameters(pfs)
     except ValueError:
         _logger.error("'run' requires a remote set with `dsdt remote <s3 url>`")
         return
 
-    arglist = common.make_run_command(input_bundle, output_bundle, output_bundle_uuid, remote, branch_name,
-                                      input_tags, output_tags, fetch_list, pipeline_params)
+    arglist = common.make_run_command(input_bundle, output_bundle, output_bundle_uuid, remote, context,
+                                      input_tags, output_tags, fetch_list, no_pull, pipeline_params)
 
     if backend == Backend.AWSBatch or backend == Backend.SageMaker:
 
@@ -523,7 +415,7 @@ def _run(
         job_name = '{}-{}'.format(pipeline_image_name, int(time.time()))
 
         if backend == Backend.AWSBatch:
-            _run_aws_batch(arglist, job_name, pipeline_class_name, aws_session_token_duration)
+            _run_aws_batch(arglist, job_name, pipeline_class_name, aws_session_token_duration, vcpus, memory)
         else:
             _run_aws_sagemaker(arglist, job_name, pipeline_class_name)
 
@@ -547,6 +439,11 @@ def add_arg_parser(parsers):
     run_p.add_argument("--no-push-input", action='store_false',
                        help="Do not push the current committed input bundle before execution (default is to push)", dest='push_input_bundle')
     run_p.add_argument(
+        '--no-pull',
+        action='store_true',
+        help='Do not pull (synchronize) remote repository with local repo.  This may cause entire pipeline to re-run.',
+    )
+    run_p.add_argument(
         '--use-aws-session-token',
         nargs=1,
         default=[0],
@@ -554,6 +451,22 @@ def add_arg_parser(parsers):
         help='Use a temporary AWS session token to access the remote, valid for AWS_SESSION_TOKEN_DURATION seconds',
         dest='aws_session_token_duration',
     )
+    run_p.add_argument('--vcpus',
+                       type=int,
+                       default=1,
+                       help="The vCPU count for an AWS Batch container.")
+    run_p.add_argument('--memory',
+                       type=int,
+                       default=2000,
+                       help="The memory (MiB) required by this AWS Batch container.")
+    run_p.add_argument('-c', '--context',
+                       type=str,
+                       default=None,
+                       help="'<remote context>/<local context>', else use current context.")
+    run_p.add_argument('-r', '--remote',
+                       type=str,
+                       default=None,
+                       help="Remote URL, i.e, 's3://<bucket>/dsdt/', else use remote on current context")
     run_p.add_argument('-f', '--fetch', nargs=1, type=str, action='append',
                        help="Fetch bundle into context: '-f some.input.bundle'")
     run_p.add_argument('-it', '--input-tag', nargs=1, type=str, action='append',
@@ -581,9 +494,15 @@ def main(args):
 
     pfs = fs.DisdatFS()
 
-    if not pfs.in_context():
-        print "'Must be in a context to execute 'dsdt run'"
-        return
+    # if any set, the other must be set.  if a or b, then a and b are set
+    if args.context is not None or args.remote is not None:
+        if args.context is None or args.remote is None:
+            print "Must set both context [{}] and remote [{}] simultaneously.".format(args.context, args.remote)
+            return
+    else:
+        if not pfs.in_context():
+            print "'Must be in a context (or specify --context and --remote) to execute 'dsdt run'"
+            return
 
     if args.backend is not None:
         backend = Backend[args.backend]
@@ -598,23 +517,20 @@ def main(args):
     else:
         fetch_list = []
 
-    task_args = [
-        args.input_bundle,
-        args.output_bundle,
-        args.pipe_cls,
-        args.pipeline_args,
-        backend,
-        args.force,
-        args.push_input_bundle,
-        args.aws_session_token_duration[0],
-        input_tags,
-        output_tags,
-        fetch_list
-    ]
-
-    commit_pipe = RunTask(*task_args)
-
-    pfs.new_output_hframe(commit_pipe, is_left_edge_task=False)
-
-    # Call luigi task
-    build([commit_pipe], local_scheduler=True)
+    _run(input_bundle=args.input_bundle,
+         output_bundle=args.output_bundle,
+         pipeline_class_name=args.pipe_cls,
+         pipeline_params=list(args.pipeline_args),  # for some reason ListParameter is creating a tuple
+         backend=backend,
+         force=bool(args.force),
+         push_input_bundle=bool(args.push_input_bundle),
+         aws_session_token_duration=args.aws_session_token_duration[0],
+         input_tags=input_tags,
+         output_tags=output_tags,
+         fetch_list=fetch_list,
+         context=args.context,
+         remote=args.remote,
+         no_pull=args.no_pull,
+         vcpus=args.vcpus,
+         memory=args.memory
+         )

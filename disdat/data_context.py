@@ -122,7 +122,7 @@ class DataContext(object):
 
         self.local_engine.dispose()
 
-    def bind_remote_ctxt(self, context, s3_url, pfs, force=False):
+    def bind_remote_ctxt(self, remote_context, s3_url, force=False):
         """
         A local branch can be bound to a remote shared FS where you can push/pull hyperframes.
         If the remote_context directory does not exist, a push will create it.  Note that pull is lazy.
@@ -134,31 +134,31 @@ class DataContext(object):
         track of the prior bound locations or asking the user when the push fails for the prior s3 path.
 
         Args:
-            context (str): remote context name
+            remote_context (str): remote context name
             s3_url (str):  remote context url -- this points to the root of all disdat data -- does not include context dir
-            pfs (`fs.DisdatFS`) : DisdatFS
+            force (bool): whether to force rebinding if a remote_context is already bound
         Returns:
             None
 
         """
         assert (urlparse(s3_url).scheme == 's3')
 
-        if self.remote_ctxt_url is not None and self.remote_ctxt == context and \
+        if self.remote_ctxt_url is not None and self.remote_ctxt == remote_context and \
                         os.path.normpath(os.path.dirname(self.remote_ctxt_url)) == os.path.normpath(s3_url):
             print "Context already bound to remote at {}".format(s3_url)
             return
 
-        if self.remote_ctxt != context:
+        if self.remote_ctxt != remote_context:
             if not force:
                 _logger.error("Unable to bind because branch {} ".format(self.local_ctxt) +
-                              "is not on remote context {} (it is on remote context {}). Use '--force'".format(context,
+                              "is not on remote context {} (it is on remote context {}). Use '--force'".format(remote_context,
                                                                                                                self.remote_ctxt))
                 return
             else:
-                self.remote_ctxt = context
+                self.remote_ctxt = remote_context
 
         if not aws_s3.s3_path_exists(s3_url):
-            _logger.error("Unable to bind context {} because URL {} does not exist.".format(context, s3_url))
+            _logger.error("Unable to bind context {} because URL {} does not exist.".format(remote_context, s3_url))
             return
 
         if self.remote_ctxt_url is None:
@@ -315,7 +315,8 @@ class DataContext(object):
         'sqlite:///:memory:'
 
         Args:
-            meta_dir: Directory where we expect the current context to be cached.
+            in_memory: Directory where we expect the current context to be cached.
+            force_rebuild: Force the rebuild even if ctxt.db exists.
 
         Returns:
             None
@@ -409,7 +410,8 @@ class DataContext(object):
                 elif o.scheme == 'db':
                     _logger.warn("Disdat FS TODO support db tables in link columns")
                 elif o.scheme == 'bundle':
-                    _logger.warn("Disdat FS TODO check on bundle links")
+                    # this is OK.  file links are bundle urls.
+                    _logger.debug("Disdat FS TODO check on bundle links for {}".format(url))
                 elif o.scheme == 'file':
                     if not os.path.exists(o.path):
                         _logger.warn("Frame name {} contains file {} not found on disk.".format(fr.pb.name,
@@ -598,7 +600,7 @@ class DataContext(object):
             _logger.error("Removal of hyperframe directory {} failed with error {}.".format(self.implicit_hframe_path(hfr_uuid), why))
             return False
 
-    def get_hframes(self, human_name=None, processing_name=None, uuid=None, tags=None, state=None, groupby=False):
+    def get_hframes(self, human_name=None, processing_name=None, uuid=None, tags=None, state=None, groupby=False, maxbydate=False):
         """
         Find all hframes with the given bundle_name
 
@@ -612,9 +614,10 @@ class DataContext(object):
             tags (dict):
             state:
             groupby (bool): group by search
+            maxbydate (bool): Return latest if we have groupby enabled
 
         Returns:
-            results (list): list of HyperFrameRecords (or rows if groupby=True) ordered youngest to oldest
+            (list:`disdat.hyperframe.HyperFrameRecord'): list of HyperFrameRecords (or rows if groupby=True) ordered youngest to oldest
 
         """
         found = hyperframe.select_hfr_db(self.local_engine,
@@ -624,7 +627,8 @@ class DataContext(object):
                                          tags=tags,
                                          state=state,
                                          orderby=True,
-                                         groupby=groupby)
+                                         groupby=groupby,
+                                         )
 
         return found
 

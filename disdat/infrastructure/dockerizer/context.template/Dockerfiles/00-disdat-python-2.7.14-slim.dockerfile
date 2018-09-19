@@ -17,6 +17,7 @@ RUN apt-get upgrade -y
 # Install git and a minimal Python 2.x toolchain. Disdat uses git to detect
 # changed sources when deciding whether or not to rerun a pipeline.
 # disdat uses pyodbc which requires gcc ,hence 'build-essential'
+# sometimes people need to install .deb files, hence gdebi
 RUN apt-get install -y git build-essential unixodbc-dev
 RUN easy_install virtualenv
 

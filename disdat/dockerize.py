@@ -84,16 +84,33 @@ def dockerize(disdat_config,
 
     subprocess.check_call(rsync_command)
 
-    # Overwrite pip.conf in the context.template in your repo if they have set the option, else just create empty file
+    # PIP: Overwrite pip.conf in the context.template in your repo if they have set the option,
+    # else just create empty file.
     # At this time, the Dockerfile always sets the PIP_CONFIG_FILE ENV var to this file.
+    pip_file_path = os.path.join(docker_context, "pip.conf")
     if disdat_config.parser.has_option(_MODULE_NAME, 'dot_pip_file'):
         dot_pip_file = os.path.expanduser(disdat_config.parser.get(_MODULE_NAME, 'dot_pip_file'))
-        shutil.copy(dot_pip_file, docker_context)
+        shutil.copy(dot_pip_file, pip_file_path)
         print ("Copying dot pip file {} into {}".format(dot_pip_file, docker_context))
     else:
         touch_command = [
             'touch',
-            os.path.join(docker_context, 'pip.conf')
+            pip_file_path
+        ]
+        subprocess.check_call(touch_command)
+
+    # ODBC: Overwrite the .odbc.ini in the context.template in your repo if the user set the option,
+    # else just create empty file.
+    # At this time, the Dockerfile always sets the ODBCINI var to this file.
+    odbc_file_path = os.path.join(docker_context,"odbc.ini")
+    if disdat_config.parser.has_option(_MODULE_NAME, 'dot_odbc_ini_file'):
+        dot_odbc_ini_file = os.path.expanduser(disdat_config.parser.get(_MODULE_NAME, 'dot_odbc_ini_file'))
+        shutil.copy(dot_odbc_ini_file, odbc_file_path)
+        print ("Copying dot odbc.ini file {} into {}".format(dot_odbc_ini_file, odbc_file_path))
+    else:
+        touch_command = [
+            'touch',
+            odbc_file_path
         ]
         subprocess.check_call(touch_command)
 

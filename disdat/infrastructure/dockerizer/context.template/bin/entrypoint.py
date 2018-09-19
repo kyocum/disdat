@@ -11,12 +11,15 @@ import argparse
 import disdat.apply
 import disdat.common
 import disdat.fs
-import json
+import disdat.api
 import logging
 import os
 import pandas as pd
 import sys
 import tempfile
+
+import boto3
+from botocore.exceptions import ClientError
 
 from multiprocessing import Process
 
@@ -46,150 +49,67 @@ def _add(fs, bundle_name, input_path):
         raise RuntimeError()
     # We have to spawn the add task as a child process otherwise the entire
     # run process will exit after we complete adding the bundle.
+
     def _inner():
         fs.add(bundle_name, input_path)
         fs._context = disdat.fs.DataContext.load(fs.disdat_config.get_meta_dir())
+
     p = Process(target=_inner)
     p.start()
     p.join()
     return True
 
 
-def _apply(input_bundle_name, output_bundle_name, pipeline_class_name, pipeline_args,
-           input_tags, output_tags, output_bundle_uuid=None, force=False):
-    """Apply a pipeline to an input bundle, and save the results in an
-    output bundle.
+def _context_and_remote(context_name, remote=None):
+    """Create a new Disdat context and bind remote if not None.
+
+    Note we do not switch to the context, as running the container locally may inadvertently
+    change the context the CLI is in.
 
     Args:
-        input_bundle_name: The human name of the input bundle
-        output_bundle_name: The human name of the output bundle
-        pipeline_class_name: Name of the pipeline class to run
-        pipeline_args: Optional arguments to pass to the pipeline class
-        pipeline_args: list
-        input_tags: Set of tags to find input bundle
-        output_tags: Set of tags to give the output bundle
-        output_bundle_uuid: A UUID specifying the version to save within
-        the output bundle; default `None`
-        force: If `True` force recomputation of all upstream pipe requirements
+        context_name (str): A fully-qualified context name. remote-context/local-context
+        remote (str): S3 remote name.
     """
-    _logger.debug("Applying '{}' to '{}' to get '{}'".format(pipeline_class_name, input_bundle_name, output_bundle_name))
 
-    apply_kwargs = {
-        'input_bundle': input_bundle_name,
-        'output_bundle': output_bundle_name,
-        'output_bundle_uuid': output_bundle_uuid,
-        'pipe_params': json.dumps(disdat.common.parse_params(pipeline_args)),
-        'pipe_cls': pipeline_class_name,
-        'input_tags': input_tags,
-        'output_tags': output_tags,
-        'force': force
-    }
-    p = Process(target=disdat.apply.apply, kwargs=apply_kwargs)
-    p.start()
-    p.join()
-    return p.exitcode == 0
-
-
-def _context_and_switch(fs, context_name=None):
-    """Create and check out a new Disdat context.
-
-    :param fs: A Disdat file system handle.
-    :param context_name: A fully-qualified context name. remote-context/local-context
-    """
-    if context_name is None:
-        _logger.error("Got an invalid context name '{}'".format(context_name))
-        return False
     if len(context_name.split('/')) <= 1:
-        _logger.error("Got a partial context name: Expected <remote-context>/<local-context>, got context name '{}' with no context".format(context_name))
+        _logger.error("Partial context name: Expected <remote-context>/<local-context>, got '{}'".format(context_name))
         return False
-    # These operations are idempotent, so if the context and context already
-    # exist these become no-ops.
-    fs.branch(context_name)
-    fs.checkout(context_name)
+
+    disdat.api.context(context_name)
+
+    if remote is not None:
+        _remote(context_name, remote)
+
     return True
 
 
-def _cat(fs, bundle_name):
-    """Dump the contents of a bundle
-
-    :param fs: A Disdat file system handle.
-    :param bundle_name: The name of the bundle
-    :return: the presentable contents of the bundle, if such contents exists
-    """
-    return fs.cat(bundle_name)
-
-
-def _commit(fs, bundle_name, input_tags):
-    """
+def _remote(context_arg, remote_url):
+    """ Add remote to our context.
 
     Args:
-        fs:
-        bundle_name (str):
-        input_tags (dict): Tags the committed bundle must have.
+        context_arg:  <remote context>/<local context> or <local context> to use in this container
+        remote_url: The remote to add to this local context
 
     Returns:
-
+        None
     """
-    _logger.debug("Committing '{}'".format(bundle_name))
+    _logger.debug("Adding remote at URL {} for branch '{}'".format(remote_url, context_arg))
 
-    # We have to spawn the commit task as a child process otherwise the
-    # entire run process will exit after we complete committing the bundle.
+    contexts = context_arg.split('/')
 
-    def _inner():
-        fs.commit(bundle_name, input_tags)
-
-    p = Process(target=_inner)
-    p.start()
-    p.join()
-    return True
-
-
-def _pull(fs, bundle_name):
-    _logger.debug("Pulling '{}'".format(bundle_name))
-    context = fs.get_curr_context()
-    if context is None:
-        _logger.error('Not pulling: No current context')
-        return False
-    if context.get_remote_object_dir() is None:
-        _logger.error("Not pulling: Current branch '{}/{}' has no remote".format(context.get_repo_name(), context.get_local_name()))
-        return False
-    fs.pull(human_name=bundle_name, localize=True)
-    return True
-
-
-def _push(fs, bundle_name, force_uuid=None):
-    """Push a bundle to a remote repository.
-    """
-    _logger.debug('Pushing \'{}\''.format(bundle_name))
-    context = fs.get_curr_context()
-    if context is None:
-        _logger.error('Not pushing: No current context')
-        return False
-    if context.get_remote_object_dir() is None:
-        _logger.error("Not pushing: Current branch '{}/{}' has no remote".format(context.get_repo_name(), context.get_local_name()))
-        return False
-    fs.push(human_name=bundle_name, force_uuid=force_uuid)
-    return True
-
-
-def _remote(fs, remote_url, context_or_branch_name=None):
-    _logger.debug("Adding remote at URL {} for branch '{}'".format(remote_url, context_or_branch_name))
-    if context_or_branch_name is None:
-        context = fs.get_curr_context()
-        if context is None:
-            _logger.error('Not pushing: No current context')
-            return False
-        context_name = context.get_repo_name()
+    if len(contexts) > 1:
+        remote_context = contexts[0]
+        local_context = contexts[1]
     else:
-        context_name = context_or_branch_name.split('/')[0]
+        local_context = contexts[0]
+        remote_context = local_context
+
     if remote_url is None:
         _logger.error("Got an invalid URL {}".format(remote_url))
         return False
-    else:
-        # Be generous and fix up S3 URLs to end on a directory.
-        remote_url = '{}/'.format(remote_url.rstrip('/'))
+
     try:
-        fs.remote_add(context_name, remote_url, force=True)
+        disdat.api.remote(local_context, remote_context, remote_url, force=True)
     except Exception:
         return False
     return True
@@ -206,11 +126,151 @@ def _remove(fs, bundle_name):
     return fs.rm(bundle_name, rm_all=True)
 
 
+def retrieve_secret(secret_name):
+    """ Placeholder for ability to retrieve secrets needed by image
+
+    Returns:
+
+    """
+
+    raise NotImplementedError
+
+    # Modify these to get them from the current environment
+    endpoint_url = "https://secretsmanager.us-west-2.amazonaws.com"
+    region_name = "us-west-2"
+
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name,
+        endpoint_url=endpoint_url
+    )
+
+    try:
+        get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ResourceNotFoundException':
+            print("The requested secret " + secret_name + " was not found")
+        elif e.response['Error']['Code'] == 'InvalidRequestException':
+            print("The request was invalid due to:", e)
+        elif e.response['Error']['Code'] == 'InvalidParameterException':
+            print("The request had invalid params:", e)
+    else:
+        # Decrypted secret using the associated KMS CMK
+        # Depending on whether the secret was a string or binary, one of these fields will be populated
+        if 'SecretString' in get_secret_value_response:
+            secret = get_secret_value_response['SecretString']
+        else:
+            binary_secret_data = get_secret_value_response['SecretBinary']
+
+        print ("Found the secret string as ")
+        print secret
+
+
 def add_argument_help_string(help_string, default=None):
     if default is None:
         return '{}'.format(help_string)
     else:
         return "{} (default '{}')".format(help_string, default)
+
+
+def run_disdat_container(args):
+    """ Execute Disdat inside of container
+
+    Args:
+        args: input arguments
+
+    Returns:
+        None
+
+    """
+
+    print "Entrypoint running with args: {}".format(args)
+
+    # Check to make sure that we have initialized the Disdat environment
+    if not os.path.exists(os.path.join(os.environ['HOME'], '.config', 'disdat')):
+        _logger.warning("Disdat environment possibly uninitialized?")
+
+    # Create branch, add remote, and switch to it
+    if not _context_and_remote(args.branch, args.remote):
+        _logger.error("Failed to branch to \'{}\' and optionally bind  to \'{}\'".format(args.branch,
+                                                                                         args.remote))
+        sys.exit(os.EX_IOERR)
+
+    # Pull the remote branch into the local branch or download individual items
+    try:
+        if not args.no_pull:
+            disdat.api.pull(args.branch, localize=True)
+        else:
+            fetch_list = []
+            if args.fetch is not None:
+                fetch_list = ['{}'.format(kv[0]) for kv in args.fetch]
+            if len(fetch_list) > 0:
+                for b in fetch_list:
+                    disdat.api.pull(args.branch, bundle_name=b)
+    except Exception as e:
+        _logger.error("Failed to pull and localize all bundles from context {} due to {}".format(args.branch, e))
+        sys.exit(os.EX_IOERR)
+
+    # If we received JSON, convert it into a temporary tab-separated file,
+    # and use that as the input bundle.
+    if args.input_json is not None:
+        with tempfile.NamedTemporaryFile(suffix='.tsv') as input_file:
+            # To be nice, strip newlines and any single-quotes left over by
+            # the shell
+            input_json = args.input_json.strip('\'\n')
+            _logger.debug("Adding JSON {}".format(input_json))
+            input_path = input_file.name
+            _logger.debug("Saving JSON data to temporary file {}".format(input_file.name))
+            pd.read_json(input_json).to_csv(input_path, sep='\t')
+            if not _add(fs, bundle_name=args.input_bundle, input_path=input_file.name):
+                _logger.error("Failed to add JSON to input bundle \'{}\'".format(args.input))
+                sys.exit(os.EX_IOERR)
+
+    # If specified, decode the ordinary 'key:value' strings into a dictionary of tags.
+    input_tags = {}
+    if args.input_tag is not None:
+        input_tags = disdat.common.parse_args_tags(args.input_tag)
+    output_tags = {}
+    if args.output_tag is not None:
+        output_tags = disdat.common.parse_args_tags(args.output_tag)
+
+    # convert string of pipeline args into dictionary for api.apply
+    pipeline_args = disdat.common.parse_params(args.pipeline_args)
+
+    try:
+        disdat.api.apply(args.branch,
+                         args.input_bundle,
+                         args.output_bundle,
+                         args.pipeline,
+                         input_tags=input_tags,
+                         output_tags=output_tags,
+                         params=pipeline_args,
+                         output_bundle_uuid=args.output_bundle_uuid,
+                         force=args.force,
+                         workers=4)
+
+        if not args.no_push_intermediates:
+            # push all intermediates
+            to_push = disdat.api.search(args.branch, is_committed=False, find_intermediates=True)
+            for b in to_push:
+                disdat.api.commit(args.branch, b.name, uuid=b.uuid)
+                disdat.api.push(args.branch, b.name, uuid=b.uuid)
+
+        if not args.no_push:
+            # push final output bundle
+            disdat.api.commit(args.branch, args.output_bundle, tags=output_tags)
+            disdat.api.push(args.branch, args.output_bundle)
+
+    except RuntimeError as re:
+        _logger.error('Failed to run pipeline: exception {}'.format(re))
+        sys.exit(os.EX_IOERR)
+
+    if args.dump_output:
+        print(disdat.api.cat(args.branch, args.output_bundle))
+    sys.exit(os.EX_OK)
 
 
 def main(input_args):
@@ -250,12 +310,17 @@ def main(input_args):
     disdat_parser.add_argument(
         '--no-pull',
         action='store_true',
-        help='Do not pull the input bundle from the remote repository (default is to pull)',
+        help='Do not pull (synchronize) remote repository with local repo - may cause entire pipeline to re-run.',
     )
     disdat_parser.add_argument(
         '--no-push',
         action='store_true',
         help='Do not push the output bundle to the remote repository (default is to push)',
+    )
+    disdat_parser.add_argument(
+        '--no-push-intermediates',
+        action='store_true',
+        help='Do not push the intermediate bundles to the remote repository (default is to push)',
     )
 
     pipeline_parser = parser.add_argument_group('pipe arguments')
@@ -313,7 +378,7 @@ def main(input_args):
         "pipeline_args",
         nargs=argparse.REMAINDER,
         type=str,
-        help='One or more optional arguments to pass on to the pipeline class, of the form \'--param-name param-value\'; note that parameter values are NOT optional!',
+        help="Optional set of parameters for this pipe '--parameter value'"
     )
 
     args = parser.parse_args(input_args)
@@ -321,75 +386,7 @@ def main(input_args):
     logging.basicConfig(level=args.debug_level)
     _logger.setLevel(args.debug_level)
 
-    print "My args are {}".format(args)
-
-    # Check to make sure that we have initialized the Disdat environment
-    if not os.path.exists(os.path.join(os.environ['HOME'], '.config', 'disdat')):
-        _logger.warning('Disdat environment possibly uninitialized?')
-    # Get a Disdat file system handle and create the branch if necessary.
-    fs = disdat.fs.DisdatFS()
-    if not _context_and_switch(fs, args.branch):
-        _logger.error('Failed to branch and check out \'{}\''.format(args.branch))
-        sys.exit(os.EX_IOERR)
-    # If we received JSON, convert it into a temporary tab-separated file,
-    # and use that as the input bundle.
-    if args.input_json is not None:
-        with tempfile.NamedTemporaryFile(suffix='.tsv') as input_file:
-            # To be nice, strip newlines and any single-quotes left over by
-            # the shell
-            input_json = args.input_json.strip('\'\n')
-            _logger.debug('Adding JSON {}'.format(input_json))
-            input_path = input_file.name
-            _logger.debug('Saving JSON data to temporary file {}'.format(input_file.name))
-            pd.read_json(input_json).to_csv(input_path, sep='\t')
-            if not _add(fs, bundle_name=args.input_bundle, input_path=input_file.name):
-                _logger.error('Failed to add JSON to input bundle \'{}\''.format(args.input))
-                sys.exit(os.EX_IOERR)
-
-    # If specified, decode the ordinary 'key:value' strings into a dictionary of tags.
-    input_tags = {}
-    if args.input_tag is not None:
-        input_tags = disdat.common.parse_args_tags(args.input_tag)
-    output_tags = {}
-    if args.output_tag is not None:
-        output_tags = disdat.common.parse_args_tags(args.output_tag)
-    fetch_list = []
-    if args.fetch is not None:
-        fetch_list =  ['{}'.format(kv[0]) for kv in args.fetch]
-
-    if False:
-        print "Container Running with command (output uuid {}, input_tags {}, output_tags {}):".format(args.output_bundle_uuid,
-                                                                                                   input_tags, output_tags)
-        print "\t dsdt apply {} {} {} {} ".format(args.input_bundle, args.output_bundle, args.pipeline, args.pipeline_args)
-
-    # Let it rip!
-    if len(fetch_list) > 0 and (args.remote is not None):
-        _remote(fs, args.remote)
-        for b in fetch_list:
-            _pull(fs, bundle_name=b)
-
-    if (
-        ((args.no_pull and args.no_push) or (args.remote is None) or _remote(fs, args.remote)) and
-        (args.no_pull or (args.input_json is not None) or _pull(fs, bundle_name=args.input_bundle)) and
-        _apply(
-            input_bundle_name=args.input_bundle,
-            output_bundle_name=args.output_bundle,
-            pipeline_class_name=args.pipeline,
-            pipeline_args=args.pipeline_args,
-            input_tags=input_tags,
-            output_tags=output_tags,
-            output_bundle_uuid=args.output_bundle_uuid,
-            force=args.force,
-        ) and
-        _commit(fs, args.output_bundle, output_tags) and
-        (args.no_push or _push(fs, args.output_bundle))
-    ):
-        if args.dump_output:
-            print(_cat(fs, args.output_bundle))
-        sys.exit(os.EX_OK)
-    else:
-        _logger.error('Failed to run pipeline')
-        sys.exit(os.EX_IOERR)
+    run_disdat_container(args)
 
 
 if __name__ == '__main__':

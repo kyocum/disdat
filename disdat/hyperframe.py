@@ -307,7 +307,7 @@ def _tag_query(tags):
 
 
 def select_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_name=None, tags=None, state=None,
-                  orderby=False, groupby=False):
+                  orderby=False, groupby=False, maxbydate=False):
     """
     Create an HFrame Record from a row in our DB.
     Where uuid= && owner= && human_name= && processing_name=
@@ -322,6 +322,7 @@ def select_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_n
         state (`RecordState`):  The state of the entry
         orderby (bool): enable order by creation_date timestamp
         groupby (bool): enable grouping
+        maxbydate (bool): Return the latest bundle matched by human_name
 
     Returns:
         results (list): a list of xxxRecord objects
@@ -352,10 +353,16 @@ def select_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_n
     else:
         groupby = ''
 
-    # select from where groupby orderby
-    s = text(
-        "SELECT {} from {} {} {} {}".format(select, pb_cls.table_name, where, groupby, orderby)
-    )
+    # add sub-query if we need to maxbydate, always group by 'human_name'
+    sub_q = ''
+    if maxbydate:
+        sub_q = " AS a JOIN (SELECT human_name as hn, " + \
+                    " max(creation_date) AS max_date FROM {} GROUP BY human_name ) as b ".format(pb_cls.table_name) + \
+                " ON a.human_name = b.hn AND a.creation_date = b.max_date "
+
+    s = text("SELECT {} FROM {} {} {} {} {}".format(select, pb_cls.table_name, sub_q, where, groupby, orderby))
+
+    #print "Query {}".format(s)
 
     with engine_g.connect() as conn:
         result = conn.execute(s)

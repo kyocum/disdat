@@ -52,7 +52,6 @@ class C(PipeTask):
         with fh.open('w') as outputfile:
             outputfile.write("Task C index {} uuid {} finished".format(self.task_label, self.uuid))
 
-        self.set_bundle_name("TaskC_label{}_uuid{}".format(self.task_label, self.uuid))
         self.add_tags({'SimpleTreeTask':'True', 'NumInputs':'0'})
 
         return fh.path
@@ -64,7 +63,7 @@ class B(PipeTask):
     uuid          = luigi.Parameter(default='None')
 
     def pipe_requires(self, pipeline_input=None):
-        for i in range(2):
+        for i in range(1):
             self.add_dependency("task_{}".format(i), C, {'task_label': str(i) + str(self.task_label), 'uuid': 0xdeadbeef})
 
     def pipe_run(self, pipeline_input=None, task_0=None, task_1=None):
@@ -82,7 +81,6 @@ class B(PipeTask):
         with fh.open('w') as outputfile:
             outputfile.write("Task B index {} uuid {} finished".format(self.task_label, self.uuid))
 
-        self.set_bundle_name("TaskB_label{}_uuid{}".format(self.task_label, self.uuid))
         self.add_tags({'SimpleTreeTask':'True', 'NumInputs':'2'})
 
         return fh.path
