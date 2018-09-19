@@ -165,14 +165,14 @@ Now all of your data is safely on S3.   To illustrate, let's delete our local co
 .. code-block:: console
 
     $ dsdt rm --all MNI.*
-    $ dsdt pull -b MNIST.eval; dsdt pull -b MNIST.data.gz; dsdt pull -b MNIST.trained
+    $ dsdt pull MNIST.eval; dsdt pull MNIST.data.gz; dsdt pull MNIST.trained
 
 
 If you ``dsdt cat MNIST.data.gz`` you'll notice something interesting.   Your bundle now has a bunch of s3 paths! That's because Disdat leaves your data on S3 unless you really want it locally.   To localize:
 
 .. code-block:: console
 
-    $ dsdt pull -b MNIST.data.gz --localize
+    $ dsdt pull --localize MNIST.data.gz
 
 Now all of your data is also local.
 
