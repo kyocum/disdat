@@ -237,6 +237,9 @@ def run_disdat_container(args):
     if args.output_tag is not None:
         output_tags = disdat.common.parse_args_tags(args.output_tag)
 
+    # convert string of pipeline args into dictionary for api.apply
+    pipeline_args = disdat.common.parse_params(args.pipeline_args)
+
     try:
         disdat.api.apply(args.branch,
                          args.input_bundle,
@@ -244,7 +247,7 @@ def run_disdat_container(args):
                          args.pipeline,
                          input_tags=input_tags,
                          output_tags=output_tags,
-                         params=args.pipeline_args,
+                         params=pipeline_args,
                          output_bundle_uuid=args.output_bundle_uuid,
                          force=args.force,
                          workers=4)
@@ -375,7 +378,7 @@ def main(input_args):
         "pipeline_args",
         nargs=argparse.REMAINDER,
         type=str,
-        help='One or more optional arguments to pass on to the pipeline class, of the form \'--param-name param-value\'; note that parameter values are NOT optional!',
+        help="Optional set of parameters for this pipe '--parameter value'"
     )
 
     args = parser.parse_args(input_args)

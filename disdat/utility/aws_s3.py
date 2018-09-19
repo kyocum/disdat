@@ -255,6 +255,9 @@ def ls_s3_url_objects(s3_url):
     """
     result = []
 
+    if s3_url[-1] is not '/':
+        s3_url += '/'
+
     bucket, s3_path = split_s3_url(s3_url)
 
     #if not s3_bucket_exists(bucket):
@@ -410,7 +413,11 @@ def get_s3_key(bucket, key, filename=None):
     else:
         path = os.path.dirname(filename)
         if not os.path.exists(path):
-            os.makedirs(path)
+            try:
+                os.makedirs(path)
+            except os.error as ose:
+                # swallow error -- likely file already exists.
+                _logger.warn("aws_s3.get_s3_key: Error code {}".format(os.strerror(ose.errno)))
 
     s3.Bucket(bucket).download_file(key, filename)
     # KGY: let's avoid mucking with objects if we don't have to
@@ -420,6 +427,7 @@ def get_s3_key(bucket, key, filename=None):
 
 def get_s3_file(s3_url, filename=None):
     bucket, s3_path = split_s3_url(s3_url)
+
     return get_s3_key(bucket, s3_path, filename)
 
 
@@ -434,9 +442,6 @@ def split_s3_url(s3_url):
         (str, str)
 
     """
-    if s3_url[-1] is not '/':
-        s3_url += '/'
-
     s3_schemes = ["s3n", "s3"]
     url = urlparse(s3_url)
     if url.scheme not in s3_schemes:

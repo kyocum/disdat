@@ -735,7 +735,9 @@ class DisdatFS(object):
 
         self._all_contexts[local_context] = context
 
-        _logger.info("Disdat checked out repo {} into local data context {}.".format(repo, local_context))
+        _logger.info("Disdat checked out repo {} into local data context {} at object dir {}.".format(repo,
+                                                                                                      local_context,
+                                                                                                      context.get_object_dir()))
 
     def delete_branch(self, fq_context_name, force):
         """
@@ -1008,7 +1010,7 @@ class DisdatFS(object):
 
         return hfr
 
-    def _copy_hfr_to_branch(self, hfr, to_remote=True, prior_remote_ctxt=None):
+    def _copy_hfr_to_branch(self, hfr, data_context, to_remote=True):
         """
         Copy this HyperFrameRecord to a different branch.  Note that this works because
         we use relative Hyperframes (Link URLs have no location specific prefix).  If we
@@ -1024,37 +1026,38 @@ class DisdatFS(object):
 
         Args:
             hfr: The hyperframe
+            data_context: The data context to copy from
             to_remote (bool): Optional.  Write to the remote on the current context. Default true.
-            prior_remote_ctxt (str):
 
         Returns:
             None
         """
 
-        for fr in hfr.get_frames(self.get_curr_context()):
+        assert data_context is not None
+
+        for fr in hfr.get_frames(data_context):
 
             if fr.is_hfr_frame():
 
                 # CASE 1: A frame containing HFRs.   Descend recursively.
                 for next_hfr in fr.get_hframes():
-                    self._copy_hfr_to_branch(next_hfr, to_remote=to_remote)
+                    self._copy_hfr_to_branch(next_hfr, data_context, to_remote=to_remote)
 
             else:
 
                 # CASE 2:  If it is a local fs or an s3 frame, then we have to copy
                 if to_remote:
-                    self._copy_fr_links_to_branch(fr, self._curr_context.get_remote_object_dir())
+                    self._copy_fr_links_to_branch(fr, data_context.get_remote_object_dir(), data_context)
                 else:
-                    self._copy_fr_links_to_branch(fr, self._curr_context.get_object_dir())
+                    self._copy_fr_links_to_branch(fr, data_context.get_object_dir(), data_context)
 
         # Push hyperframe to remote
-        # TODO: someone needs to check if it's already there!
-        # print "---------------ROOT_HFR {}  MAKING NEW HFR {}  REMOTE".format(hfr.pb.uuid, new_hfr_uuid)
-        self.get_curr_context().write_hframe(hfr, to_remote=to_remote)
+        data_context.write_hframe(hfr, to_remote=to_remote)
 
         return
 
-    def _copy_fr_links_to_branch(self, fr, branch_object_dir):
+    @staticmethod
+    def _copy_fr_links_to_branch(fr, branch_object_dir, data_context):
         """
         Given a non-HyperFrame frame, if a local fs or s3 frame, do the
         copy_in to this branch.
@@ -1064,13 +1067,15 @@ class DisdatFS(object):
         Args:
             fr:  Frame to possibly copy_in files to managed_path
             branch_object_dir: s3:// or file:/// path of the object directory on the branch
+            data_context: The context from which to copy.
 
         Returns:
             None
         """
+        assert data_context is not None
+
         if fr.is_local_fs_link_frame() or fr.is_s3_link_frame():
-            assert self._curr_context is not None
-            src_paths = self._curr_context.actualize_link_urls(fr)
+            src_paths = data_context.actualize_link_urls(fr)
             bundle_dir = os.path.join(branch_object_dir, fr.hframe_uuid)
             _ = DataContext.copy_in_files(src_paths, bundle_dir)
         return
@@ -1238,8 +1243,15 @@ class DisdatFS(object):
 
         """
 
-        if self._curr_context.remote_ctxt_url is None:
-            print "Push cannot execute.  Local context {} on remote {} not bound.".format(self._curr_context.local_ctxt, self._curr_context.remote_ctxt)
+        if data_context is None:
+            if not self.in_context():
+                _logger.warning('Not in a data context')
+                raise UserWarning("Not in a data context")
+            data_context = self.get_curr_context()
+
+        if data_context.remote_ctxt_url is None:
+            print "Push cannot execute.  Local context {} on remote {} not bound.".format(data_context.local_ctxt,
+                                                                                          data_context.remote_ctxt)
             return None
 
         if tags is None:
@@ -1266,20 +1278,20 @@ class DisdatFS(object):
         # All bundles contain relative paths.  Copying is a simple
         # recursive process that copies files and protobufs to the remote.
         try:
-            self._copy_hfr_to_branch(hfr, to_remote=True)
+            self._copy_hfr_to_branch(hfr, data_context, to_remote=True)
         except Exception as e:
             print "Push unable to copy bundle to branch: {}".format(e)
             return None
 
         print "Pushed committed bundle {} uuid {} to remote {}".format(human_name, hfr.pb.uuid,
-                                                                       self._curr_context.remote_ctxt_url)
+                                                                       data_context.remote_ctxt_url)
 
         return hfr
 
     @staticmethod
     def _localize_hfr(local_hfr, s3_uuid, data_context):
         """
-        Given local hfr, read link frames and pull data from s3.
+        Given local hfr, read link frames and pulgl data from s3.
 
         TODO: Checks to see if the files are already local!
 
@@ -1299,7 +1311,8 @@ class DisdatFS(object):
                     print "Adding file {} to bundle".format(f)
                     DataContext.copy_in_files(f, managed_path)
 
-    def fast_pull(self, data_context, localize):
+    @staticmethod
+    def fast_pull(data_context, localize):
         """
 
         First edition, over-write everything.
@@ -1336,13 +1349,18 @@ class DisdatFS(object):
         for s3_obj in all_objects:
             obj_basename = os.path.basename(s3_obj.key)
             obj_suffix = s3_obj.key.replace(remote_obj_dir,'')
-            obj_suffix_dir = os.path.dirname(obj_suffix)
+            obj_suffix_dir = os.path.dirname(obj_suffix).strip('/')  # remote_obj_dir won't have a trailing slash
             local_uuid_dir = os.path.join(data_context.get_object_dir(), obj_suffix_dir)
             multiple_results.append(pool.apply_async(aws_s3.get_s3_key,
                                                      (s3_bucket,s3_obj.key,os.path.join(local_uuid_dir, obj_basename))))
 
-        # TODO: exception handling
+        pool.close()
+
         results = [res.get(timeout=MAX_WAIT) for res in multiple_results]
+
+        pool.join()
+
+        _logger.info("Fast pull complete -- thread pool closed and joined.")
 
     def pull(self, human_name=None, uuid=None, localize=False, data_context=None):
         """
@@ -1382,9 +1400,9 @@ class DisdatFS(object):
             data_context.rebuild_db()
             return
 
-        start = time.time()
+        #start = time.time()
         possible_hframe_objects = aws_s3.ls_s3_url_objects(data_context.get_remote_object_dir())
-        print "List time {} seconds".format(time.time() - start)
+        #print "List time {} seconds".format(time.time() - start)
 
         hframe_objects = [obj for obj in possible_hframe_objects if '_hframe.pb' in obj.key]
 

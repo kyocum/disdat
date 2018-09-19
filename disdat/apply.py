@@ -112,7 +112,7 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
     reexecute_dag = driver.DriverTask(input_bundle, output_bundle, pipe_params,
                                       pipe_cls, input_tags, output_tags, force, data_context)
 
-    resolve_workflow_bundles(reexecute_dag)
+    resolve_workflow_bundles(reexecute_dag, data_context)
 
     # At this point the path cache should be full of existing or new UUIDs.
     # we are going to replace the final pipe's UUID if the user has passed one in.
@@ -195,7 +195,7 @@ def is_left_edge_task(task):
     return True
     
 
-def resolve_workflow_bundles(root_task):
+def resolve_workflow_bundles(root_task, data_context):
     """
     Given a task graph rooted at root task, we need to determine whether 
     each task needs a new bundle or if it can reuse an existing bundle. 
@@ -206,9 +206,11 @@ def resolve_workflow_bundles(root_task):
     1.) topologically sort tasks
     2.) for each task in that order, determine bundle (or make new output bundle)
     3.) store the bundle in the PipeFS static variable.  This allows the output method to find the cached result 
-        of this computation. 
+        of this computation.
 
-    :root_task:
+    Args:
+        root_task:
+        data_context:
     """
 
     pfs = fs.DisdatFS()
@@ -225,7 +227,7 @@ def resolve_workflow_bundles(root_task):
         if p.__class__.__name__ is 'DriverTask':
             # DriverTask is a WrapperTask, it produces no bundles.
             continue
-        resolve_bundle(pfs, p, is_left_edge_task(p))
+        resolve_bundle(pfs, p, is_left_edge_task(p), data_context)
 
 
 def different_code_versions(code_version, lineage_obj):
@@ -277,7 +279,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
 
     """
 
-    verbose = True
+    verbose = False
 
     # 1.) Get output bundle for pipe_id (the specific pipeline/transform/param hash).
 
