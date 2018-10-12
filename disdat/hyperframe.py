@@ -1915,7 +1915,7 @@ class FrameRecord(PBObject):
             # db://<database>.<schema>.<disdat>_<context>_<virt_name>_<uuid prefix>@servername
             links = [link_type(frame_uuid,  # hframe_uuid
                                None,  # linkauth_uuid
-                               db_tgt.url(remove_context=True), # url
+                               db_tgt.url(), # url
                                db_tgt.servername, # servername
                                db_tgt.database,   # database
                                db_tgt.schema,     # schema
