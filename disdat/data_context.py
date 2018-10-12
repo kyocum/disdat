@@ -1112,8 +1112,13 @@ class DataContext(object):
 
             # Detect manual db:// paths and error out.
             if urlparse(src_path).scheme == 'db':
-                _logger.error("Unable to use a string-based database reference[{}], please return DBTarget object instead.".format(src_path))
-                raise Exception("data_context:copy_in_files error trying to copy in string-based database reference.")
+                """ At this time we don't support user-supplied db link paths
+                Instead we assume these are managed.   Which means the db table already exists
+                and doesn't need to be 'copied-in'.   """
+                _logger.warn("Not copying-in a string-based database reference[{}].  Disdat only supports string refs from DBTarget objects.".format(src_path))
+                file_set.append(src_path)
+                continue
+                #raise Exception("data_context:copy_in_files error trying to copy in string-based database reference.")
 
             # Src path can contain a sub-directory.
             sub_dir = DataContext.find_subdir(src_path, dst_dir)

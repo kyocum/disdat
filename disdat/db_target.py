@@ -348,12 +348,12 @@ class DBTarget(Target):
             self.phys_name = u"{}.{}_{}".format(self.schema, self.table_name, self.sql_name_uuid)
         else:
             """
-            Here the name is prefixed by <disdat_prefix>_<context>
+            Here the name is prefixed by <disdat_prefix>
+            We don't prefix with the context because bundles are independent of context
             """
             assert self.schema
-            self.phys_name = u"{}.{}_{}_{}_{}".format(self.schema,
+            self.phys_name = u"{}.{}_{}_{}".format(self.schema,
                                                       self.disdat_prefix,
-                                                      self.context.get_local_name(),
                                                       self.table_name,
                                                       self.sql_name_uuid)
 
@@ -439,7 +439,7 @@ class DBTarget(Target):
         except Exception as e:
             raise Exception("DBTarget:is_latest_committed failed: {}".format(e))
 
-    def url(self, remove_context=False):
+    def url(self):
         """
         The phys_name_url contains the servername, database, schema, and table name.
         It is the string that may be used in lieu of a db_target.
@@ -448,25 +448,7 @@ class DBTarget(Target):
             (unicode): <database>.<schema>.<table>@<servername>
 
         """
-        if remove_context:
-            return "db://{}.{}@{}".format(self.database, self.phys_name.replace("{}_".format(self.context.get_local_name()), ''), self.servername)
-        else:
-            return "db://{}.{}@{}".format(self.database, self.phys_name, self.servername)
-
-    @staticmethod
-    def remove_context_from_url(url, context):
-        """
-        Given URL, remove the context.  Assumes that context follows the disdat_prefix.
-
-        Args:
-            url:
-            context:
-
-        Returns:
-            (unicode): <database>.<schema>.<table>@<servername>
-
-        """
-        return url.replace("{}_{}".format(DBTarget.disdat_prefix, context), "{}".format(DBTarget.disdat_prefix))
+        return "db://{}.{}@{}".format(self.database, self.phys_name, self.servername)
 
     def drop_table(self):
         """
