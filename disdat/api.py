@@ -554,7 +554,7 @@ def push(local_context, bundle_name, tags=None, uuid=None):
 
     Args:
         local_context (str): <remote context>/<local context> or <local context>
-        bundle_name (str): human name of the bundle to push
+        bundle_name (str): human name of the bundle to push or None (if using uuid)
         tags (dict): Tags that bundle should have
         uuid (str): Optional UUID of the bundle to push.  If specified with bundle_name, UUID takes precedence.
 
