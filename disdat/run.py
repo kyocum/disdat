@@ -351,17 +351,11 @@ def _run(
     pipeline_params,
     pipeline_class_name,
     backend=Backend.Local,
-    force=False,  # @UnusedVariable
-    push_input_bundle=True,
     aws_session_token_duration=0,
     input_tags=None,
     output_tags=None,
     fetch_list=None,
-    context=None,
-    remote=None,
-    no_pull=False,
-    vcpus=1,
-    memory=2000
+    other_args=None
 ):
     """Run the dockerized version of a pipeline.
 
@@ -372,22 +366,37 @@ def _run(
         pipeline_params: Optional arguments to pass to the pipeline class
         backend: The batch execution back-end to use (default
             `Backend.Local`)
-        force: If `True` force recomputation of all upstream pipe
-            requirements (default `False`)
+
+
         input_tags (list(str)): Find bundle with these tags ['key:value',...]
         output_tags (list(str)): Push result bundle with these tags ['key:value',...]
         fetch_list (list(str)): Fetch these bundles before starting pipeline
-        context (str): <remote context>/<local context> context string
-        remote (str): The remote S3 URL.
-        no_pull:
-        vcpus:
-        memory:
+        other_args (argparse args):  Args that didn't need special handling
+            force: If `True` force recomputation of all upstream pipe requirements (default `False`)
+            no_push (bool): Do not push any new bundles to remote (useful for testing locally)
+            no_push_int (bool): Do not push new intermediate bundles to remote
+            context (str): <remote context>/<local context> context string
+            remote (str): The remote S3 URL.
+            no_pull (bool): Do not pull down context before executing
+            vcpus (int):  Number of AWS vCPUs the container requests
+            memory (int):  Amount of memory container requests in MB
+            workers (int): Number of Luigi workers to run tasks in DAG
 
     Returns:
         `None`
     """
 
     pfs = fs.DisdatFS()
+
+    force = other_args.force
+    context = other_args.context
+    remote = other_args.remote
+    no_pull = other_args.no_pull
+    no_push = other_args.no_push
+    no_push_int = other_args.no_push_int
+    vcpus = other_args.vcpus
+    memory = other_args.memory
+    workers = other_args.workers
 
     try:
         output_bundle_uuid = pfs.disdat_uuid()
@@ -399,16 +408,9 @@ def _run(
         return
 
     arglist = common.make_run_command(input_bundle, output_bundle, output_bundle_uuid, remote, context,
-                                      input_tags, output_tags, fetch_list, no_pull, pipeline_params)
+                                      input_tags, output_tags, fetch_list, no_pull, no_push, no_push_int, workers, pipeline_params)
 
     if backend == Backend.AWSBatch or backend == Backend.SageMaker:
-
-        # Make sure latest committed is sent to remote
-        if push_input_bundle:
-            result = pfs.push(human_name=input_bundle)
-            if result is None:
-                _logger.error("'run' failed to push input bundle {} to remote.".format(input_bundle))
-                return
 
         pipeline_image_name = common.make_pipeline_image_name(pipeline_class_name)
 
@@ -435,9 +437,22 @@ def add_arg_parser(parsers):
         choices=Backend.options(),
         help='An optional batch execution back-end to use',
     )
-    run_p.add_argument("--force", action='store_true', help="If there are dependencies, force re-computation.")
-    run_p.add_argument("--no-push-input", action='store_false',
-                       help="Do not push the current committed input bundle before execution (default is to push)", dest='push_input_bundle')
+    run_p.add_argument(
+        "--force",
+        action='store_true',
+        help="If there are dependencies, force re-computation."
+    )
+    run_p.add_argument(
+        "--no-push",
+        action='store_true',
+        help="Do not commit and push newly created bundles to remote context."
+    )
+    run_p.add_argument(
+        '--no-push-intermediates',
+        action='store_true',
+        help='Do not push the intermediate bundles to the remote repository (default is to push)',
+        dest='no_push_int'
+    )
     run_p.add_argument(
         '--no-pull',
         action='store_true',
@@ -446,11 +461,15 @@ def add_arg_parser(parsers):
     run_p.add_argument(
         '--use-aws-session-token',
         nargs=1,
-        default=[0],
+        default=[1440],
         type=int,
-        help='Use a temporary AWS session token to access the remote, valid for AWS_SESSION_TOKEN_DURATION seconds',
+        help='Use temporary AWS session token for AWS Batch, valid for AWS_SESSION_TOKEN_DURATION seconds. Default 1440. Set to zero to not use a token.',
         dest='aws_session_token_duration',
     )
+    run_p.add_argument('--workers',
+                       type=int,
+                       default=2,
+                       help="The number of Luigi workers to spawn.  Default is 2.")
     run_p.add_argument('--vcpus',
                        type=int,
                        default=1,
@@ -522,15 +541,9 @@ def main(args):
          pipeline_class_name=args.pipe_cls,
          pipeline_params=list(args.pipeline_args),  # for some reason ListParameter is creating a tuple
          backend=backend,
-         force=bool(args.force),
-         push_input_bundle=bool(args.push_input_bundle),
          aws_session_token_duration=args.aws_session_token_duration[0],
          input_tags=input_tags,
          output_tags=output_tags,
          fetch_list=fetch_list,
-         context=args.context,
-         remote=args.remote,
-         no_pull=args.no_pull,
-         vcpus=args.vcpus,
-         memory=args.memory
+         other_args=args
          )

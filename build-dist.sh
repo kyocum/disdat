@@ -1,63 +1,34 @@
 #!/usr/bin/env bash
 
-echo "Building Disdat executable dsdt . . ."
+echo "Building Disdat package for local installation or PyPi . . ."
 
+# Bump version up -- Can use release or patch or major or minor
+# bumpversion --dry-run --verbose release disdat/VERSION
 
-if [ -z ${VIRTUAL_ENV+x} ]; then
-    echo "No current virtual environment";
-else
-    echo "Deactivating current venv $VIRTUAL_ENV";
-    oldpath=$PATH
-    export PATH=`echo $PATH | cut -d : -f 2-`
-    oldve=$VIRTUAL_ENV
-    unset VIRTUAL_ENV
-    oldps1=$PS1
-    unset PS1
-fi
+# Now bump version for real
+# and git commit -am "<version>"
+# git tag <version>
 
-# Assume they have virtualenvwrapper installed in root environment
+# Remove the prior tar ball from the context.template
+rm -rf  disdat/infrastructure/dockerizer/context.template/disdat-*.tar.gz
+rm -rf  dist/disdat-*.tar.gz
 
-source `which virtualenvwrapper.sh`
+# Create a new sdist
+python setup.py sdist
 
-oldwoh=$WORKON_HOME
+# Copy over to the context.template.
+cp dist/disdat-*.tar.gz disdat/infrastructure/dockerizer/context.template/.
 
-export WORKON_HOME=~/.virtual_envs
+# Create a new sdist that will have that tar.gz in the template
+python setup.py sdist
 
-mkvirtualenv disdat-dist
-
-pip install -e .
-
-pip install pyinstaller
-
-# remove all the .pyc files so we don't copy them into the binary folder
-rm `find . -name '*.pyc'`
-
-#pyinstaller --clean --onefile --name dsdt disdat/dsdt.py
-#pyinstaller  --onedir --name dsdt dsdt-onedir.spec
-pyinstaller  --onefile --name dsdt dsdt-onefile.spec
-
-
+# publish to test pypi
 if false; then
-    # At one point, pyinstaller was failing.   No longer apears to be the case, but holding on to vistigial code.
-    boto_file=${WORKON_HOME}/disdat-dist/lib/python2.7/site-packages/PyInstaller/hooks/hook-botocore.py
-    sed -i -e 's/from PyInstaller.utils.hooks import collect_data_files/from PyInstaller.utils.hooks import collect_data_files, is_module_satisfies/' $boto_file
-    sed -i -e 's/from PyInstaller.compat import is_py2, is_module_satisfies/from PyInstaller.compat import is_py2/' $boto_file
-    pyinstaller --onefile  --name dsdt dsdt-mod.spec
+    echo "Uploading to PYPI test and real"
+    #twine upload --repository-url https://test.pypi.org/legacy/ dist/disdat-0.7.2rc0.tar.gz
+    # now do it for real
+    #twine upload dist/disdat-0.7.2rc0.tar.gz
 fi
-
-
-# Manual re-activate
-if [ -z ${oldve+x} ]; then
-    unset VIRTUAL_ENV
-else
-    export PATH=$oldpath
-    export VIRTUAL_ENV=$oldve
-    export PS1=$oldps1
-fi
-
-rmvirtualenv disdat-dist
-
-export WORKON_HOME=$oldwoh
 
 echo "Finished"
 

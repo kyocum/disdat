@@ -250,19 +250,19 @@ def run_disdat_container(args):
                          params=pipeline_args,
                          output_bundle_uuid=args.output_bundle_uuid,
                          force=args.force,
-                         workers=4)
-
-        if not args.no_push_intermediates:
-            # push all intermediates
-            to_push = disdat.api.search(args.branch, is_committed=False, find_intermediates=True)
-            for b in to_push:
-                disdat.api.commit(args.branch, b.name, uuid=b.uuid)
-                disdat.api.push(args.branch, b.name, uuid=b.uuid)
+                         workers=args.workers)
 
         if not args.no_push:
-            # push final output bundle
-            disdat.api.commit(args.branch, args.output_bundle, tags=output_tags)
-            disdat.api.push(args.branch, args.output_bundle)
+            if not args.no_push_intermediates:
+                # push all intermediates
+                to_push = disdat.api.search(args.branch, is_committed=False, find_intermediates=True)
+                for b in to_push:
+                    disdat.api.commit(args.branch, b.name, uuid=b.uuid)
+                    disdat.api.push(args.branch, b.name, uuid=b.uuid)
+
+            # push final output bundle: don't need name w/ uuid
+            disdat.api.commit(args.branch, None, uuid=args.output_bundle_uuid)
+            disdat.api.push(args.branch, None, uuid=args.output_bundle_uuid)
 
     except RuntimeError as re:
         _logger.error('Failed to run pipeline: exception {}'.format(re))
@@ -315,7 +315,7 @@ def main(input_args):
     disdat_parser.add_argument(
         '--no-push',
         action='store_true',
-        help='Do not push the output bundle to the remote repository (default is to push)',
+        help='Do not push output bundles (including intermediates) to the remote repository (default is to push)',
     )
     disdat_parser.add_argument(
         '--no-push-intermediates',
@@ -331,11 +331,19 @@ def main(input_args):
         required=(_pipeline_class_default is None),
         help=add_argument_help_string('Name of the pipeline class to run', _pipeline_class_default),
     )
+
     pipeline_parser.add_argument(
         '--branch',
         type=str,
         required=True,
         help='The fully-qualified Disdat branch to use when running',
+    )
+
+    pipeline_parser.add_argument(
+        '--workers',
+        type=int,
+        default=2,
+        help="The number of Luigi workers to spawn.  Default is 2."
     )
 
     pipeline_parser.add_argument(

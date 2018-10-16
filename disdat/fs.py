@@ -1598,7 +1598,7 @@ def _ls(fs, args):
 
 def _cat(fs, args):
 
-    df = fs.cat(args.bundle, tags=common.parse_args_tags(args.tag), file=args.file)
+    df = fs.cat(args.bundle, uuid=args.uuid, tags=common.parse_args_tags(args.tag), file=args.file)
 
     if df is None:
         print "dsdt cat found no bundle with name {}".format(args.bundle)
@@ -1690,11 +1690,12 @@ def init_fs_cl(subparsers):
 
     # cat
     cat_p = subparsers.add_parser('cat')
-    cat_p.add_argument('bundle', type=str, help='A bundle in the current context')
+    cat_p.add_argument('bundle', type=str, nargs='?', default=None, help='The bundle name in the current context')
     cat_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
                       help="Having a specific tag: 'dsdt ls -t committed:True -t version:0.7.1'")
     cat_p.add_argument('-f', '--file', type=str,
                        help="Save output dataframe as csv without index to specified file")
+    cat_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to cat')
     cat_p.set_defaults(func=lambda args: _cat(fs, args))
 
     # status

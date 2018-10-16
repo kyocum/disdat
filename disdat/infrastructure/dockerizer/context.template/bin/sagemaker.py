@@ -50,7 +50,7 @@ def train():
 
 
 if __name__ == '__main__':
-    """ SageMaker invoke sthe container with 'train' or 'serve'.
+    """ SageMaker invokes the container with 'train' or 'serve'.
     Train jobs support arbitrary 'hyperparameter' params inside a json blob.
     We read the json and interpret them as arguments to the Disdat entrypoint.
 
