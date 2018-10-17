@@ -33,7 +33,7 @@ import disdat.common as common  # config, especially logging, before luigi ever 
 import disdat.pipe_base as pipe_base
 import disdat.fs as fs
 import disdat.driver as driver
-from luigi import retcodes, build
+from luigi import retcodes, build, worker
 
 _logger = logging.getLogger(__name__)
 
@@ -162,7 +162,11 @@ def topo_sort_tasks(root_task):
 
     Naturally Luigi has to do similar things.  See luigi.CentralPlanner._traverse_graph()
     ASSUME:  That each task as a task.deps() function
-    This function providse a flatten on the tasks requires.  
+    This function provides a flatten on the tasks requires.
+
+    NOTE: We use luigi.worker._is_external() .  This is dangerous.  However we also use luigi.task.externalize()
+    which should be self-consistent with the internal call.   Time will tell.  If it breaks, then we'll need
+    to create our own marker.
 
     """
 
@@ -172,7 +176,7 @@ def topo_sort_tasks(root_task):
     while len(to_visit_fifo) > 0:
         next_node = to_visit_fifo.popleft()
         stack.append(next_node)
-        to_visit_fifo.extend(next_node.deps())
+        to_visit_fifo.extend(next_node.deps() if not worker._is_external(next_node) else [])
         
     return stack
 
@@ -186,13 +190,10 @@ def is_left_edge_task(task):
     """
     deps = task.deps()
 
-    for task in deps:
-        if task.__class__.__name__ is 'PipesExternalBundle':
-            continue
-        else:
-            return False
-
-    return True
+    if len(deps) > 0:
+        return False
+    else:
+        return True
     
 
 def resolve_workflow_bundles(root_task, data_context):
@@ -221,9 +222,6 @@ def resolve_workflow_bundles(root_task, data_context):
     while len(stack) > 0:
         p = stack.pop()
         # print "WORKING {}".format(luigi.task.task_id_str(p.task_family, p.to_str_params(only_significant=True)))
-        if p.__class__.__name__ is 'PipesExternalBundle':
-            # external files aren't included in the dag.
-            continue
         if p.__class__.__name__ is 'DriverTask':
             # DriverTask is a WrapperTask, it produces no bundles.
             continue
