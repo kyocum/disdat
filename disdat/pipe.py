@@ -48,63 +48,6 @@ CLOSURE_PIPE_INPUT = 'pipeline_input'
 _logger = logging.getLogger(__name__)
 
 
-class PipesExternalBundle(luigi.ExternalTask, PipeBase):
-    """
-    DEPRECATED
-    """
-
-    input_bundle_name = luigi.Parameter(default='None')
-
-    def bundle_outputs(self):
-        """
-        Given this pipe, return output bundle and uuid.
-        Returns:  [(bundle_name, uuid), ... ]
-        """
-        output_bundles = [(self.pipe_id(), self.pfs.get_path_cache(self).uuid)]
-        return output_bundles
-
-    def bundle_inputs(self):
-        """
-        Given this pipe, return the set of bundles used as inputs
-
-        Returns: [(bundle_name, uuid), ... ]
-
-        """
-
-        return []
-
-    def pipe_id(self):
-        """
-
-        Returns:
-        """
-        return self.input_bundle_name
-
-    def pipeline_id(self):
-        """
-
-        Returns:
-        """
-        return self.input_bundle_name
-
-    def requires(self):
-        """
-
-        Returns:
-
-        """
-        return None
-
-    def output(self):
-        """
-        DEPRECATED
-        Read the latest version of the given input_bundle
-        and transform the first row into luigi file objects as outputs
-        Returns: {'col': luigitarget, ... }
-        """
-        pass
-
-
 class PipeTask(luigi.Task, PipeBase):
     """
     Every pipe is given:
@@ -312,23 +255,20 @@ class PipeTask(luigi.Task, PipeBase):
             assert isinstance(pipe_class, luigi.task_register.Register)
 
             # we propagate the same inputs and the same output dir for every upstream task!
-            if pipe_class.__name__ is 'PipesExternalBundle':
-                tasks.append(pipe_class(**params))
-            else:
-                params.update({
-                    'user_arg_name': user_arg_name,
-                    'calling_task': self,
-                    'closure_hframe': self.closure_hframe,
-                    'closure_bundle_proc_name': self.closure_bundle_proc_name,
-                    'closure_bundle_uuid': self.closure_bundle_uuid,
-                    'closure_bundle_proc_name_root': self.closure_bundle_proc_name,
-                    'closure_bundle_uuid_root': self.closure_bundle_uuid,
-                    'driver_output_bundle': None,  # allow intermediate tasks pipe_id to be independent of root task.
-                    'force': self.force,
-                    'output_tags': dict({}),  # do not pass output_tags up beyond root task
-                    'data_context': self.data_context  # all operations wrt this context
-                })
-                tasks.append(pipe_class(**params))
+            params.update({
+                'user_arg_name': user_arg_name,
+                'calling_task': self,
+                'closure_hframe': self.closure_hframe,
+                'closure_bundle_proc_name': self.closure_bundle_proc_name,
+                'closure_bundle_uuid': self.closure_bundle_uuid,
+                'closure_bundle_proc_name_root': self.closure_bundle_proc_name,
+                'closure_bundle_uuid_root': self.closure_bundle_uuid,
+                'driver_output_bundle': None,  # allow intermediate tasks pipe_id to be independent of root task.
+                'force': self.force,
+                'output_tags': dict({}),  # do not pass output_tags up beyond root task
+                'data_context': self.data_context  # all operations wrt this context
+            })
+            tasks.append(pipe_class(**params))
 
         return tasks
 
@@ -498,6 +438,34 @@ class PipeTask(luigi.Task, PipeBase):
 
         assert (name not in self.add_deps)
         self.add_deps[name] = (task_class, params)
+
+        return
+
+    def add_external_dependency(self, name, task_class, params):
+        """
+        Disdat Pipe API Function
+
+        Add an external task and its parameters to our requirements.   What this means is that
+        there is no run function and, in that case, Luigi will ignore the results of task.deps() (which calls
+        flatten(self.requires())).  And what that means is that this requirement can only be satisfied
+        by the bundle actually existing.
+
+        Args:
+            name (str): Name of our upstream (also name of argument in downstream)
+            task_class (:object):  upstream task class
+            params (:dict):  Dictionary of
+
+        Returns:
+            None
+
+        """
+
+        if not isinstance(params, dict):
+            error = "add_dependency third argument must be a dictionary of parameters"
+            raise Exception(error)
+
+        assert (name not in self.add_deps)
+        self.add_deps[name] = (luigi.task.externalize(task_class), params)
 
         return
 

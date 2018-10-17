@@ -333,6 +333,16 @@ def _get_context(context_name):
     return data_context
 
 
+def current_context():
+    """ Return the current context """
+
+    try:
+        return fs.get_curr_context().get_local_name()
+    except StandardError as se:
+        print ("Current context failed due to error: {}".format(se))
+        return None
+
+
 def ls_contexts():
     """ Return list of contexts and their remotes
 
