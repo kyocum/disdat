@@ -216,7 +216,7 @@ def resolve_workflow_bundles(root_task, data_context):
         data_context:
 
     Returns:
-        bool: True if there is anything to re-run, False if no work to be done (only driver wrapper task)
+        bool: is_work -- True if there is anything to re-run, False if no work to be done (only driver wrapper task)
 
     """
 
@@ -240,7 +240,7 @@ def resolve_workflow_bundles(root_task, data_context):
             num_regen += 1
 
     # If regen == 0, then there is nothing to run.
-    return num_regen == 0
+    return num_regen > 0
 
 
 def different_code_versions(code_version, lineage_obj):
@@ -295,7 +295,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
 
     verbose = False
     use_bundle = True
-    regen_bundle = True
+    regen_bundle = False
 
     # 1.) Get output bundle for pipe_id (the specific pipeline/transform/param hash).
 
