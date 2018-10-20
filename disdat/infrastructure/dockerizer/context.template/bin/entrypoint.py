@@ -77,8 +77,41 @@ def _context_and_remote(context_name, remote=None):
 
     disdat.api.context(context_name)
 
-    if remote is not None:
-        _remote(context_name, remote)
+    # At this point we are either a.) running locally or b.) running remotely
+    # if running locally, the user might already have a context they are in.
+    # IF they have called run and set a different context, if we "switch" in here
+    # then we will change the state on disk.
+
+    # If we have a current context already, don't switch, print out an error
+    # saying, you have a current context, it's not this one, and if you want
+    # to run a container locally, then first switch into that context.
+    # Else if there is no current context, then we're probably running
+    # on a fresh disdat install, and we can switch into the one we
+    # already made.
+
+    current_context = disdat.api.current_context()
+
+    if current_context is None:
+        # we are probably safe to switch at this point
+        _logger.info("Entrypoint found that there is no current context, switching into {}".format(context_name))
+        disdat.api.switch(context_name)
+        if remote is not None:
+            _remote(context_name, remote)
+    else:
+        remote, local = context_name.split('/')  # always fully qualified when running from run
+        if local == current_context:
+            _logger.warn("Entrypoint found current local context {}: same as branch arg {}".format(current_context, context_name))
+            _logger.warn("Entrypoint not switching and ignoring directive to change to remote context {}".format(remote))
+            # TODO XXX
+            # Add code here to check if remote is different
+            # We don't want to transparently bind to a different remote.
+        else:
+            _logger.warn("Entrypoint found current local context {} **different** than branch arg {}".format(current_context, context_name))
+            _logger.warn("Assume you are running this container locally.  To do so first switch into the target branch")
+            _logger.warn("e.g., `dsdt switch {}`".format(local))
+            sys.exit(os.EX_IOERR)
+
+    # We are switched in to the right context
 
     return True
 

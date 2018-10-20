@@ -67,7 +67,7 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
         data_context: Actual context object or None and read current context.
 
     Returns:
-        None
+        bool: True if tasks needed to be run, False if no tasks (beyond wrapper task) executed.
     """
 
     _logger.debug("driver {}".format(driver.DriverTask))
@@ -112,7 +112,7 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
     reexecute_dag = driver.DriverTask(input_bundle, output_bundle, pipe_params,
                                       pipe_cls, input_tags, output_tags, force, data_context)
 
-    resolve_workflow_bundles(reexecute_dag, data_context)
+    is_work = resolve_workflow_bundles(reexecute_dag, data_context)
 
     # At this point the path cache should be full of existing or new UUIDs.
     # we are going to replace the final pipe's UUID if the user has passed one in.
@@ -151,6 +151,8 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
 
     # After running a pipeline, blow away our path cache.  Needed if we're run twice in the same process.
     fs.DisdatFS().clear_path_cache()
+
+    return is_work
 
         
 def topo_sort_tasks(root_task):
@@ -212,11 +214,18 @@ def resolve_workflow_bundles(root_task, data_context):
     Args:
         root_task:
         data_context:
+
+    Returns:
+        bool: True if there is anything to re-run, False if no work to be done (only driver wrapper task)
+
     """
 
     pfs = fs.DisdatFS()
 
     stack = topo_sort_tasks(root_task)
+
+    num_regen = 0
+    num_reuse = 0
 
     # For each task in the sort order, figure out if we need a new bundle (re-run it)
     while len(stack) > 0:
@@ -225,7 +234,13 @@ def resolve_workflow_bundles(root_task, data_context):
         if p.__class__.__name__ is 'DriverTask':
             # DriverTask is a WrapperTask, it produces no bundles.
             continue
-        resolve_bundle(pfs, p, is_left_edge_task(p), data_context)
+        if resolve_bundle(pfs, p, is_left_edge_task(p), data_context):
+            num_reuse += 1
+        else:
+            num_regen += 1
+
+    # If regen == 0, then there is nothing to run.
+    return num_regen == 0
 
 
 def different_code_versions(code_version, lineage_obj):
@@ -274,10 +289,13 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         data_context: the data context object from which we should resolve bundles.
 
     Returns:
+        bool: True if bundle found (not re-running).  False if bundle not found or being regenerated
 
     """
 
     verbose = False
+    use_bundle = True
+    regen_bundle = True
 
     # 1.) Get output bundle for pipe_id (the specific pipeline/transform/param hash).
 
@@ -288,14 +306,14 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         _logger.debug("resolve_bundle: --force forcing a new output bundle.")
         if verbose: print "resolve_bundle: --force forcing a new output bundle.\n"
         pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
-        return
+        return regen_bundle
 
     bndls = pfs.get_hframe_by_proc(pipe.pipe_id(), getall=True, data_context=data_context)
     if bndls is None or len(bndls) <= 0:
         if verbose: print "resolve_bundle: No bundle with proc_name {}, getting new output bundle.\n".format(pipe.pipe_id())
         # no bundle, force recompute
         pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
-        return
+        return regen_bundle
 
     bndl = bndls[0]  # our best guess is the most recent bundle with the same pipe_id()
 
@@ -304,14 +322,14 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
     if lng is None:
         if verbose: print "resolve_bundle: No lineage present, getting new output bundle.\n"
         pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
-        return
+        return regen_bundle
 
     # 3.) Lineage record exists -- if new code, re-run
     current_version = pipe_base.get_pipe_version(pipe)
     if different_code_versions(current_version, lng):
         if verbose: print "resolve_bundle: New code version, getting new output bundle.\n"
         pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
-        return
+        return regen_bundle
 
     # 3.5.) Have we changed the output human bundle name?  If so, re-run task.
     # Note: we need to go through all the bundle versions with that processing_id.
@@ -328,7 +346,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         if verbose: print "resolve_bundle: New human name {} (prior {}), getting new output bundle.\n".format(
             current_human_name, bndl.get_human_name())
         pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
-        return
+        return regen_bundle
 
     # 4.) Check the inputs -- assumes we have processed upstream tasks already
     for task in pipe.requires():
@@ -372,7 +390,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
             if pce.rerun:
                 if verbose: print "Resolve_bundle: an upstream task is in the pce and is being re-run, so we need to reun. getting new output bundle.\n"
                 pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
-                return
+                return regen_bundle
 
             local_bundle = pfs.get_hframe_by_proc(task.task_id, data_context=data_context)
             assert(local_bundle is not None)
@@ -391,12 +409,12 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
                         tup.hframe_uuid,
                         local_bundle.pb.uuid)
                     pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
-                    return
+                    return regen_bundle
 
     # 5.) Woot!  Reuse the found bundle.
     if verbose: print "resolve_bundle: reusing bundle\n"
     pfs.reuse_hframe(pipe, bndl, is_left_edge_task, data_context=data_context)
-    return
+    return use_bundle
 
 
 def main(disdat_config, args):

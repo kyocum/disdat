@@ -334,7 +334,7 @@ def _get_context(context_name):
 
 
 def current_context():
-    """ Return the current context """
+    """ Return the current context name (not object) """
 
     try:
         return fs.get_curr_context().get_local_name()
@@ -520,7 +520,6 @@ def rm(local_context, bundle_name, uuid=None):
     Returns:
 
     """
-
 
 
 def cat(local_context, bundle_name):
