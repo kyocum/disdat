@@ -58,10 +58,11 @@ def single_query(dsn, query, cursor=None):
 
     """
 
-    #print ("query: Running query:{}".format(query))
+    # print ("query: Running query:{}".format(query))
 
     get_rows = True
-    if "DROP" in query or "CREATE" in query or "ALTER" in query:
+    first_word = query.split(None, 1)[0]
+    if "DROP" in first_word or "CREATE" in first_word or "ALTER" in first_word or "GRANT" in first_word:
         get_rows = False
 
     def _query(cursor, query):
@@ -281,7 +282,7 @@ class DBTarget(Target):
         self.servername = servername
         self.database = database
         self.port     = port
-
+        self.user_name = 'unknown'
         self.dsn = dsn
         try:
             with get_connection(dsn) as c:
@@ -289,6 +290,7 @@ class DBTarget(Target):
                 self.database = c.getinfo(pyodbc.SQL_DATABASE_NAME)
                 if self.database == '':
                     self.database = database_name_vertica(self.dsn)
+                self.user_name = c.getinfo(pyodbc.SQL_USER_NAME)
                 _logger.debug("Found database[{}] on server[{}]".format(self.database, self.servername))
             self.connected = True
         except Exception as e:
@@ -353,9 +355,9 @@ class DBTarget(Target):
             """
             assert self.schema
             self.phys_name = u"{}.{}_{}_{}".format(self.schema,
-                                                      self.disdat_prefix,
-                                                      self.table_name,
-                                                      self.sql_name_uuid)
+                                                   self.disdat_prefix,
+                                                   self.table_name,
+                                                   self.sql_name_uuid)
 
         """ The fully qualified physical name is the text representation of the link stored in the bundle """
         self.phys_name_url = self.url()
@@ -370,10 +372,31 @@ class DBTarget(Target):
             None
 
         """
+
+        _, phys_table_name = self.phys_name.split('.')
+        _, virt_table_name = self.virt_name.split('.')
+
         virtual_view = """
         CREATE VIEW {} as
         SELECT * from {}
         """.format(self.virt_name, self.phys_name)
+
+        find_grants = """
+        SELECT 'GRANT ' || REPLACE(privileges_description,'*','')  ||
+        '   ON ' || object_schema || '.' || '{virt_name}' ||
+        '   TO  ' || grantee || ';' as grants
+        FROM GRANTS
+        WHERE COALESCE(privileges_description,'') > ''
+        and object_type not in ('SCHEMA', 'RESOURCE_POOL')
+        and grantor = '{user_name}'
+        and grantee != '{user_name}'
+        and object_schema ilike '{schema}'
+        and object_name ilike '{phys_name}'
+        ORDER BY 1;
+        """.format(virt_name=virt_table_name,
+                   user_name=self.user_name,
+                   schema=self.schema,
+                   phys_name=phys_table_name)
 
         try:
             queries = []
@@ -381,7 +404,15 @@ class DBTarget(Target):
             queries.append(virtual_view)
             multi_tx_query(self.dsn, queries)
         except Exception as e:
-            raise Exception("DBTarget:commit failed: {}".format(e))
+            raise RuntimeError("DBTarget:commit failed: {}".format(e))
+
+        try:
+            grants = single_query(self.dsn, find_grants)
+            queries = grants['grants'].values
+            # print ("DISDAT COMMIT GRANTING: {}".format(queries))
+            multi_tx_query(self.dsn, queries)
+        except Exception as e:
+            raise RuntimeError("DBTarget:commit failed: {}".format(e))
 
     def rm(self, drop_view=False):
         """
@@ -473,7 +504,7 @@ class DBTarget(Target):
         if ENABLE_DISDAT_SCHEMAS:
             phys = {}_{}.{}_{}.format(schema(disdat prefix, context), name, uuid)
         else:
-            phys = {}.{}_{}_{}_{}.format(user schema, disdat_prefix, context, name, uuid)
+            phys = {}.{}_{}_{}.format(user schema, disdat_prefix, name, uuid)
 
 
         Returns:

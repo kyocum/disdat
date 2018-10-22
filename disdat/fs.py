@@ -883,11 +883,12 @@ class DisdatFS(object):
         existing_tags.update(tags)
         hfr.replace_tags(existing_tags)
 
+        # Commit DBTarget links if present:
+        data_context.commit_db_links(hfr)
+
         # Commit to disk:
         data_context.atomic_update_hframe(hfr)
 
-        # Commit DBTarget links if present:
-        data_context.commit_db_links(hfr)
 
     def _get_all_link_frames(self, outer_hfr, local_fs_frames=False, s3_frames=False, db_frames=False):
         """
