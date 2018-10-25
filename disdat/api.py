@@ -54,7 +54,7 @@ import json
 import disdat.apply
 import disdat.run
 import disdat.fs
-import disdat.common
+import disdat.common as common
 from disdat.pipe_base import PipeBase
 from disdat.db_target import DBTarget
 
@@ -637,15 +637,27 @@ def apply(local_context, input_bundle, output_bundle, transform,
     if params is None:
         params = {}
 
+    result = {'success': False, 'did_work': False}
+
     try:
         dynamic_params = json.dumps(params)
-        disdat.apply.apply(input_bundle, output_bundle, dynamic_params, transform,
-                           input_tags, output_tags, force, output_bundle_uuid=output_bundle_uuid,
-                           sysexit=False, central_scheduler=central_scheduler,
-                           workers=workers, data_context=data_context)
+
+        result = disdat.apply.apply(input_bundle, output_bundle, dynamic_params, transform,
+                                    input_tags, output_tags, force,
+                                    output_bundle_uuid=output_bundle_uuid,
+                                    central_scheduler=central_scheduler,
+                                    workers=workers,
+                                    data_context=data_context)
 
     except SystemExit as se:
-        print "SystemExit caught: {}".format(se)
+        print "Disdat api.apply caught SystemExist exception: {}".format(se)
+
+    except Exception as e:
+        print "Disdat api.apply caught Exception exception: {}".format(e)
+
+    finally:
+        common.apply_handle_result(result, raise_not_exit=True)
+
 
 
 def run(local_context, input_bundle, output_bundle, transform, input_tags, output_tags, force=False, **kwargs):

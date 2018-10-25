@@ -461,7 +461,7 @@ def add_arg_parser(parsers):
     run_p.add_argument(
         '--use-aws-session-token',
         nargs=1,
-        default=[1440],
+        default=[43200], # 12 hours of default time -- for long pipelines!
         type=int,
         help='Use temporary AWS session token for AWS Batch, valid for AWS_SESSION_TOKEN_DURATION seconds. Default 1440. Set to zero to not use a token.',
         dest='aws_session_token_duration',
