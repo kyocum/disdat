@@ -301,6 +301,10 @@ def run_disdat_container(args):
         _logger.error('Failed to run pipeline: exception {}'.format(re))
         sys.exit(os.EX_IOERR)
 
+    except disdat.common.ApplyException as ae:
+        _logger.error('ApplyException running pipeline: exception {}'.format(re))
+        sys.exit(os.EX_IOERR)
+
     if args.dump_output:
         print(disdat.api.cat(args.branch, args.output_bundle))
     sys.exit(os.EX_OK)

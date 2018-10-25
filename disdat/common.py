@@ -49,9 +49,36 @@ BUNDLE_URI_SCHEME = 'bundle://'
 PUT_LUIGI_PARAMS_IN_FUNC_PARAMS = False  # transparently place luigi parameters as kwargs in run() and requires()
 
 
+class ApplyException(Exception):
+    pass
+
+
 def error(msg, *args, **kwargs):
     _logger.error(msg, *args, **kwargs)
     sys.exit(1)
+
+
+def apply_handle_result(apply_result, raise_not_exit=False):
+    """ Execute an appropriate sys.exit() call based on the dictionary
+    returned by apply.
+
+    Args:
+        apply_result(dict): Has keys 'success' and 'did_work' that give Boolean values.
+        raise_not_exit (bool): Raise ApplyException instead of performing sys.exit
+
+    Returns:
+        None
+
+    """
+
+    if apply_result['success']:
+        sys.exit(None) # None yields exit value of 0
+    else:
+        error_str = "Disdat Apply ran, but one or more tasks failed."
+        if raise_not_exit:
+            raise ApplyException(error_str)
+        else:
+            sys.exit(error_str)
 
 
 def setup_default_logging():

@@ -44,7 +44,7 @@ META_FILE = 'info.json'
 
 
 def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
-          output_bundle_uuid=None, sysexit=True, central_scheduler=False, workers=1, data_context=None):
+          output_bundle_uuid=None, central_scheduler=False, workers=1, data_context=None):
     """
     Given an input bundle, run the pipesline on the bundle.
     Note, we first make a copy of all tasks that are parameterized identically to the tasks we will run.
@@ -61,7 +61,6 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
         output_tags (dict):  Tags that need to be placed on the output bundle
         force (bool): whether to re-run this pipe
         output_bundle_uuid (str):  Optionally specify exactly the UUID of the output bundle IFF we actually need to produce it
-        sysexit: Run with sys exist return codes (will raise SystemExit) (default True)
         central_scheduler: Use a centralized Luigi scheduler (default False, i.e., --local-scheduler is used)
         workers: The number of luigi workers to use for this workflow (default 1)
         data_context: Actual context object or None and read current context.
@@ -88,31 +87,13 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
             return None
         data_context = pfs.get_curr_context()
 
-    args = [driver.DriverTask.task_family]
-
-    if not central_scheduler:
-        args += ['--local-scheduler']
-
-    args += ['--workers', str(workers),
-             '--input-bundle', input_bundle,
-             '--output-bundle', output_bundle,
-             '--param-bundles', pipe_params,
-             '--pipe-cls', pipe_cls,
-             '--input-tags', json.dumps(input_tags),
-             '--output-tags', json.dumps(output_tags),
-             '--data-context', data_context
-             ]
-
-    if force:
-        args += ['--force']
-
     # Re-execute logic -- make copy of task DAG
     # Creates a cache of {pipe:path_cache_entry} in the pipesFS object.
     # This "task_path_cache" is used throughout execution to find output bundles.
     reexecute_dag = driver.DriverTask(input_bundle, output_bundle, pipe_params,
                                       pipe_cls, input_tags, output_tags, force, data_context)
 
-    is_work = resolve_workflow_bundles(reexecute_dag, data_context)
+    did_work = resolve_workflow_bundles(reexecute_dag, data_context)
 
     # At this point the path cache should be full of existing or new UUIDs.
     # we are going to replace the final pipe's UUID if the user has passed one in.
@@ -131,28 +112,12 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
                                        pce.is_left_edge_task,
                                        overwrite=True)
 
-    if False:
-        test = reexecute_dag
-        print "----START DAG TASK---"
-        print "task_id is {}".format(test.task_id)
-        print "task_family is {}".format(test.task_family)
-        print " class {}".format(test.__class__)
-        print " module {}".format(test.__module__)
-        print " inspect getfile(test) {}".format(inspect.getfile(test.__class__))
-        print "resolve_bundles requires {}".format(fs.DisdatFS.task_path_cache)
-        print "----END DAG TASK---"
-
-    # Build is nice since we do not have to repeat the args into a 'fake' cli call.
-    # But retcodes is nice if people use it in a shell.
-    if sysexit:
-        retcodes.run_with_retcodes(args)
-    else:
-        build([reexecute_dag], local_scheduler=not central_scheduler, workers=workers)
+    success = build([reexecute_dag], local_scheduler=not central_scheduler, workers=workers)
 
     # After running a pipeline, blow away our path cache.  Needed if we're run twice in the same process.
     fs.DisdatFS().clear_path_cache()
 
-    return is_work
+    return {'success': success, 'did_work': did_work}
 
         
 def topo_sort_tasks(root_task):
@@ -442,6 +407,8 @@ def main(disdat_config, args):
     # NOTE: sysexit=False is required for us to pass a data_context object through luigi tasks.
     # Else we build up arguments as strings to run_with_retcodes().  And it crashes because the data_context is
     # not a string.
-    apply(args.input_bundle, args.output_bundle, dynamic_params, args.pipe_cls, input_tags, output_tags,
-          args.force, sysexit=False, central_scheduler=args.central_scheduler, workers=args.workers)
+    result = apply(args.input_bundle, args.output_bundle, dynamic_params, args.pipe_cls, input_tags, output_tags,
+                   args.force, central_scheduler=args.central_scheduler, workers=args.workers)
 
+    # If we didn't successfully run any task, sys.exit with non-zero code
+    common.apply_handle_result(result)
