@@ -637,22 +637,24 @@ def apply(local_context, input_bundle, output_bundle, transform,
     if params is None:
         params = {}
 
-    result = {'success': False, 'did_work': False}
+    #result = {'success': False, 'did_work': False}
 
-    try:
-        dynamic_params = json.dumps(params)
+    dynamic_params = json.dumps(params)
 
-        result = disdat.apply.apply(input_bundle, output_bundle, dynamic_params, transform,
-                                    input_tags, output_tags, force,
-                                    output_bundle_uuid=output_bundle_uuid,
-                                    central_scheduler=central_scheduler,
-                                    workers=workers,
-                                    data_context=data_context)
+    # IF apply raises, let it go up.
+    # If API, caller can catch.
+    # If CLI, python will exit 1
+    result = disdat.apply.apply(input_bundle, output_bundle, dynamic_params, transform,
+                                input_tags, output_tags, force,
+                                output_bundle_uuid=output_bundle_uuid,
+                                central_scheduler=central_scheduler,
+                                workers=workers,
+                                data_context=data_context)
 
-    finally:
-        # Don't catch any exceptions, let them go up.
-        # But we will raise an error as well.
-        common.apply_handle_result(result, raise_not_exit=True)
+    # If no raise, but luigi says not successful
+    # If API (here), then raise for caller to catch.
+    # For CLI, we exit with 1
+    common.apply_handle_result(result, raise_not_exit=True)
 
 
 def run(local_context, input_bundle, output_bundle, transform, input_tags, output_tags, force=False, **kwargs):
