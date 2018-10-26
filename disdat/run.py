@@ -127,13 +127,10 @@ def _run_local(arglist, pipeline_class_name, backend):
                 _logger.info("VOLUMES: {}".format(volumes))
         else:
             pipeline_image_name = common.make_pipeline_image_name(pipeline_class_name)
-            args = ' '.join(arglist)
 
-        _logger.debug('Running image {} with arguments {}'.format(pipeline_image_name, args))
+        _logger.debug('Running image {} with arguments {}'.format(pipeline_image_name, arglist))
 
-        print('Running image {} with arguments {}'.format(pipeline_image_name, args))
-
-        stdout = client.containers.run(pipeline_image_name, args, detach=False,
+        stdout = client.containers.run(pipeline_image_name, arglist, detach=False,
                                        environment=environment, init=True, stderr=True, volumes=volumes)
         print stdout
     except docker.errors.ImageNotFound:
@@ -422,6 +419,7 @@ def _run(
             _run_aws_sagemaker(arglist, job_name, pipeline_class_name)
 
     elif backend == Backend.Local or backend == Backend.LocalSageMaker:
+
         _run_local(arglist, pipeline_class_name, backend)
 
     else:

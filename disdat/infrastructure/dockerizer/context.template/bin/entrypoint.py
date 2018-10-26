@@ -274,16 +274,16 @@ def run_disdat_container(args):
     pipeline_args = disdat.common.parse_params(args.pipeline_args)
 
     try:
-        disdat.api.apply(args.branch,
-                         args.input_bundle,
-                         args.output_bundle,
-                         args.pipeline,
-                         input_tags=input_tags,
-                         output_tags=output_tags,
-                         params=pipeline_args,
-                         output_bundle_uuid=args.output_bundle_uuid,
-                         force=args.force,
-                         workers=args.workers)
+        result = disdat.api.apply(args.branch,
+                                  args.input_bundle,
+                                  args.output_bundle,
+                                  args.pipeline,
+                                  input_tags=input_tags,
+                                  output_tags=output_tags,
+                                  params=pipeline_args,
+                                  output_bundle_uuid=args.output_bundle_uuid,
+                                  force=args.force,
+                                  workers=args.workers)
 
         if not args.no_push:
             if not args.no_push_intermediates:
@@ -294,19 +294,26 @@ def run_disdat_container(args):
                     disdat.api.push(args.branch, b.name, uuid=b.uuid)
 
             # push final output bundle: don't need name w/ uuid
-            disdat.api.commit(args.branch, None, uuid=args.output_bundle_uuid)
-            disdat.api.push(args.branch, None, uuid=args.output_bundle_uuid)
+            if result['did_work']:
+                _logger.info("Pipeline ran.  Committing and pushing output bundle UUID {}.".format(args.output_bundle_uuid))
+                disdat.api.commit(args.branch, None, uuid=args.output_bundle_uuid)
+                disdat.api.push(args.branch, None, uuid=args.output_bundle_uuid)
+            else:
+                _logger.info("Pipeline ran but did no useful work (output bundle exists).")
+        else:
+            _logger.info("Pipeline ran but user specified not to push any bundles to remote context.")
 
     except RuntimeError as re:
-        _logger.error('Failed to run pipeline: exception {}'.format(re))
+        _logger.error('Failed to run pipeline: RuntimeError {}'.format(re))
         sys.exit(os.EX_IOERR)
 
     except disdat.common.ApplyException as ae:
-        _logger.error('ApplyException running pipeline: exception {}'.format(re))
+        _logger.error('Failed to run pipeline: ApplyException {}'.format(ae))
         sys.exit(os.EX_IOERR)
 
     if args.dump_output:
         print(disdat.api.cat(args.branch, args.output_bundle))
+
     sys.exit(os.EX_OK)
 
 
