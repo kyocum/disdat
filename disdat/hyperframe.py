@@ -403,10 +403,10 @@ def update_hfr_db(engine_g, state, uuid=None, owner=None, human_name=None, proce
     return result
 
 
-def delete_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_name=None):
+def delete_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_name=None, state=None):
     """
     Delete HFrame row from a table where
-    uuid= && owner= && human_name= && processing_name=
+    uuid= && owner= && human_name= && processing_name= && (optional) state = hyperframe.RecordState.deleted
 
     TODO: Should be a transaction for the tags and HFR entry table.
 
@@ -416,6 +416,7 @@ def delete_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_n
         owner (str):
         human_name (str):
         processing_name (str):
+        state (enum):
 
     Returns:
         result : query result
@@ -424,7 +425,7 @@ def delete_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_n
 
     pb_cls = HyperFrameRecord
 
-    where = _where_clause(uuid, owner, human_name, processing_name)
+    where = _where_clause(uuid, owner, human_name, processing_name, state)
 
     if where == '':
         raise Exception("HFrame DB Delete requires a valid where clause")
