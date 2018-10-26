@@ -656,6 +656,8 @@ def apply(local_context, input_bundle, output_bundle, transform,
     # For CLI, we exit with 1
     common.apply_handle_result(result, raise_not_exit=True)
 
+    return result
+
 
 def run(local_context, input_bundle, output_bundle, transform, input_tags, output_tags, force=False, **kwargs):
     """
