@@ -580,6 +580,7 @@ class DataContext(object):
         """
         try:
             hfr = self.get_hframes(uuid=hfr_uuid)
+
             assert hfr is not None
             assert len(hfr) == 1
 
@@ -598,6 +599,10 @@ class DataContext(object):
             return True
         except (IOError, os.error) as why:
             _logger.error("Removal of hyperframe directory {} failed with error {}.".format(self.implicit_hframe_path(hfr_uuid), why))
+
+            # Must clean up db if directory removal failed, only delete same record if state marked for removal
+            hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid, state=hyperframe.RecordState.deleted)
+
             return False
 
     def get_hframes(self, human_name=None, processing_name=None, uuid=None, tags=None, state=None, groupby=False, maxbydate=False):

@@ -649,15 +649,10 @@ def apply(local_context, input_bundle, output_bundle, transform,
                                     workers=workers,
                                     data_context=data_context)
 
-    except SystemExit as se:
-        print "Disdat api.apply caught SystemExist exception: {}".format(se)
-
-    except Exception as e:
-        print "Disdat api.apply caught Exception exception: {}".format(e)
-
     finally:
+        # Don't catch any exceptions, let them go up.
+        # But we will raise an error as well.
         common.apply_handle_result(result, raise_not_exit=True)
-
 
 
 def run(local_context, input_bundle, output_bundle, transform, input_tags, output_tags, force=False, **kwargs):
