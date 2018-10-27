@@ -68,11 +68,11 @@ class SimpleTree(PipeTask):
 
         """
 
-        for i in range(1):
+        for i in range(4):
             self.add_dependency('B_{}'.format(i), B, {'task_label': str(i), 'uuid': '12340000'})
         return
 
-    def pipe_run(self, pipeline_input=None, B_0=None, B_1=None):
+    def pipe_run(self, pipeline_input=None, **kwargs):
         """
 
         Args:

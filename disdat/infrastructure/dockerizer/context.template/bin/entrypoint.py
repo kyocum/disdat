@@ -274,6 +274,12 @@ def run_disdat_container(args):
     pipeline_args = disdat.common.parse_params(args.pipeline_args)
 
     try:
+
+        if not args.no_push and not args.no_push_intermediates:
+            incremental_push = True
+        else:
+            incremental_push = False
+
         result = disdat.api.apply(args.branch,
                                   args.input_bundle,
                                   args.output_bundle,
@@ -283,25 +289,29 @@ def run_disdat_container(args):
                                   params=pipeline_args,
                                   output_bundle_uuid=args.output_bundle_uuid,
                                   force=args.force,
-                                  workers=args.workers)
+                                  workers=args.workers,
+                                  incremental_push=incremental_push)
 
-        if not args.no_push:
-            if not args.no_push_intermediates:
-                # push all intermediates
-                to_push = disdat.api.search(args.branch, is_committed=False, find_intermediates=True)
-                for b in to_push:
-                    disdat.api.commit(args.branch, b.name, uuid=b.uuid)
-                    disdat.api.push(args.branch, b.name, uuid=b.uuid)
+        if not incremental_push:
+            if not args.no_push:
+                if not args.no_push_intermediates:
+                    # push all intermediates
+                    to_push = disdat.api.search(args.branch, is_committed=False, find_intermediates=True)
+                    for b in to_push:
+                        disdat.api.commit(args.branch, b.name, uuid=b.uuid)
+                        disdat.api.push(args.branch, b.name, uuid=b.uuid)
 
-            # push final output bundle: don't need name w/ uuid
-            if result['did_work']:
-                _logger.info("Pipeline ran.  Committing and pushing output bundle UUID {}.".format(args.output_bundle_uuid))
-                disdat.api.commit(args.branch, None, uuid=args.output_bundle_uuid)
-                disdat.api.push(args.branch, None, uuid=args.output_bundle_uuid)
+                # push final output bundle: don't need name w/ uuid
+                if result['did_work']:
+                    _logger.info("Pipeline ran.  Committing and pushing output bundle UUID {}.".format(args.output_bundle_uuid))
+                    disdat.api.commit(args.branch, None, uuid=args.output_bundle_uuid)
+                    disdat.api.push(args.branch, None, uuid=args.output_bundle_uuid)
+                else:
+                    _logger.info("Pipeline ran but did no useful work (output bundle exists).")
             else:
-                _logger.info("Pipeline ran but did no useful work (output bundle exists).")
+                _logger.info("Pipeline ran but user specified not to push any bundles to remote context.")
         else:
-            _logger.info("Pipeline ran but user specified not to push any bundles to remote context.")
+            _logger.info("Pipeline ran using incremental pushing.")
 
     except RuntimeError as re:
         _logger.error('Failed to run pipeline: RuntimeError {}'.format(re))

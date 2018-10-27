@@ -74,6 +74,7 @@ class DriverTask(luigi.WrapperTask, PipeBase):
     output_tags = luigi.DictParameter()
     force = luigi.BoolParameter(default=False)
     data_context = luigi.Parameter(significant=False)
+    incremental_push = luigi.BoolParameter(default=False, significant=False)
 
     def __init__(self, *args, **kwargs):
         """
@@ -321,7 +322,8 @@ class DriverTask(luigi.WrapperTask, PipeBase):
                        'driver_output_bundle': self.output_bundle,
                        'force': self.force,
                        'output_tags': json.dumps(dict(self.output_tags)), # Ugly re-stringifying dict
-                       'data_context': self.data_context
+                       'data_context': self.data_context,
+                       'incremental_push': self.incremental_push
                        }
 
         task_params.update(param_dfs_json)
