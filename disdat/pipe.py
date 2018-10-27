@@ -329,9 +329,7 @@ class PipeTask(luigi.Task, PipeBase):
             self.data_context.write_hframe(hfr)
 
             if self.incremental_push:
-                print ("incremental push COMMITTING {}".format(pce.uuid))
                 self.pfs.commit(None, None, uuid=pce.uuid, data_context=self.data_context)
-                print ("incremental push PUSHING {}".format(pce.uuid))
                 self.pfs.push(uuid=pce.uuid, data_context=self.data_context)
 
         except Exception as error:
