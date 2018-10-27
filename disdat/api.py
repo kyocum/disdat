@@ -604,7 +604,7 @@ def pull(local_context, bundle_name=None, uuid=None, localize=False):
 
 def apply(local_context, input_bundle, output_bundle, transform,
           input_tags=None, output_tags=None, force=False, params=None, output_bundle_uuid=None,
-          central_scheduler=False, workers=1):
+          central_scheduler=False, workers=1, incremental_push=False):
     """
     Similar to apply.main() but we create our inputs and supply the context
     directly.
@@ -621,6 +621,7 @@ def apply(local_context, input_bundle, output_bundle, transform,
         output_bundle_uuid: Force UUID of output bundle
         central_scheduler (bool): Use a central scheduler, default False, i.e., use local scheduler
         workers (int): Number of workers, default 1.
+        incremental_push (bool): commit and push task bundles as they complete
 
     Returns:
 
@@ -649,7 +650,8 @@ def apply(local_context, input_bundle, output_bundle, transform,
                                 output_bundle_uuid=output_bundle_uuid,
                                 central_scheduler=central_scheduler,
                                 workers=workers,
-                                data_context=data_context)
+                                data_context=data_context,
+                                incremental_push=incremental_push)
 
     # If no raise, but luigi says not successful
     # If API (here), then raise for caller to catch.

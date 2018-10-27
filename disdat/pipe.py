@@ -83,6 +83,9 @@ class PipeTask(luigi.Task, PipeBase):
     # Each pipeline executes wrt a data context.
     data_context = luigi.Parameter(significant=False)
 
+    # Each pipeline can be configured to commit and push intermediate values to the remote
+    incremental_push = luigi.BoolParameter(default=False, significant=False)
+
     def __init__(self, *args, **kwargs):
         """
         This has the same signature as luigi.Task.
@@ -266,7 +269,8 @@ class PipeTask(luigi.Task, PipeBase):
                 'driver_output_bundle': None,  # allow intermediate tasks pipe_id to be independent of root task.
                 'force': self.force,
                 'output_tags': dict({}),  # do not pass output_tags up beyond root task
-                'data_context': self.data_context  # all operations wrt this context
+                'data_context': self.data_context,  # all operations wrt this context
+                'incremental_push': self.incremental_push  # propagate the choice to push incremental data.
             })
             tasks.append(pipe_class(**params))
 
@@ -297,7 +301,6 @@ class PipeTask(luigi.Task, PipeBase):
 
         """
 
-
         kwargs = self.prepare_pipe_kwargs(for_run=True)
 
         pce = self.pfs.get_path_cache(self)
@@ -324,6 +327,13 @@ class PipeTask(luigi.Task, PipeBase):
                 hfr.replace_tags(self.user_tags)
 
             self.data_context.write_hframe(hfr)
+
+            if self.incremental_push:
+                print ("incremental push COMMITTING {}".format(pce.uuid))
+                self.pfs.commit(None, None, uuid=pce.uuid, data_context=self.data_context)
+                print ("incremental push PUSHING {}".format(pce.uuid))
+                self.pfs.push(uuid=pce.uuid, data_context=self.data_context)
+
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
             PipeBase.rm_bundle_dir(pce.path, pce.uuid, self.db_targets)

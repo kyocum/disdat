@@ -33,7 +33,7 @@ import disdat.common as common  # config, especially logging, before luigi ever 
 import disdat.pipe_base as pipe_base
 import disdat.fs as fs
 import disdat.driver as driver
-from luigi import retcodes, build, worker
+from luigi import build, worker
 
 _logger = logging.getLogger(__name__)
 
@@ -44,7 +44,8 @@ META_FILE = 'info.json'
 
 
 def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
-          output_bundle_uuid=None, central_scheduler=False, workers=1, data_context=None):
+          output_bundle_uuid=None, central_scheduler=False, workers=1, data_context=None,
+          incremental_push=False):
     """
     Given an input bundle, run the pipesline on the bundle.
     Note, we first make a copy of all tasks that are parameterized identically to the tasks we will run.
@@ -64,6 +65,7 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
         central_scheduler: Use a centralized Luigi scheduler (default False, i.e., --local-scheduler is used)
         workers: The number of luigi workers to use for this workflow (default 1)
         data_context: Actual context object or None and read current context.
+        incremental_push (bool): Whether this job should push tasks as they complete to the remote (if configured)
 
     Returns:
         bool: True if tasks needed to be run, False if no tasks (beyond wrapper task) executed.
@@ -78,6 +80,10 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
     _logger.debug("sys.path {}".format(sys.path))
     _logger.debug("central_scheduler {}".format(central_scheduler))
     _logger.debug("workers {}".format(workers))
+    _logger.debug("incremental_push {}".format(incremental_push))
+
+    if incremental_push:
+        _logger.warn("incremental_push {}".format(incremental_push))
 
     pfs = fs.DisdatFS()
 
@@ -91,7 +97,7 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
     # Creates a cache of {pipe:path_cache_entry} in the pipesFS object.
     # This "task_path_cache" is used throughout execution to find output bundles.
     reexecute_dag = driver.DriverTask(input_bundle, output_bundle, pipe_params,
-                                      pipe_cls, input_tags, output_tags, force, data_context)
+                                      pipe_cls, input_tags, output_tags, force, data_context, incremental_push)
 
     did_work = resolve_workflow_bundles(reexecute_dag, data_context)
 
@@ -258,7 +264,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
 
     """
 
-    verbose = False
+    verbose = True
     use_bundle = True
     regen_bundle = False
 
@@ -382,7 +388,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
     return use_bundle
 
 
-def main(disdat_config, args):
+def main(args):
     """
 
     Parameters:
@@ -403,12 +409,14 @@ def main(disdat_config, args):
 
     output_tags = common.parse_args_tags(args.output_tag)
 
-
     # NOTE: sysexit=False is required for us to pass a data_context object through luigi tasks.
     # Else we build up arguments as strings to run_with_retcodes().  And it crashes because the data_context is
     # not a string.
     result = apply(args.input_bundle, args.output_bundle, dynamic_params, args.pipe_cls, input_tags, output_tags,
-                   args.force, central_scheduler=args.central_scheduler, workers=args.workers)
+                   args.force,
+                   central_scheduler=args.central_scheduler,
+                   workers=args.workers,
+                   incremental_push=args.incremental_push)
 
     # If we didn't successfully run any task, sys.exit with non-zero code
     common.apply_handle_result(result)

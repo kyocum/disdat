@@ -14,7 +14,7 @@
 # limitations under the License.
 #
 
-from disdat.pipe import PipeTask, PipesExternalBundle
+from disdat.pipe import PipeTask
 import luigi
 import logging
 
