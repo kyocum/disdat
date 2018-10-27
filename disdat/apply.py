@@ -264,7 +264,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
 
     """
 
-    verbose = True
+    verbose = False
     use_bundle = True
     regen_bundle = False
 
