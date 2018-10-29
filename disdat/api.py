@@ -494,17 +494,8 @@ def get(local_context, bundle_name, uuid=None, tags=None):
     else:
         hfr = fs.get_hframe_by_uuid(uuid, tags=tags, data_context=data_context)
 
-    if hfr is not None:
-        df = data_context.convert_hfr2df(hfr)
-    else:
-        df = None
-
-    b = Bundle(bundle_name)
-    b.df = df
-    b.uuid = hfr.pb.uuid
-    b.hfr = hfr
-    b.data_context = data_context
-    b.closed = True
+    b = Bundle(local_context)
+    b.fill_from_hfr(hfr)
 
     return b
 
@@ -687,5 +678,4 @@ def _no_op():
 
 
 if __name__ == '__main__':
-    apply('tester', 'demo', 'treeout', 'pipelines.simple_tree.SimpleTree', force=True)
-    apply('tester', 'demo', 'treeout', 'pipelines.simple_tree.SimpleTree', force=True)
+    b = get('careops5','tto_model_discovery')
