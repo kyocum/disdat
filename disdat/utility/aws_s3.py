@@ -33,7 +33,7 @@ import pkg_resources
 
 from botocore.exceptions import ClientError
 from urlparse import urlparse
-import multiprocessing
+from getpass import getuser
 
 
 _logger = logging.getLogger(__name__)
@@ -42,8 +42,54 @@ _logger = logging.getLogger(__name__)
 def batch_get_job_definition_name(pipeline_class_name):
     """Get the most recent active AWS Batch job definition for a dockerized
     pipeline.
+
+    Note: The Python getpass docs do not specify the exception thrown when getting the user name fails.
+
     """
-    return '{}-job-definition'.format(common.make_pipeline_image_name(pipeline_class_name))
+
+    try:
+        return '{}-{}-job-definition'.format(getuser(), common.make_pipeline_image_name(pipeline_class_name))
+    except Exception as e:
+        return '{}-{}-job-definition'.format('DEFAULT', common.make_pipeline_image_name(pipeline_class_name))
+
+
+def batch_get_latest_job_definition(job_definition_name):
+    """Get the most recent active revision number for a AWS Batch job
+    definition
+
+    Args:
+        job_definition_name: The name of the job definition
+        remote_pipeline_image_name:
+        vcpus:
+        memory:
+
+    Return:
+        The latest job definition dictionary or `None` if the job definition does not exist
+    """
+    region = profile_get_region()
+    client = b3.client('batch', region_name=region)
+    response = client.describe_job_definitions(jobDefinitionName=job_definition_name, status='ACTIVE')
+    if response['ResponseMetadata']['HTTPStatusCode'] != 200:
+        raise RuntimeError(
+            'Failed to get job definition revisions for {}: HTTP Status {}'.format(job_definition_name, response['ResponseMetadata']['HTTPStatusCode'])
+        )
+    job_definitions = response['jobDefinitions']
+    revision = 0
+    job_def = None
+    for j in job_definitions:
+        if j['jobDefinitionName'] != job_definition_name:
+            continue
+        if j['revision'] > revision:
+            revision = j['revision']
+            job_def = j
+
+    return job_def
+
+
+def batch_extract_job_definition_fqn(job_def):
+    revision = job_def['revision']
+    name = job_def['jobDefinitionName']
+    return '{}:{}'.format(name, revision)
 
 
 def batch_get_job_definition(job_definition_name):
@@ -57,24 +103,12 @@ def batch_get_job_definition(job_definition_name):
         The fully-qualified job definition name with revision number, or
             `None` if the job definition does not exist
     """
-    region = profile_get_region()
-    client = b3.client('batch', region_name=region)
-    response = client.describe_job_definitions(jobDefinitionName=job_definition_name, status='ACTIVE')
-    if response['ResponseMetadata']['HTTPStatusCode'] != 200:
-        raise RuntimeError(
-            'Failed to get job definition revisions for {}: HTTP Status {}'.format(job_definition_name, response['ResponseMetadata']['HTTPStatusCode'])
-        )
-    job_definitions = response['jobDefinitions']
-    revision = 0
-    for j in job_definitions:
-        if j['jobDefinitionName'] != job_definition_name:
-            continue
-        if j['revision'] > revision:
-            revision = j['revision']
-    if revision == 0:
+    job_def = batch_get_latest_job_definition(job_definition_name)
+
+    if job_def is None:
         return None
     else:
-        return '{}:{}'.format(job_definition_name, revision)
+        return batch_extract_job_definition_fqn(job_def)
 
 
 def batch_register_job_definition(job_definition_name, remote_pipeline_image_name, vcpus=1, memory=2000):
