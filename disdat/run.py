@@ -470,11 +470,11 @@ def add_arg_parser(parsers):
                        help="The number of Luigi workers to spawn.  Default is 2.")
     run_p.add_argument('--vcpus',
                        type=int,
-                       default=1,
+                       default=2,
                        help="The vCPU count for an AWS Batch container.")
     run_p.add_argument('--memory',
                        type=int,
-                       default=2000,
+                       default=4000,
                        help="The memory (MiB) required by this AWS Batch container.")
     run_p.add_argument('-c', '--context',
                        type=str,
