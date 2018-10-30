@@ -33,6 +33,7 @@ import pkg_resources
 
 from botocore.exceptions import ClientError
 from urlparse import urlparse
+import multiprocessing
 
 
 _logger = logging.getLogger(__name__)
@@ -401,11 +402,10 @@ def get_s3_key(bucket, key, filename=None):
 
     """
 
-    #print "get_s3_key: bucket {}".format(bucket)
-    #print "get_s3_key: key {}".format(key)
-    #print "get_s3_key: filename {}".format(filename)
+    #print "PID({}) START bkt[] key[{}] file[{}]".format(multiprocessing.current_process(),key,filename)
 
-    # s3 resource is not pickable
+    dl_retry = 3
+
     s3 = b3.resource('s3')
 
     if filename is None:
@@ -419,9 +419,19 @@ def get_s3_key(bucket, key, filename=None):
                 # swallow error -- likely file already exists.
                 _logger.warn("aws_s3.get_s3_key: Error code {}".format(os.strerror(ose.errno)))
 
-    s3.Bucket(bucket).download_file(key, filename)
-    # KGY: let's avoid mucking with objects if we don't have to
-    # s3.Object(bucket, key).download_file(filename)
+    while dl_retry > 0:
+        try:
+            s3.Bucket(bucket).download_file(key, filename)
+            dl_retry = -1
+        except Exception as e:
+            _logger.warn("aws_s3.get_s3_key Retry Count [{}] on download_file raised exception {}".format(dl_retry, e))
+            dl_retry -= 1
+            if dl_retry <= 0:
+                _logger.warn("aws_s3.get_s3_key Fail on downloading file after 3 retries with exception {}".format(e))
+                raise
+
+    #print "PID({}) STOP bkt[] key[{}] file[{}]".format(multiprocessing.current_process(),key,filename)
+
     return filename
 
 
