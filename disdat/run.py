@@ -48,15 +48,12 @@ import disdat.utility.aws_s3 as aws
 import docker
 import inspect
 import logging
-import luigi
 import os
 import tempfile
 import time
 import json
 from disdat.common import DisdatConfig
-from disdat.pipe_base import PipeBase
 from enum import Enum
-from luigi import build
 from sys import platform
 
 
@@ -199,15 +196,40 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name, aws_session_token_dur
     #    args are more-or-less the same as the ones used to execute
     #    locally using 'dsdt run'
 
-    # If the job definition does not exist, create it.
+    # Create a Job Definition and upload it.
+    # We create per-user job definitions so multiple users do not clobber each other.
+    # In addition, we never re-use a job definition, since the user may update
+    # the vcpu or memory requirements and those are stuck in the job definition
+
+    fq_repository_name = get_fq_docker_repo_name(False, pipeline_class_name)
+
     job_definition_name = aws.batch_get_job_definition_name(pipeline_class_name)
+
     if disdat_config.parser.has_option(_MODULE_NAME, 'aws_batch_job_definition'):
         job_definition_name = disdat_config.parser.get(_MODULE_NAME, 'aws_batch_job_definition')
-    job_definition = aws.batch_get_job_definition(job_definition_name)
-    if job_definition is None:
-        fq_repository_name = get_fq_docker_repo_name(False, pipeline_class_name)
+
+    # TODO: Look through all of history to find one that matches?
+    # TODO: Delete old jobs here or let user do it?
+    job_definition_obj = aws.batch_get_latest_job_definition(job_definition_name)
+
+    if (job_definition_obj is not None and
+        job_definition_obj['containerProperties']['image'] == fq_repository_name and
+        job_definition_obj['containerProperties']['vcpus'] == vcpus and
+        job_definition_obj['containerProperties']['memory'] == memory):
+
+        job_definition_fqn = aws.batch_extract_job_definition_fqn(job_definition_obj)
+
+        _logger.info("Re-using prior AWS Batch run job definition : {}".format(job_definition_obj))
+
+    else:
+        """ Whether None or doesn't match, make a new one """
+
         aws.batch_register_job_definition(job_definition_name, fq_repository_name, vcpus=vcpus, memory=memory)
-        job_definition = aws.batch_get_job_definition(job_definition_name)
+
+        job_definition_fqn = aws.batch_get_job_definition(job_definition_name)
+
+        print ("New AWS Batch run job definition {}".format(job_definition_fqn))
+
     job_queue = disdat_config.parser.get(_MODULE_NAME, 'aws_batch_queue')
 
     container_overrides = {'command': arglist}
@@ -231,12 +253,12 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name, aws_session_token_dur
             {'name': 'AWS_SECRET_ACCESS_KEY', 'value': credentials['SecretAccessKey']},
             {'name': 'AWS_SESSION_TOKEN', 'value': credentials['SessionToken']}
         ]
-    job = client.submit_job(jobName=job_name, jobDefinition=job_definition, jobQueue=job_queue,
+    job = client.submit_job(jobName=job_name, jobDefinition=job_definition_fqn, jobQueue=job_queue,
                             containerOverrides=container_overrides)
     status = job['ResponseMetadata']['HTTPStatusCode']
     if status == 200:
         print 'Job {} (ID {}) with definition {} submitted to AWS Batch queue {}'.format(job['jobName'], job['jobId'],
-                                                                                         job_definition, job_queue)
+                                                                                         job_definition_fqn, job_queue)
     else:
         _logger.error('Job submission failed: HTTP Status {}'.format())
 
@@ -343,16 +365,16 @@ def _run_aws_sagemaker(arglist, job_name, pipeline_class_name):
 
 
 def _run(
-    input_bundle,
-    output_bundle,
-    pipeline_params,
-    pipeline_class_name,
-    backend=Backend.Local,
-    aws_session_token_duration=0,
-    input_tags=None,
-    output_tags=None,
-    fetch_list=None,
-    other_args=None
+        input_bundle,
+        output_bundle,
+        pipeline_params,
+        pipeline_class_name,
+        backend=Backend.Local,
+        aws_session_token_duration=0,
+        input_tags=None,
+        output_tags=None,
+        fetch_list=None,
+        other_args=None
 ):
     """Run the dockerized version of a pipeline.
 
@@ -545,3 +567,30 @@ def main(args):
          fetch_list=fetch_list,
          other_args=args
          )
+
+
+if __name__ == '__main__':
+
+    class OtherArg(object): pass
+    OtherArg.force = False
+    OtherArg.context = 'tester'
+    OtherArg.remote  = 'crap'
+    OtherArg.no_pull = False
+    OtherArg.no_push = False
+    OtherArg.no_push_int = False
+    OtherArg.vcpus = 2
+    OtherArg.memory = 4000
+    OtherArg.workers = 2
+
+    _run(
+            '-',
+            '-',
+            [],
+            'pipeline.targets.forecast_groups.ForecastGroups',
+            backend=Backend.AWSBatch,
+            aws_session_token_duration=1440,
+            input_tags=[],
+            output_tags=[],
+            fetch_list=[],
+            other_args=OtherArg
+    )
