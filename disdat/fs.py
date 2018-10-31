@@ -1339,7 +1339,7 @@ class DisdatFS(object):
 
         pool = Pool(processes = cpu_count()) # I/O bound, so let it use at least cpu_count()
 
-        _logger.debug("Fast Pool using {} processes.".format(cpu_count()))
+        _logger.debug("Fast Pull Pool using {} processes.".format(cpu_count()))
 
         remote_s3_object_dir = data_context.get_remote_object_dir()
         s3_bucket, remote_obj_dir = aws_s3.split_s3_url(remote_s3_object_dir)
