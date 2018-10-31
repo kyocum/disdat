@@ -37,7 +37,6 @@ from enum import Enum
 import shutil
 import collections
 from multiprocessing import Pool, TimeoutError, cpu_count
-import threading
 from luigi import retcodes
 import pandas as pd
 
@@ -1340,9 +1339,7 @@ class DisdatFS(object):
 
         pool = Pool(processes = cpu_count()) # I/O bound, so let it use at least cpu_count()
 
-        t  = threading.current_thread()
-        print ("POOL with {} processes THREAD {} {}.".format(cpu_count(), t, t.ident))
-        _logger.warn("POOL with {} processes THREAD {} {}.".format(cpu_count(), t, t.ident))
+        _logger.debug("Fast Pull Pool using {} processes.".format(cpu_count()))
 
         remote_s3_object_dir = data_context.get_remote_object_dir()
         s3_bucket, remote_obj_dir = aws_s3.split_s3_url(remote_s3_object_dir)
