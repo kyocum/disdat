@@ -111,7 +111,8 @@ def batch_get_job_definition(job_definition_name):
         return batch_extract_job_definition_fqn(job_def)
 
 
-def batch_register_job_definition(job_definition_name, remote_pipeline_image_name, vcpus=1, memory=2000):
+def batch_register_job_definition(job_definition_name, remote_pipeline_image_name,
+                                  vcpus=1, memory=2000, job_role_arn=None):
     """Register a new AWS Batch job definition.
 
     Args:
@@ -121,17 +122,24 @@ def batch_register_job_definition(job_definition_name, remote_pipeline_image_nam
         vcpus: The number of vCPUs to use to run jobs using this definition
         memory: The amount of memory in MiB to use to run jobs using this
             definition
+        job_role_arn (str): Can be None
     """
+
+    container_properties = {
+        'image': remote_pipeline_image_name,
+        'vcpus': vcpus,
+        'memory': memory,
+    }
+
+    if job_role_arn is not None:
+        container_properties['jobRoleArn'] = job_role_arn
+
     region = profile_get_region()
     client = b3.client('batch', region_name=region)
     response = client.register_job_definition(
         jobDefinitionName=job_definition_name,
         type='container',
-        containerProperties={
-            'image': remote_pipeline_image_name,
-            'vcpus': vcpus,
-            'memory': memory,
-        }
+        containerProperties=container_properties
     )
     if response['ResponseMetadata']['HTTPStatusCode'] != 200:
         raise RuntimeError('Failed to create job definition {}: HTTP Status {}'.format(job_definition_name, response['ResponseMetadata']['HTTPStatusCode']))

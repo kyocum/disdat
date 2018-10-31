@@ -167,7 +167,9 @@ def get_fq_docker_repo_name(is_sagemaker, pipeline_class_name):
     return fq_repository_name
 
 
-def _run_aws_batch(arglist, job_name, pipeline_class_name, aws_session_token_duration, vcpus, memory):
+def _run_aws_batch(arglist, job_name, pipeline_class_name,
+                   aws_session_token_duration, vcpus, memory,
+                   no_submit, job_role_arn):
     """
     Run job on AWS Batch.   Sends to queue configured in disdat.cfg.
     This assumes that you have already created a cluster that will run the jobs
@@ -179,10 +181,25 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name, aws_session_token_dur
         aws_session_token_duration:
         vcpus:
         memory:
+        no_submit (bool): default False
+        job_role_arn (str): Can be None
 
     Returns:
 
     """
+
+    def check_role_arn(job_dict, jra):
+        """ Check to see if the job desc dictionary contains the same job_role_arn (jra)
+        """
+
+        if jra is None:
+            if 'jobRoleArn' not in job_dict['containerProperties']:
+                return True
+        else:
+            if 'jobRoleArn' in job_dict['containerProperties']:
+                if job_dict['containerProperties']['jobRoleArn'] == jra:
+                    return True
+        return False
 
     disdat_config = DisdatConfig.instance()
 
@@ -213,9 +230,10 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name, aws_session_token_dur
     job_definition_obj = aws.batch_get_latest_job_definition(job_definition_name)
 
     if (job_definition_obj is not None and
-        job_definition_obj['containerProperties']['image'] == fq_repository_name and
-        job_definition_obj['containerProperties']['vcpus'] == vcpus and
-        job_definition_obj['containerProperties']['memory'] == memory):
+            job_definition_obj['containerProperties']['image'] == fq_repository_name and
+            job_definition_obj['containerProperties']['vcpus'] == vcpus and
+            job_definition_obj['containerProperties']['memory'] == memory and
+            check_role_arn(job_definition_obj, job_role_arn)):
 
         job_definition_fqn = aws.batch_extract_job_definition_fqn(job_definition_obj)
 
@@ -224,11 +242,15 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name, aws_session_token_dur
     else:
         """ Whether None or doesn't match, make a new one """
 
-        aws.batch_register_job_definition(job_definition_name, fq_repository_name, vcpus=vcpus, memory=memory)
+        aws.batch_register_job_definition(job_definition_name, fq_repository_name,
+                                          vcpus=vcpus, memory=memory, job_role_arn=job_role_arn)
 
         job_definition_fqn = aws.batch_get_job_definition(job_definition_name)
 
         print ("New AWS Batch run job definition {}".format(job_definition_fqn))
+
+    if no_submit:
+        return
 
     job_queue = disdat_config.parser.get(_MODULE_NAME, 'aws_batch_queue')
 
@@ -244,7 +266,7 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name, aws_session_token_dur
     # a batch EC2 instance might not have access to the S3 remote. To
     # get around this, allow the user to create some temporary AWS
     # credentials.
-    if aws_session_token_duration > 0:
+    if aws_session_token_duration > 0 and job_role_arn is None:
         sts_client = b3.client('sts')
         token = sts_client.get_session_token(DurationSeconds=aws_session_token_duration)
         credentials = token['Credentials']
@@ -416,6 +438,9 @@ def _run(
     vcpus = other_args.vcpus
     memory = other_args.memory
     workers = other_args.workers
+    no_submit = other_args.no_submit
+    job_role_arn = other_args.job_role_arn
+
 
     try:
         output_bundle_uuid = pfs.disdat_uuid()
@@ -436,7 +461,9 @@ def _run(
         job_name = '{}-{}'.format(pipeline_image_name, int(time.time()))
 
         if backend == Backend.AWSBatch:
-            _run_aws_batch(arglist, job_name, pipeline_class_name, aws_session_token_duration, vcpus, memory)
+            _run_aws_batch(arglist, job_name, pipeline_class_name,
+                           aws_session_token_duration, vcpus, memory,
+                           no_submit, job_role_arn)
         else:
             _run_aws_sagemaker(arglist, job_name, pipeline_class_name)
 
@@ -463,6 +490,11 @@ def add_arg_parser(parsers):
         help="If there are dependencies, force re-computation."
     )
     run_p.add_argument(
+        "--no-submit",
+        action='store_true',
+        help="For AWS Batch: Do not submit job -- only create the Batch job description."
+    )
+    run_p.add_argument(
         "--no-push",
         action='store_true',
         help="Do not commit and push newly created bundles to remote context."
@@ -483,7 +515,7 @@ def add_arg_parser(parsers):
         nargs=1,
         default=[43200], # 12 hours of default time -- for long pipelines!
         type=int,
-        help='Use temporary AWS session token for AWS Batch, valid for AWS_SESSION_TOKEN_DURATION seconds. Default 1440. Set to zero to not use a token.',
+        help='For AWS Batch: Use temporary AWS session token, valid for AWS_SESSION_TOKEN_DURATION seconds. Default 43200. Set to zero to not use a token.',
         dest='aws_session_token_duration',
     )
     run_p.add_argument('--workers',
@@ -498,6 +530,10 @@ def add_arg_parser(parsers):
                        type=int,
                        default=4000,
                        help="The memory (MiB) required by this AWS Batch container.")
+    run_p.add_argument('--job-role-arn',
+                       type=str,
+                       default=None,
+                       help="For AWS Batch: Use this ARN to indicate the role under which batch containers run.")
     run_p.add_argument('-c', '--context',
                        type=str,
                        default=None,
@@ -574,19 +610,21 @@ if __name__ == '__main__':
     class OtherArg(object): pass
     OtherArg.force = False
     OtherArg.context = 'tester'
-    OtherArg.remote  = 'crap'
+    OtherArg.remote  = 'tester'
     OtherArg.no_pull = False
     OtherArg.no_push = False
     OtherArg.no_push_int = False
     OtherArg.vcpus = 2
     OtherArg.memory = 4000
     OtherArg.workers = 2
+    OtherArg.no_submit = True
+    OtherArg.job_role_arn = None
 
     _run(
             '-',
             '-',
             [],
-            'pipeline.targets.forecast_groups.ForecastGroups',
+            'pipeline.yourjob',
             backend=Backend.AWSBatch,
             aws_session_token_duration=1440,
             input_tags=[],
