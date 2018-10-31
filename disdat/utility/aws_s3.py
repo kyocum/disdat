@@ -308,11 +308,15 @@ def ls_s3_url_objects(s3_url):
             result += [obj['Key'] for obj in page['Contents']]
     else:
         s3 = b3.resource('s3')
-        s3_b = s3.Bucket(bucket)
-        for i in s3_b.objects.filter(Prefix=s3_path, MaxKeys=1024):
-            result.append(i)
-        if len(result) == 1024:
-            _logger.warn("ls_s3_url_objects: hit MaxKeys 1024 limit in result set.")
+        try:
+            s3_b = s3.Bucket(bucket)
+            for i in s3_b.objects.filter(Prefix=s3_path, MaxKeys=1024):
+                result.append(i)
+            if len(result) == 1024:
+                _logger.warn("ls_s3_url_objects: hit MaxKeys 1024 limit in result set.")
+        except Exception as e:
+            _logger.error("ls_s3_url_objects: failed with exception {}".format(e))
+            raise
 
     return result
 

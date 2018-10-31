@@ -222,6 +222,10 @@ def run_disdat_container(args):
 
     print "Entrypoint running with args: {}".format(args)
 
+    client = boto3.client('sts')
+    response = client.get_caller_identity()
+    _logger.info("boto3 caller identity {}".format(response))
+
     # Check to make sure that we have initialized the Disdat environment
     if not os.path.exists(os.path.join(os.environ['HOME'], '.config', 'disdat')):
         _logger.warning("Disdat environment possibly uninitialized?")

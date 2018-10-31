@@ -1344,7 +1344,6 @@ class DisdatFS(object):
         print ("POOL with {} processes THREAD {} {}.".format(cpu_count(), t, t.ident))
         _logger.warn("POOL with {} processes THREAD {} {}.".format(cpu_count(), t, t.ident))
 
-
         remote_s3_object_dir = data_context.get_remote_object_dir()
         s3_bucket, remote_obj_dir = aws_s3.split_s3_url(remote_s3_object_dir)
         all_objects = aws_s3.ls_s3_url_objects(remote_s3_object_dir)
