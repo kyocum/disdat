@@ -103,6 +103,7 @@ def main():
     apply_p.add_argument("--local", action='store_true', help="Run the class locally (even if dockered)")
     apply_p.add_argument("--force", action='store_true', help="If there are dependencies, force re-computation.")
     apply_p.add_argument("--incremental-push", action='store_true', help="Commit and push each task's bundle as it is produced to the remote.")
+    apply_p.add_argument("--incremental-pull", action='store_true', help="Localize bundles as they are needed by downstream tasks from the remote.")
     apply_p.add_argument("params", type=str,  nargs=argparse.REMAINDER,
                          help="Optional set of parameters for this pipe '--parameter value'")
     apply_p.set_defaults(func=lambda args: _apply(args))

@@ -277,12 +277,16 @@ def run_disdat_container(args):
     # convert string of pipeline args into dictionary for api.apply
     pipeline_args = disdat.common.parse_params(args.pipeline_args)
 
-    try:
+    # If the user wants final and intermediate, then inc push.
+    if not args.no_push and not args.no_push_intermediates:
+        incremental_push = True
+    else:
+        incremental_push = False
 
-        if not args.no_push and not args.no_push_intermediates:
-            incremental_push = True
-        else:
-            incremental_push = False
+    # By default containerized execution ALWAYS localize's bundles on demand
+    incremental_pull = True
+
+    try:
 
         result = disdat.api.apply(args.branch,
                                   args.input_bundle,
@@ -294,7 +298,8 @@ def run_disdat_container(args):
                                   output_bundle_uuid=args.output_bundle_uuid,
                                   force=args.force,
                                   workers=args.workers,
-                                  incremental_push=incremental_push)
+                                  incremental_push=incremental_push,
+                                  incremental_pull=incremental_pull)
 
         if not incremental_push:
             if not args.no_push:

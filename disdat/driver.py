@@ -75,6 +75,7 @@ class DriverTask(luigi.WrapperTask, PipeBase):
     force = luigi.BoolParameter(default=False)
     data_context = luigi.Parameter(significant=False)
     incremental_push = luigi.BoolParameter(default=False, significant=False)
+    incremental_pull = luigi.BoolParameter(default=False, significant=False)
 
     def __init__(self, *args, **kwargs):
         """
@@ -250,26 +251,6 @@ class DriverTask(luigi.WrapperTask, PipeBase):
 
         for p in param_bundles:
             bundle_name = param_bundles[p]
-            #print "p {}".format(p)
-            #print "bundle_name {}".format(bundle_name)
-
-            #
-            # TODO:  We used to automatically find strings that looked like bundle names
-            # and then automatically convert them to dataframes.  However, we need a more robust
-            # way to identify possible bundle arguments and we should use the Bundle presentation
-            # layer to create the Python object.  So for now we just treat everything as literal values.
-            # 12-17-2017 KGY
-            #
-
-            # if DisdatFS.is_input_param_bundle_name(bundle_name):
-            #     ''' Get dataframe '''
-            #     bundle_df = pfs.cat(bundle_name)
-            #     if bundle_df is None:
-            #         _logger.warn("Bundle {} does not exist".format(bundle_name))
-            #         raise exceptions.BundleError("Bundle {} does not exist".format(bundle_name))
-            #     else:
-            #         resolved[p] = bundle_df
-            # else:
 
             ''' Get a literal '''
             resolved[p] = LiteralParam(bundle_name)
@@ -323,7 +304,8 @@ class DriverTask(luigi.WrapperTask, PipeBase):
                        'force': self.force,
                        'output_tags': json.dumps(dict(self.output_tags)), # Ugly re-stringifying dict
                        'data_context': self.data_context,
-                       'incremental_push': self.incremental_push
+                       'incremental_push': self.incremental_push,
+                       'incremental_pull': self.incremental_pull
                        }
 
         task_params.update(param_dfs_json)

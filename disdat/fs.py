@@ -1292,9 +1292,7 @@ class DisdatFS(object):
     @staticmethod
     def _localize_hfr(local_hfr, s3_uuid, data_context):
         """
-        Given local hfr, read link frames and pulgl data from s3.
-
-        TODO: Checks to see if the files are already local!
+        Given local hfr, read link frames and pull data from s3.
 
         Args:
             local_hfr:
@@ -1309,7 +1307,6 @@ class DisdatFS(object):
             if fr.is_link_frame():
                 src_paths = data_context.actualize_link_urls(fr)
                 for f in src_paths:
-                    print "Adding file {} to bundle".format(f)
                     DataContext.copy_in_files(f, managed_path)
 
     @staticmethod
