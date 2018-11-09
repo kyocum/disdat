@@ -588,7 +588,7 @@ class PipeTask(luigi.Task, PipeBase):
         assert (isinstance(tags, dict))
         self.user_tags.update(tags)
 
-    def mark_output_transient(self):
+    def mark_transient(self):
         """
         Disdat Pipe API Function
 

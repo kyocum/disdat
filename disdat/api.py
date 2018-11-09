@@ -79,7 +79,7 @@ Bundle Creation
 
 class Bundle(object):
 
-    def __init__(self, local_context):
+    def __init__(self, local_context, name):
         """ Given name and a local context, create a handle that users can
         work with to:
         a.) Create files / directories / dbtables (i.e., Bundle Links)
@@ -93,6 +93,7 @@ class Bundle(object):
 
         Args:
             local_context (str): Where this bundle will be output or where it was sourced from.
+            name (str): Human name for this bundle
         """
 
         try:
@@ -101,7 +102,7 @@ class Bundle(object):
             _logger.error("Unable to allocate bundle in context: {} ".format(local_context, e))
             return
 
-        self.name = None
+        self.name = name
         self.processing_name = None
         self.owner = None
 
@@ -144,6 +145,17 @@ class Bundle(object):
 
         self._hfr = hfr
 
+    def __enter__(self):
+        """ 'open'
+        """
+        return self.open()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """ 'close'
+        If there has been an exception, let the user deal with the written created bundle.
+        """
+        self.close()
+
     def open(self):
         """ Add the bundle to this local context
 
@@ -162,7 +174,7 @@ class Bundle(object):
             self.open = True
         else:
             _logger.warn("Bundle is closed -- unable to re-open.")
-        return
+        return self
 
     def close(self):
         """
@@ -181,6 +193,8 @@ class Bundle(object):
 
             self.data_context.write_hframe(hfr)
 
+            self._hfr = hfr
+
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
             PipeBase.rm_bundle_dir(self.local_dir, self.uuid, self.db_targets)
@@ -189,20 +203,21 @@ class Bundle(object):
         self.open = False
         self.closed = True
 
-        return hfr
+        return self
 
-    def add(self, data):
+    def add_data(self, data):
         """ Add data to a bundle.   The bundle must be open and not closed.
             One adds one data item to a bundle (dictionary, list, tuple, scalar, or dataframe).
             Calling this replaces the latest item -- only the latest will be included in the bundle on close.
 
         Args:
-            data (list|tuple|scalar|`pandas.DataFrame`):
+            data (list|tuple|dict|scalar|`pandas.DataFrame`):
 
         Returns:
-            None
+            self
         """
         self.data = data
+        return self
 
     def to_df(self):
         if self.closed:
@@ -211,30 +226,47 @@ class Bundle(object):
             _logger.warn("Close bundle to convert to dataframe")
             return None
 
-    def commit(self):
+    def rm(self):
+        """ Remove bundle from the current context associated with this bundle object
+        Only remove this bundle with this uuid.
+        This only makes sense if the bundle is closed.
         """
-        TODO: should do this or use the api below?  If we have the HFR we don't have to find it.
+        assert(self.closed and not self.open)
+        fs.rm(uuid=self.uuid, data_context=self.data_context)
+        self._hfr = None
+        return self
+
+    def commit(self):
+        """ Shortcut version of api.commit(uuid=bundle.uuid)
 
         Returns:
-
+            self
         """
-        raise NotImplementedError
+        fs.commit(None, None, uuid=self.uuid, data_context=self.data_context)
+        return self
 
     def push(self):
-        """
-        TODO: should do this or use the api below?  If we have the HFR we don't have to find it.
-
-        Args:
-            remote:
-            bndl:
-            uuid:
-            tags:
+        """ Shortcut version of api.push(uuid=bundle.uuid)
 
         Returns:
             (`disdat.api.Bundle`): this bundle
 
         """
-        raise NotImplementedError
+
+        if self.data_context.get_remote_object_dir() is None:
+            raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(self.data_context.get_repo_name(),
+                                                                                          self.data_context.get_local_name()))
+
+        fs.push(uuid=self.uuid, data_context=self.data_context)
+
+        return self
+
+    def pull(self, localize=False):
+        """ Shortcut version of api.pull()
+        """
+        assert( (not self.open and not self.closed) or (not self.open and self.closed) )
+        fs.pull(uuid=self.uuid, localize=localize, data_context=self.data_context)
+        return self
 
     def tag(self, key, value):
         """ Add tag to our set of input tags
@@ -244,7 +276,7 @@ class Bundle(object):
             value (str): The tag value
 
         Returns:
-
+            self
         """
         if not self.open:
             _logger.warn("Open the bundle to modify tags.")
@@ -253,6 +285,7 @@ class Bundle(object):
             _logger.warn("Unable to modify tags in a closed bundle.")
             return
         self.tags[key] = value
+        return self
 
     def db_table(self, dsn, table_name, schema_name):
         """
@@ -296,21 +329,22 @@ class Bundle(object):
 
         return fqp
 
-    def make_file(self, name):
+    def make_file(self, filename):
         """
-        Returns a path to a disdat managed file.
-
-        See Pipe.create_output_file()
+        Create a file-like object to write to called 'filename'
+        The file will be placed in the output bundle directory.  However it won't be
+        recorded as part of the bundle unless the path or this target is placed
+        in the output.
 
         Arguments:
-            name (str): The human readable name to a file reference
+            filename (str,list,dict): filename to create in the bundle
 
         Returns:
-            str: A file path managed by disdat
+            single, list, or dictionary of `luigi.LocalTarget` or `luigi.s3.S3Target`
         """
         assert (self.open and not self.closed)
 
-        return self.make_luigi_targets_from_basename(filename)
+        return PipeBase.filename_to_luigi_targets(self.local_dir, filename)
 
 
 def _get_context(context_name):
@@ -363,6 +397,7 @@ def context(context_name):
     Returns:
         None
     """
+
     fs.branch(context_name)
 
 
@@ -500,17 +535,26 @@ def get(local_context, bundle_name, uuid=None, tags=None):
     return b
 
 
-def rm(local_context, bundle_name, uuid=None):
+def rm(local_context, bundle_name=None, uuid=None, tags=None, rm_all=False, rm_old_only=False, force=False):
     """ Delete a bundle
 
     Args:
-        local_context:
-        bundle_name:
-        uuid:
+        local_context (str): Local context name
+        bundle_name (str): Optional human-given name for the bundle
+        uuid (str): Optional UUID for the bundle to remove.  Trumps bundle_name argument if both given
+        tags (dict(str:str)): Optional dictionary of tags that must be present on bundle to remove
+        rm_all (bool): Remove latest and all historical if given bundle_name
+        rm_old_only (bool): remove everything but latest if given bundle_name
+        force (bool): If a db-link exists and it is the latest on the remote DB, force remove. Default False.
 
     Returns:
 
     """
+
+    data_context = _get_context(local_context)
+
+    fs.rm(human_name=bundle_name, rm_all=rm_all, rm_old_only=rm_old_only,
+          uuid=uuid, tags=tags, force=force, data_context=data_context)
 
 
 def cat(local_context, bundle_name):

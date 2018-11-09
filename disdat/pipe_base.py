@@ -289,6 +289,39 @@ class PipeBase(object):
 
         return luigi_outputs
 
+    @staticmethod
+    def filename_to_luigi_targets(output_dir, output_value):
+        """
+        Create Luigi file objects from a file name, dictionary of file names, or list of file names.
+
+        Return the same object type as output_value, but with Luigi.Targets instead.
+
+        Args:
+            output_dir (str): Managed output path.
+            output_value (str, dict, list): A basename, dictionary of basenames, or list of basenames.
+
+        Return:
+            (`luigi.LocalTarget`, `luigi.S3Target`): Singleton, list, or dictionary of Luigi Target objects.
+        """
+
+        if isinstance(output_value, list) or isinstance(output_value, tuple):
+            luigi_outputs = []
+            for i in output_value:
+                full_path = os.path.join(output_dir, i)
+                luigi_outputs.append(PipeBase._interpret_scheme(full_path))
+            if len(luigi_outputs) == 1:
+                luigi_outputs = luigi_outputs[0]
+        elif isinstance(output_value, dict):
+            luigi_outputs = {}
+            for k, v in output_value.iteritems():
+                full_path = os.path.join(output_dir, v)
+                luigi_outputs[k] = PipeBase._interpret_scheme(full_path)
+        else:
+            full_path = os.path.join(output_dir, output_value)
+            luigi_outputs = PipeBase._interpret_scheme(full_path)
+
+        return luigi_outputs
+
     def make_luigi_targets_from_basename(self, output_value):
         """
         Determine the output paths AND create the Luigi objects.
@@ -307,25 +340,10 @@ class PipeBase(object):
 
         # Find the path cache entry for this pipe to find its output path
         pce = self.pfs.get_path_cache(self)
+
         assert(pce is not None)
 
-        if isinstance(output_value, list) or isinstance(output_value, tuple):
-            luigi_outputs = []
-            for i in output_value:
-                full_path = os.path.join(pce.path, i)
-                luigi_outputs.append(self._interpret_scheme(full_path))
-            if len(luigi_outputs) == 1:
-                luigi_outputs = luigi_outputs[0]
-        elif isinstance(output_value, dict):
-            luigi_outputs = {}
-            for k, v in output_value.iteritems():
-                full_path = os.path.join(pce.path, v)
-                luigi_outputs[k] = self._interpret_scheme(full_path)
-        else:
-            full_path = os.path.join(pce.path, output_value)
-            luigi_outputs = self._interpret_scheme(full_path)
-
-        return luigi_outputs
+        return self.filename_to_luigi_targets(pce.path, output_value)
 
     @staticmethod
     def rm_bundle_dir(output_path, uuid, db_targets):

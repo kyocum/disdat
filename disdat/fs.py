@@ -837,7 +837,7 @@ class DisdatFS(object):
         Database links are special.  Commits materialize special views of the physical table.
 
         Args:
-            bundle_name (str): The name of the bundle to commit
+            bundle_name (str): The name of the bundle to commit.  Ignored if uuid is set.
             input_tags (dict): Commit the bundle that has these tags
             uuid (str): The uuid of the bundle to commit.
             data_context (`disdat.data_context.DataContext`): Optional data context in which to find / commit bundle.
@@ -888,7 +888,6 @@ class DisdatFS(object):
 
         # Commit to disk:
         data_context.atomic_update_hframe(hfr)
-
 
     def _get_all_link_frames(self, outer_hfr, local_fs_frames=False, s3_frames=False, db_frames=False):
         """
