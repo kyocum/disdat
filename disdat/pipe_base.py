@@ -374,29 +374,19 @@ class PipeBase(object):
                 uuid, why))
 
     @staticmethod
-    def parse_pipe_return_val(hfid, val, data_context, pipe):
+    def parse_return_val(hfid, val, data_context):
         """
-
-        Interpret the return values and create an HFrame to wrap them.
-        This means setting the correct presentation bit in the HFrame so that
-        we call downstream tasks with parameters as the author intended.
-
-        POLICY / NOTE:  An non-HF output is a Presentable.
-        NOTE: For now, a task output is *always* presentable.
-        NOTE: No other code should set presentation in a HyperFrame.
-
-        The mirror to this function (that unpacks a presentable is disdat.fs.present_hfr()
 
         Args:
-            hfid:
-            val:
-            data_context (`disdat.data_context.DataContext`):
-            pipe: The disdat pipe producing these values, has human_name, bundle_inputs, and pipe_id()
+            hfid (str): UUID
+            val (object): A scalar, dict, tuple, list, dataframe
+            data_context (DataContext): The data context into which to place this value
 
         Returns:
-            Frames, Presentation
+            (presentation, frames[])
 
         """
+
         frames = []
 
         managed_path = os.path.join(data_context.get_object_dir(), hfid)
@@ -436,8 +426,63 @@ class PipeBase(object):
             presentation = hyperframe_pb2.SCALAR
             frames.append(DataContext.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
 
-        hfr = PipeBase.make_hframe(frames, hfid, pipe.bundle_inputs(),
-                                   pipe.pipeline_id(), pipe.pipe_id(), pipe,
+        return presentation, frames
+
+    @staticmethod
+    def parse_api_return_val(hfid, val, data_context, bundle_inputs, bundle_name, bundle_processing_name, pipe):
+        """
+
+        Args:
+            hfid (str): UUID
+            val (?): Value to parse
+            data_context (DataContext): Context into which to place the data
+            bundle_inputs (list): The bundles used to create this bundle (lineage)
+            bundle_name (str): The human name of this bundle
+            bundle_processing_name (str): The more unique name of this bundle
+            pipe (PipeTask): The PipeTask that created this bundle.
+
+        Returns:
+            HyperFrameRecord
+
+        """
+
+        presentation, frames = PipeBase.parse_return_val(hfid, val, data_context)
+
+        hfr = PipeBase.make_hframe(frames, hfid, bundle_inputs,
+                                   bundle_name, bundle_processing_name, pipe,
                                    tags={"presentable": "True"},
                                    presentation=presentation)
+
         return hfr
+
+    @staticmethod
+    def parse_pipe_return_val(hfid, val, data_context, pipe):
+        """
+
+        Interpret the return values and create an HFrame to wrap them.
+        This means setting the correct presentation bit in the HFrame so that
+        we call downstream tasks with parameters as the author intended.
+
+        POLICY / NOTE:  An non-HF output is a Presentable.
+        NOTE: For now, a task output is *always* presentable.
+        NOTE: No other code should set presentation in a HyperFrame.
+
+        The mirror to this function (that unpacks a presentable is disdat.fs.present_hfr()
+
+        Args:
+            hfid: UUID
+            val: Value to parse
+            data_context (`data_context.DataContext`):
+            pipe: The disdat pipe producing these values, has human_name, bundle_inputs, and pipe_id()
+
+        Returns:
+            HyperFrameRecord
+
+        """
+
+        return PipeBase.parse_api_return_val(hfid, val, data_context,
+                                             pipe.bundle_inputs(),
+                                             pipe.pipeline_id(),
+                                             pipe.pipe_id(),
+                                             pipe)
+

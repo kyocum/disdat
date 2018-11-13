@@ -1300,26 +1300,6 @@ class LineageRecord(PBObject):
         """
         return "{}_lineage.pb".format(self.pb.uuid)
 
-    def make_lineage_record(hframe_name, hfid, depends_on=None):
-        """
-
-        Args:
-            hframe_name:
-            hfid:
-            depends_on:
-
-        Returns:
-            (`LineageRecord`)
-
-        """
-
-        lr = LineageRecord(hframe_name=hframe_name, hframe_uuid=hfid,
-                           code_repo='bigdipper', code_name='unknown',
-                           code_semver='0.1.0', code_hash='5cd60d3',
-                           code_branch='develop', depends_on=depends_on)
-
-        return lr
-
 
 class FrameRecord(PBObject):
 

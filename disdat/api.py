@@ -50,6 +50,7 @@ Author: Kenneth Yocum
 import logging
 import os
 import json
+import luigi
 
 import disdat.apply
 import disdat.run
@@ -57,6 +58,7 @@ import disdat.fs
 import disdat.common as common
 from disdat.pipe_base import PipeBase
 from disdat.db_target import DBTarget
+from disdat.pipe import PipeTask
 
 _logger = logging.getLogger(__name__)
 
@@ -75,6 +77,44 @@ Bundle Creation
 2.) Allocate files and directories wrt that object
 3.) Call add to add this bundle to the context
 """
+
+
+class BundleWrapperTask(PipeTask):
+    """ This task allows one to create bundles that can be referred to
+    in a Disdat pipeline through a self.add_external_dependency.
+    1.) User makes a bundle outside of Luigi
+    2.) Luigi pipeline wants to use bundle.
+       a.) Refer to the bundle as an argument and reads it using API (outside of Luigi dependencies)
+       b.) Refer to the bundle using a BundleWrapperTask.  Luigi Disdat pipeline uses the latest
+       bundle with the processing_name.
+
+    Two implementation options:
+    1.) We add a "add_bundle_dependency()" call to Disdat.  This directly changes how we schedule.
+    2.) We add a special Luigi task (as luigi has for outside files) and use that to produce the
+    processing_name, when there isn't an actual task creating the data.
+
+    Thus this task is mainly to provide a way that
+    a.) A user can create a bundle and set the processing_name
+    b.) The pipeline can refer to this bundle using the same processing_name
+
+    The parameters in this task should allow one to sufficiently identify versions
+    of this bundle.
+
+    Note:  No processing_name and No UUID
+    """
+    name = luigi.Parameter(default=None)
+    owner = luigi.Parameter(default=None)
+    tags = luigi.DictParameter(default={})
+    creation_date = luigi.Parameter(default=None)
+
+    def bundle_inputs(self):
+        """ Determine input bundles
+
+        Returns
+          [(processing_name, uuid), ... ]
+
+        """
+        return []
 
 
 class Bundle(object):
@@ -105,6 +145,7 @@ class Bundle(object):
         self.name = name
         self.processing_name = None
         self.owner = None
+        self.creation_date = None
 
         self.local_dir = None
         self.remote_dir = None
@@ -137,6 +178,8 @@ class Bundle(object):
 
         self.name = hfr.pb.human_name
         self.processing_name = hfr.pb.processing_name
+        self.owner = hfr.pb.owner
+        self.creation_date = hfr.pb.lineage.creation_date
         self.uuid = hfr.pb.uuid
         self.presentation = hfr.pb.presentation
 
@@ -185,15 +228,26 @@ class Bundle(object):
 
         try:
 
-            hfr = PipeBase.parse_pipe_return_val(self.uuid, self.data, self.data_context, human_name=self.name)
+            # only sets it in the object
+            self._set_processing_name()
 
-            self.tags.update({'APIBundle': 'True'})
+            def parse_api_return_val(hfid, val, data_context, bundle_inputs, bundle_name, bundle_processing_name, pipe):
+
+            hfr = PipeBase.parse_api_return_val(self.uuid,
+                                                self.data,
+                                                self.data_context,
+                                                self.bundle_inputs(),
+                                                self.name,
+                                                self.processing_name,
+                                                )
 
             hfr.replace_tags(self.tags)
 
             self.data_context.write_hframe(hfr)
 
             self._hfr = hfr
+
+            self.creation_date = hfr.pb.lineage.creation_date
 
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
@@ -345,6 +399,20 @@ class Bundle(object):
         assert (self.open and not self.closed)
 
         return PipeBase.filename_to_luigi_targets(self.local_dir, filename)
+
+    def _set_processing_name(self):
+        """ Set a processing name that may be used to identify bundles that
+        were created in the same way -- they used the same task and task paramaters.
+        In cases where Luigi tasks create bundles, this is the luigi.Task.taskid()
+        Here we use a wrapper luigi task to do the same.
+        Note that we assume you have placed your parameters as tags.
+        """
+        wrapper_task = BundleWrapperTask(name=self.name,
+                                         owner=self.owner,
+                                         tags=self.tags,
+                                         creation_date=self.creation_date)
+
+        self.processing_name = wrapper_task.pipe_id()
 
 
 def _get_context(context_name):

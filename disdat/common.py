@@ -46,6 +46,9 @@ DISDAT_CONTEXT_DIR = 'context'  # ~/.disdat/context/<local_context_name>
 DEFAULT_FRAME_NAME = 'unnamed'
 BUNDLE_URI_SCHEME = 'bundle://'
 
+# Some tags in bundles are special.  They are prefixed with '__'
+BUNDLE_TAG_PARAMS_PREFIX = '__param_'
+
 
 class ApplyException(Exception):
     pass
