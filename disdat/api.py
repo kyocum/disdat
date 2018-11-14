@@ -494,6 +494,9 @@ def get(local_context, bundle_name, uuid=None, tags=None):
     else:
         hfr = fs.get_hframe_by_uuid(uuid, tags=tags, data_context=data_context)
 
+    if hfr is None:
+        return None
+
     b = Bundle(local_context)
     b.fill_from_hfr(hfr)
 
@@ -511,6 +514,7 @@ def rm(local_context, bundle_name, uuid=None):
     Returns:
 
     """
+    raise NotImplementedError
 
 
 def cat(local_context, bundle_name):
