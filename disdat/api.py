@@ -108,13 +108,12 @@ class BundleWrapperTask(PipeTask):
     creation_date = luigi.Parameter(default=None)
 
     def bundle_inputs(self):
-        """ Determine input bundles
+        """ Determine input bundles """
+        raise NotImplementedError
 
-        Returns
-          [(processing_name, uuid), ... ]
-
-        """
-        return []
+    def bundle_outputs(self):
+        """ Determine input bundles """
+        raise NotImplementedError
 
 
 class Bundle(object):
@@ -154,8 +153,9 @@ class Bundle(object):
         self.closed = False
 
         self.input_data = None  # The df, array, dictionary the user wants to store
-        self.tags = {}    # The dictionary of (str):(str) tags the user wants to attach
+        self.tags = {}          # The dictionary of (str):(str) tags the user wants to attach
         self.db_targets = []    # list of created db targets
+        self.depends_on = []    # list of tuples (processing_name, uuid) of bundles on which this bundle depends
         self.data = None
 
         self.uuid = None        # Internal uuid of this bundle.
@@ -182,6 +182,7 @@ class Bundle(object):
         self.creation_date = hfr.pb.lineage.creation_date
         self.uuid = hfr.pb.uuid
         self.presentation = hfr.pb.presentation
+        self.depends_on = hfr.pb.lineage.depends_on
 
         self.data = self.data_context.convert_hfr2df(hfr)
         self.tags = hfr.tag_dict
@@ -231,7 +232,7 @@ class Bundle(object):
             # only sets it in the object
             self._set_processing_name()
 
-            def parse_api_return_val(hfid, val, data_context, bundle_inputs, bundle_name, bundle_processing_name, pipe):
+            #def parse_api_return_val(hfid, val, data_context, bundle_inputs, bundle_name, bundle_processing_name, pipe):
 
             hfr = PipeBase.parse_api_return_val(self.uuid,
                                                 self.data,
@@ -239,6 +240,7 @@ class Bundle(object):
                                                 self.bundle_inputs(),
                                                 self.name,
                                                 self.processing_name,
+                                                BundleWrapperTask
                                                 )
 
             hfr.replace_tags(self.tags)
