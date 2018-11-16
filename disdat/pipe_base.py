@@ -429,33 +429,6 @@ class PipeBase(object):
         return presentation, frames
 
     @staticmethod
-    def parse_api_return_val(hfid, val, data_context, bundle_inputs, bundle_name, bundle_processing_name, pipe):
-        """
-
-        Args:
-            hfid (str): UUID
-            val (?): Value to parse
-            data_context (DataContext): Context into which to place the data
-            bundle_inputs (list): The bundles used to create this bundle (lineage)
-            bundle_name (str): The human name of this bundle
-            bundle_processing_name (str): The more unique name of this bundle
-            pipe (PipeTask): The PipeTask that created this bundle.
-
-        Returns:
-            HyperFrameRecord
-
-        """
-
-        presentation, frames = PipeBase.parse_return_val(hfid, val, data_context)
-
-        hfr = PipeBase.make_hframe(frames, hfid, bundle_inputs,
-                                   bundle_name, bundle_processing_name, pipe,
-                                   tags={"presentable": "True"},
-                                   presentation=presentation)
-
-        return hfr
-
-    @staticmethod
     def parse_pipe_return_val(hfid, val, data_context, pipe):
         """
 
@@ -480,9 +453,9 @@ class PipeBase(object):
 
         """
 
-        return PipeBase.parse_api_return_val(hfid, val, data_context,
-                                             pipe.bundle_inputs(),
-                                             pipe.pipeline_id(),
-                                             pipe.pipe_id(),
-                                             pipe)
+        presentation, frames = PipeBase.parse_return_val(hfid, val, data_context)
 
+        return PipeBase.make_hframe(frames, hfid, pipe.bundle_inputs(),
+                                    pipe.pipeline_id(), pipe.pipe_id(), pipe,
+                                    tags={"presentable": "True"},
+                                    presentation=presentation)

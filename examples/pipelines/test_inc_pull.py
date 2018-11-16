@@ -42,6 +42,7 @@ date
 
 """
 
+
 def test():
     """
 
@@ -61,10 +62,10 @@ def test():
     with api.Bundle(TEST_CONTEXT, TEST_NAME) as b:
         output = {'file':[],'name':[]}
         for i in range(2):
-            with b.make_file('output_{}'.format(i)) as of:
+            with b.make_file('output_{}'.format(i)).open('w') as of:
                 of.write("some text for the {} file".format(i))
                 output['name'].append('output_{}'.format(i))
-                output['file'].append(of)
+                output['file'].append(of.name)
         b.add_data(output)
 
     b.push()
@@ -73,8 +74,6 @@ def test():
 
     b = api.Bundle(TEST_CONTEXT, TEST_NAME).pull(localize=False)
 
-    b.set_processing_name(Bundle_Task())
-    # Now use this task as an external dependency.
 
 
 class ExternalDepWrapper(PipeTask):
@@ -117,4 +116,5 @@ class ConsumeExtDep(PipeTask):
 
 
 if __name__ == "__main__":
-    api.apply('examples', '-', '-', 'ReadFiles', params={'num_luigi_files':5})
+    test()
+    #api.apply('examples', '-', '-', 'ReadFiles', params={'num_luigi_files':5})
