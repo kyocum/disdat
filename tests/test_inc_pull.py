@@ -29,7 +29,7 @@ import disdat.api as api
 
 TEST_CONTEXT = '_test_context_'
 TEST_NAME    = 'test_bundle'
-REMOTE_URL   = 's3://disdat-prod-486026647292-us-west-2/beta/'
+REMOTE_URL   = 's3://something'
 
 
 def test():

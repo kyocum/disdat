@@ -611,12 +611,12 @@ class DisdatFS(object):
             hfr = self.get_hframe_by_uuid(uuid, tags=tags, data_context=data_context)
 
         if hfr is not None:
-            df    = data_context.convert_hfr2df(hfr)
             other = data_context.present_hfr(hfr)
-            if df is not None and file is not None:
+            if file is not None:
+                df    = data_context.convert_hfr2df(hfr)
                 print "Saving to file {}".format(file)
                 df.to_csv(file, sep=',', index=False)
-            return other #df
+            return other
         else:
             return None
 
