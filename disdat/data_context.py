@@ -592,6 +592,7 @@ class DataContext(object):
                 self.rm_db_links(hfr[0], dry_run=False)
                 shutil.rmtree(self.implicit_hframe_path(hfr_uuid))
                 hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid)
+                hyperframe.delete_fr_db(self.local_engine, hfr_uuid)
             else:
                 print ("Disdat: Looks like you're trying to remove a committed bundle with a db link backing a view.")
                 print ("Disdat: Removal of this bundle with db links that back a view requires '--force'")
@@ -1123,7 +1124,6 @@ class DataContext(object):
                 _logger.warn("Not copying-in a string-based database reference[{}].  Disdat only supports string refs from DBTarget objects.".format(src_path))
                 file_set.append(src_path)
                 continue
-                #raise Exception("data_context:copy_in_files error trying to copy in string-based database reference.")
 
             # Src path can contain a sub-directory.
             sub_dir = DataContext.find_subdir(src_path, dst_dir)

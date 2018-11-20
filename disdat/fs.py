@@ -26,7 +26,7 @@ import disdat.hyperframe as hyperframe
 import disdat.common as common
 import disdat.utility.aws_s3 as aws_s3
 from disdat.data_context import DataContext
-from disdat.common import DisdatConfig, error
+from disdat.common import DisdatConfig
 
 import logging
 import os
@@ -586,7 +586,7 @@ class DisdatFS(object):
 
     def cat(self, human_name, uuid=None, tags=None, file=None, data_context=None):
         """
-        Given a bundle name and optional uuid, return a dataframe with its contents
+        Given a bundle name and optional uuid, return the object that was saved in the bundle
 
         Args:
             human_name (str):
@@ -596,7 +596,7 @@ class DisdatFS(object):
             data_context (`disdat.data_context.DataContext`):
 
         Returns:
-            (`DataFrame`):
+            (`DataFrame`) or (`numpy.ndarray`) or scalar type
         """
 
         if data_context is None:
@@ -611,11 +611,12 @@ class DisdatFS(object):
             hfr = self.get_hframe_by_uuid(uuid, tags=tags, data_context=data_context)
 
         if hfr is not None:
-            df = data_context.convert_hfr2df(hfr)
-            if df is not None and file is not None:
+            other = data_context.present_hfr(hfr)
+            if file is not None:
+                df    = data_context.convert_hfr2df(hfr)
                 print "Saving to file {}".format(file)
                 df.to_csv(file, sep=',', index=False)
-            return df
+            return other
         else:
             return None
 
@@ -739,13 +740,14 @@ class DisdatFS(object):
                                                                                                       local_context,
                                                                                                       context.get_object_dir()))
 
-    def delete_branch(self, fq_context_name, force):
+    def delete_branch(self, fq_context_name, remote, force):
         """
 
         Delete a branch at <repo>/<context_name> or <context name>
 
         Args:
             fq_context_name:  The unique string for a context
+            remote: whether to also remove the remote on S3
             force: whether to force delete a dirty context
 
         Returns:
@@ -761,14 +763,16 @@ class DisdatFS(object):
 
         if local_context in self._all_contexts:
             dc = self._all_contexts[local_context]
+            remote_context_url= dc.get_remote_object_dir()
             dc.delete_branch(force=force)
             del self._all_contexts[local_context]
-        else:
-            assert(True)
 
         if os.path.exists(ctxt_dir):
             shutil.rmtree(ctxt_dir)
             _logger.info("Disdat deleted local data context {}.".format(local_context))
+            if remote:
+                aws_s3.delete_s3_dir(remote_context_url)
+                _logger.info("Disdat deleted remote data context {}.".format(remote_context_url))
         else:
             _logger.info("Disdat local data context {} appears to already have been deleted.".format(local_context))
 
@@ -837,7 +841,7 @@ class DisdatFS(object):
         Database links are special.  Commits materialize special views of the physical table.
 
         Args:
-            bundle_name (str): The name of the bundle to commit
+            bundle_name (str): The name of the bundle to commit.  Ignored if uuid is set.
             input_tags (dict): Commit the bundle that has these tags
             uuid (str): The uuid of the bundle to commit.
             data_context (`disdat.data_context.DataContext`): Optional data context in which to find / commit bundle.
@@ -888,7 +892,6 @@ class DisdatFS(object):
 
         # Commit to disk:
         data_context.atomic_update_hframe(hfr)
-
 
     def _get_all_link_frames(self, outer_hfr, local_fs_frames=False, s3_frames=False, db_frames=False):
         """
@@ -1292,9 +1295,7 @@ class DisdatFS(object):
     @staticmethod
     def _localize_hfr(local_hfr, s3_uuid, data_context):
         """
-        Given local hfr, read link frames and pulgl data from s3.
-
-        TODO: Checks to see if the files are already local!
+        Given local hfr, read link frames and pull data from s3.
 
         Args:
             local_hfr:
@@ -1309,7 +1310,6 @@ class DisdatFS(object):
             if fr.is_link_frame():
                 src_paths = data_context.actualize_link_urls(fr)
                 for f in src_paths:
-                    print "Adding file {} to bundle".format(f)
                     DataContext.copy_in_files(f, managed_path)
 
     @staticmethod
@@ -1451,7 +1451,7 @@ class DisdatFS(object):
 
                 _logger.info("Adding HyperFrame UUID {} to local context . . .".format(s3_uuid))
 
-                local_uuid_dir = os.path.join(self.get_curr_context().get_object_dir(), s3_uuid)
+                local_uuid_dir = os.path.join(data_context.get_object_dir(), s3_uuid)
                 local_hfr_path = os.path.join(local_uuid_dir, hfr_basename)
                 if os.path.exists(local_uuid_dir):
                     print "Pull found existing data in local disdat db at UUID {}, overwriting . . .".format(s3_uuid)
@@ -1462,7 +1462,7 @@ class DisdatFS(object):
                 hyperframe.w_pb_fs(None, hfr_test, local_hfr_path)
 
                 # grab frames for this hyperframe
-                s3_hfr_dir = os.path.join(self.get_curr_context().get_remote_object_dir(), s3_uuid)
+                s3_hfr_dir = os.path.join(data_context.get_remote_object_dir(), s3_uuid)
                 possible_frame_objects = aws_s3.ls_s3_url_objects(s3_hfr_dir)
                 frame_objects = [obj for obj in possible_frame_objects if '_frame.pb' in obj.key]
                 for s3_fr_obj in frame_objects:
@@ -1470,7 +1470,7 @@ class DisdatFS(object):
                     local_fr_path = os.path.join(local_uuid_dir,fr_basename)
                     s3_fr_obj.Object().download_file(local_fr_path)
 
-                self.get_curr_context().write_hframe_db_only(hfr_test)
+                data_context.write_hframe_db_only(hfr_test)
 
                 if localize:
                     DisdatFS._localize_hfr(self.get_hframe_by_uuid(s3_uuid, data_context=data_context),
@@ -1528,7 +1528,7 @@ class DisdatFS(object):
 
 def _branch(fs, args):
     if args.delete:
-        fs.delete_branch(args.context, args.force)
+        fs.delete_branch(args.context, args.remote, args.force)
     else:
         fs.branch(args.context)
 
@@ -1601,15 +1601,19 @@ def _ls(fs, args):
 
 def _cat(fs, args):
 
-    df = fs.cat(args.bundle, uuid=args.uuid, tags=common.parse_args_tags(args.tag), file=args.file)
+    result = fs.cat(args.bundle, uuid=args.uuid, tags=common.parse_args_tags(args.tag), file=args.file)
 
-    if df is None:
+    if result is None:
         print "dsdt cat found no bundle with name {}".format(args.bundle)
     else:
-        # make sure we print out all columns
-        pd.set_option('display.max_colwidth', -1)
-        print df.to_string()
 
+        if isinstance(result, pd.DataFrame):
+            # If df, make sure we print out all columns
+            pd.set_option('display.max_colwidth', -1)
+            print result.to_string()
+        else:
+            # else default print the object
+            print result
 
 def _status(fs, args):
     for f in fs.status(args.bundle):
@@ -1628,6 +1632,7 @@ def init_fs_cl(subparsers):
     context_p = subparsers.add_parser('context')
     context_p.add_argument('-f', '--force', action='store_true', help='Force remove of a dirty local context')
     context_p.add_argument('-d','--delete', action='store_true', help='Delete local context')
+    context_p.add_argument('-r','--remote', action='store_true', help='Delete remote context along with local context')
     context_p.add_argument(
         'context',
         nargs='?',

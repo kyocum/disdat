@@ -34,12 +34,10 @@ author: Kenneth Yocum
 
 from disdat.pipe_base import PipeBase
 from disdat.db_target import DBTarget
-import disdat.common as common
 from disdat.driver import DriverTask
-import shutil
+from disdat.fs import DisdatFS
 import luigi
 import logging
-import json
 import os
 
 
@@ -81,10 +79,13 @@ class PipeTask(luigi.Task, PipeBase):
     output_tags = luigi.DictParameter(default={}, significant=True)
 
     # Each pipeline executes wrt a data context.
-    data_context = luigi.Parameter(significant=False)
+    data_context = luigi.Parameter(default=None, significant=False)
 
     # Each pipeline can be configured to commit and push intermediate values to the remote
     incremental_push = luigi.BoolParameter(default=False, significant=False)
+
+    # Each pipeline can be configured to pull intermediate values on demand from the remote
+    incremental_pull = luigi.BoolParameter(default=False, significant=False)
 
     def __init__(self, *args, **kwargs):
         """
@@ -97,20 +98,6 @@ class PipeTask(luigi.Task, PipeBase):
         """
 
         super(PipeTask, self).__init__(*args, **kwargs)
-
-        if common.PUT_LUIGI_PARAMS_IN_FUNC_PARAMS:
-            # NOTE: Default is not to do this.
-            # Set up param values to be used in prepare_pipe_kwargs
-            # Determine all params -- these are lists of tuples [('name', param value),]
-            # Note: using get_param_values, not get_params, which returns parameter objects.
-            only_pipe_params = PipeTask.get_params()
-            all_params = self.get_params()
-            only_subcls_params = tuple(set(all_params) - set(only_pipe_params))
-
-            # This is pretty gross.  Get the params that are unique to this pipe
-            # Pull them out of kwargs (that's how we build this task! we don't use args!)
-            filtered_kwargs = {k: kwargs[k] for k, v in only_subcls_params if k in kwargs}  # @UnusedVariable
-            self.only_subcls_param_values = self.get_param_values(only_subcls_params, [], filtered_kwargs)
 
         # Get the presentable input params from the closure_hframe
         if self.closure_hframe is not None:
@@ -270,7 +257,8 @@ class PipeTask(luigi.Task, PipeBase):
                 'force': self.force,
                 'output_tags': dict({}),  # do not pass output_tags up beyond root task
                 'data_context': self.data_context,  # all operations wrt this context
-                'incremental_push': self.incremental_push  # propagate the choice to push incremental data.
+                'incremental_push': self.incremental_push,  # propagate the choice to push incremental data.
+                'incremental_pull': self.incremental_pull  # propagate the choice to incrementally pull data.
             })
             tasks.append(pipe_class(**params))
 
@@ -328,7 +316,13 @@ class PipeTask(luigi.Task, PipeBase):
 
             self.data_context.write_hframe(hfr)
 
-            if self.incremental_push:
+            transient = hfr.get_tag('transient_bundle')
+            if transient is not None and transient == "True":
+                transient = True
+            else:
+                transient = False
+
+            if self.incremental_push and not transient:
                 self.pfs.commit(None, None, uuid=pce.uuid, data_context=self.data_context)
                 self.pfs.push(uuid=pce.uuid, data_context=self.data_context)
 
@@ -340,12 +334,8 @@ class PipeTask(luigi.Task, PipeBase):
         return hfr
 
     def prepare_pipe_kwargs(self, for_run=False):
-        """
-        Convert the Luigi Parameters that are buried in "self" to a set of
-        named arguments that are passed through the function call.
-
-        The first parameter is the set of presentables from the input hyperframe.  It is keyed under
-        CLOSURE_PIPE_INPUT.
+        """ Each upstream task produces a bundle.  Prepare that bundle as input
+        to the user's pipe_run function.
 
         Args:
             for_run (bool): prepare args for run -- at that point all upstream tasks have completed.
@@ -360,32 +350,27 @@ class PipeTask(luigi.Task, PipeBase):
         # 1.) Place input hyperframe presentable into the users's run / requires function
         kwargs[CLOSURE_PIPE_INPUT] = self.presentable_inputs
 
-        if common.PUT_LUIGI_PARAMS_IN_FUNC_PARAMS:
-            # 2.) Transparently place user's Luigi Params (Task object variables)
-            # This is a list of tuples of name, parameter object.  If from command line, it is json,
-            # if it is the users default value it should throw an exception.
-            for user_pipe_param_name, user_pipe_param in self.only_subcls_param_values:
-                if user_pipe_param is not None:
-                    try:
-                        deserialized = json.loads(user_pipe_param)
-                    except ValueError:
-                        deserialized = user_pipe_param
-                    except TypeError:
-                        deserialized = user_pipe_param
-                    # NOTE: old code made DF if deserialized was a dict: pd.DataFrame.from_dict(deserialized)
-                    kwargs[user_pipe_param_name] = deserialized
-
         # Place upstream task outputs into the kwargs.  Thus the user does not call
         # self.inputs().  If they did, they would get a list of output targets for the bundle
-        # this isn't very helpful.
+        # that isn't very helpful.
         if for_run:
             upstream_tasks = [(t.user_arg_name, self.pfs.get_path_cache(t)) for t in self.requires()]
             for user_arg_name, pce in [u for u in upstream_tasks if u[1] is not None]:
                 hfr = self.pfs.get_hframe_by_uuid(pce.uuid, data_context=self.data_context)
                 assert hfr.is_presentable()
+
+                # Download any data that is not local (the linked files are not present).
+                # This is the default behavior when running in a container.
+                # The non-default is to download and localize ALL bundles in the context before we run.
+                # That's in-efficient.   We only need meta-data to determine what to re-run.
+                if self.incremental_pull:
+                    DisdatFS()._localize_hfr(hfr, pce.uuid, self.data_context)
+
                 if pce.instance.user_arg_name in kwargs:
                     _logger.warning('Task human name {} reused when naming task dependencies: Dependency hyperframe shadowed'.format(pce.instance.user_arg_name))
+
                 kwargs[user_arg_name] = self.data_context.present_hfr(hfr)
+
         return kwargs
 
     """
@@ -602,3 +587,21 @@ class PipeTask(luigi.Task, PipeBase):
         """
         assert (isinstance(tags, dict))
         self.user_tags.update(tags)
+
+    def mark_transient(self):
+        """
+        Disdat Pipe API Function
+
+        Mark output bundle as transient.   This means that during execution Disdat will not
+        write (push) this bundle back to the remote.  That only happens in two cases:
+        1.) Started the pipeline with incremental_push=True
+        2.) Running the pipeline in a container with no_push or no_push_intermediates False
+
+        We mark the bundle with a tag.   Incremental push investigates the tag before pushing.
+        And the entrypoint investigates the tag if we are not pushing incrementally.
+        Otherwise, normal push commands from the CLI or api will work, i.e., manual pushes continue to work.
+
+        Returns:
+            None
+        """
+        self.add_tags({'transient_bundle': 'True'})

@@ -18,17 +18,44 @@ import luigi
 import pandas as pd
 import numpy as np
 from disdat.pipe import PipeTask
+import disdat.api as api
 
-""" Purpose of this test is to have one task that produces a bundle.
-And another task that requires it. 
 
-1.) Create external dep -- also creates PreMaker_auf_datamaker
-dsdt apply - - test_external_bundle.DataMaker --int_array '[1000,2000,3000]'
-2.) Remove Premaker_auf_datamaker
-dsdt rm PreMaker_auf_datamaker
-3.) Try to run Root -- it should find DataMaker but not re-create it or PreMaker_auf_datamaker
+TEST_CONTEXT = '_test_context_'
+TEST_NAME    = 'test_bundle'
 
- """
+
+def test():
+    """ Purpose of this test is to have one task that produces a bundle.
+    And another task that requires it.
+
+    1.) Create external dep -- also creates PreMaker_auf_datamaker
+    dsdt apply - - test_external_bundle.DataMaker --int_array '[1000,2000,3000]'
+
+    2.) Remove Premaker_auf_datamaker
+    dsdt rm PreMaker_auf_datamaker
+
+    3.) Try to run Root -- it should find DataMaker but not re-create it or PreMaker_auf_datamaker
+
+    """
+
+    api.context(TEST_CONTEXT)
+
+    api.apply(TEST_CONTEXT, '-', '-', 'DataMaker', params={'int_array': '[1000,2000,3000]'})
+
+    b = api.get(TEST_CONTEXT, 'PreMaker_auf_datamaker')
+
+    assert(b is not None)
+
+    b.rm()
+
+    api.apply(TEST_CONTEXT, '-', '-', 'Root')
+
+    b = api.get(TEST_CONTEXT, 'PreMaker_auf_root')
+
+    assert(b is not None)
+
+    api.delete_context(TEST_CONTEXT)
 
 
 class DataMaker(PipeTask):
@@ -73,3 +100,7 @@ class Root(PipeTask):
         print ("Root received a datamaker {}".format(datamaker))
 
         return
+
+
+if __name__ == '__main__':
+    test()

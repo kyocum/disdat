@@ -125,4 +125,5 @@ class DFFork(PipeTask):
 
 
 if __name__ == "__main__":
+    api.apply('examples', '-', 'DataMaker', 'DataMaker')
     api.apply('examples', 'DataMaker', '-', 'DFFork', params={'fork_task': '__main__.PrintRow'})

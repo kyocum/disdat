@@ -16,7 +16,7 @@
 
 
 """
-api
+API
 
 A Disdat API for creating and publishing bundles.
 
@@ -28,21 +28,6 @@ in the CLI and vice versa.
 To make this work we get a pointer to the singelton FS object, and we temporarily change the context (it will
 automatically assume the context of the CLI) and perform our operation.
 
-
-import disdat as dsdt
-
-dsdt.contexts()
-dsdt.bundle(data=None, tags=None)
-dsdt.remote(remote_ctxt, s3_url)
-dsdt.add(ctxt, bndl)
-dsdt.ls(ctxt, bndl)
-dsdt.commit(ctxt, bndl, tags=None)
-dsdt.bundle_to_df(bndl)
-dsdt.pull(remote, bndl, uuid, tags)
-dsdt.push(remote, bndl, uuid, tags)
-dsdt.apply(in, out, transform, in_tags, out_tags, force, **kwargs)
-dsdt.run(in, out, transform, in_tags, out_tags, force, **kwargs)
-
 Author: Kenneth Yocum
 """
 
@@ -50,13 +35,17 @@ Author: Kenneth Yocum
 import logging
 import os
 import json
+import luigi
+from luigi.contrib import s3
 
 import disdat.apply
 import disdat.run
 import disdat.fs
 import disdat.common as common
-from disdat.pipe_base import PipeBase
+from disdat.pipe_base import PipeBase, get_pipe_version
 from disdat.db_target import DBTarget
+from disdat.pipe import PipeTask
+from disdat.hyperframe import HyperFrameRecord, LineageRecord
 
 _logger = logging.getLogger(__name__)
 
@@ -77,9 +66,50 @@ Bundle Creation
 """
 
 
-class Bundle(object):
+class BundleWrapperTask(PipeTask):
+    """ This task allows one to create bundles that can be referred to
+    in a Disdat pipeline through a self.add_external_dependency.
+    1.) User makes a bundle outside of Luigi
+    2.) Luigi pipeline wants to use bundle.
+       a.) Refer to the bundle as an argument and reads it using API (outside of Luigi dependencies)
+       b.) Refer to the bundle using a BundleWrapperTask.  Luigi Disdat pipeline uses the latest
+       bundle with the processing_name.
 
-    def __init__(self, local_context):
+    Two implementation options:
+    1.) We add a "add_bundle_dependency()" call to Disdat.  This directly changes how we schedule.
+    2.) We add a special Luigi task (as luigi has for outside files) and use that to produce the
+    processing_name, when there isn't an actual task creating the data.
+
+    Thus this task is mainly to provide a way that
+    a.) A user can create a bundle and set the processing_name
+    b.) The pipeline can refer to this bundle using the same processing_name
+
+    The parameters in this task should allow one to sufficiently identify versions
+    of this bundle.
+
+    Note:  No processing_name and No UUID
+    """
+    name = luigi.Parameter(default=None)
+    owner = luigi.Parameter(default=None)
+    tags = luigi.DictParameter(default={})
+
+    def bundle_inputs(self):
+        """ Determine input bundles """
+        raise NotImplementedError
+
+    def bundle_outputs(self):
+        """ Determine input bundles """
+        raise NotImplementedError
+
+    def pipeline_id(self):
+        """ default is shortened version of pipe_id
+        But here we want it to be the set name """
+        return self.name
+
+
+class Bundle(HyperFrameRecord):
+
+    def __init__(self, local_context, name, owner=''):
         """ Given name and a local context, create a handle that users can
         work with to:
         a.) Create files / directories / dbtables (i.e., Bundle Links)
@@ -93,6 +123,7 @@ class Bundle(object):
 
         Args:
             local_context (str): Where this bundle will be output or where it was sourced from.
+            name (str): Human name for this bundle
         """
 
         try:
@@ -101,9 +132,7 @@ class Bundle(object):
             _logger.error("Unable to allocate bundle in context: {} ".format(local_context, e))
             return
 
-        self.name = None
-        self.processing_name = None
-        self.owner = None
+        super(Bundle, self).__init__(human_name=name, owner=owner)
 
         self.local_dir = None
         self.remote_dir = None
@@ -112,39 +141,82 @@ class Bundle(object):
         self.closed = False
 
         self.input_data = None  # The df, array, dictionary the user wants to store
-        self.tags = {}    # The dictionary of (str):(str) tags the user wants to attach
+
         self.db_targets = []    # list of created db targets
+        self.depends_on = []    # list of tuples (processing_name, uuid) of bundles on which this bundle depends
         self.data = None
 
-        self.uuid = None        # Internal uuid of this bundle.
-        self.presentation = None
-        self._hfr = None        # debating whether to include this
+    """ Convenience accessors """
+
+    @property
+    def name(self):
+        return self.pb.human_name
+
+    @property
+    def processing_name(self):
+        return self.pb.processing_name
+
+    @property
+    def owner(self):
+        return self.pb.owner
+
+    @property
+    def uuid(self):
+        return self.pb.uuid
+
+    @property
+    def creation_date(self):
+        return self.pb.lineage.creation_date
+
+    @property
+    def tags(self):
+        return self.tag_dict
+
+    """ Alternative construction post allocation """
 
     def fill_from_hfr(self, hfr):
         """ Given an internal hyperframe, copy out the information to this user-side Bundle object.
+
+        Assume the user has set the data_context appropriately when creating the bundle object
+
+        The Bundle object inherits from HyperFrameRecord.  So we needs to:
+        a.) set the pb to point to this pb, they may both point to the same pb, but this bundle will be *closed*
+        b.) init internal state
+        c.) Set bundle object specific fields.   Note we do not set or clear the self.data_context
 
         Args:
             hfr:
 
         Returns:
-            None
+            self: this bundle object with self.data containing the kind of object the user saved.
 
         """
+
+        assert(not self.open and not self.closed)  # assume this is a brand-new bundle
 
         self.open = False
         self.closed = True
 
-        self.name = hfr.pb.human_name
-        self.processing_name = hfr.pb.processing_name
-        self.uuid = hfr.pb.uuid
-        self.presentation = hfr.pb.presentation
+        self.pb = hfr.pb
+        self.init_internal_state()
 
-        self.data = self.data_context.convert_hfr2df(hfr)
-        self.tags = hfr.tag_dict
+        self.depends_on = hfr.pb.lineage.depends_on
+        self.data = self.data_context.present_hfr(hfr)
 
-        self._hfr = hfr
+    """ Python Context Manager Interface """
 
-    def open(self):
+    def __enter__(self):
+        """ 'open'
+        """
+        return self._open()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """ 'close'
+        If there has been an exception, let the user deal with the written created bundle.
+        """
+        self._close()
+
+    def _open(self):
         """ Add the bundle to this local context
 
         Note, we don't need to checkout this context, we just need the relevant context object.
@@ -158,14 +230,19 @@ class Bundle(object):
             _logger.warn("Bundle is already open.")
             return
         elif not self.closed:
-            self.local_dir, self.uuid, self.remote_dir = self.data_context.make_managed_path()
+            self.local_dir, self.pb.uuid, self.remote_dir = self.data_context.make_managed_path()
             self.open = True
         else:
             _logger.warn("Bundle is closed -- unable to re-open.")
-        return
+        return self
 
-    def close(self):
-        """
+    def _close(self):
+        """ Write out this bundle as a hyperframe.
+
+        Parse the data, set presentation, create lineage, and
+        write to disk.
+
+        This closes the bundle so it may not be re-used.
 
         Returns:
             None
@@ -173,78 +250,115 @@ class Bundle(object):
 
         try:
 
-            hfr = PipeBase.parse_pipe_return_val(self.uuid, self.data, self.data_context, human_name=self.name)
+            presentation, frames = PipeBase.parse_return_val(self.uuid, self.data, self.data_context)
 
-            self.tags.update({'APIBundle': 'True'})
+            self.add_frames(frames)
 
-            hfr.replace_tags(self.tags)
+            self.pb.presentation = presentation
 
-            self.data_context.write_hframe(hfr)
+            cv = get_pipe_version(BundleWrapperTask)
+
+            lr = LineageRecord(hframe_name=self._set_processing_name(), # <--- setting processing name
+                               hframe_uuid=self.uuid,
+                               code_repo=cv.url,
+                               code_name='unknown',
+                               code_semver=cv.semver,
+                               code_hash=cv.hash,
+                               code_branch=cv.branch,
+                               depends_on=self.depends_on)
+
+            self.add_lineage(lr)
+
+            self.replace_tags(self.tags)
+
+            self.data_context.write_hframe(self)
 
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
             PipeBase.rm_bundle_dir(self.local_dir, self.uuid, self.db_targets)
             raise
 
-        self.open = False
         self.closed = True
+        self.open = False
 
-        return hfr
+        return self
 
-    def add(self, data):
+    """ Convenience Routines """
+
+    def add_data(self, data):
         """ Add data to a bundle.   The bundle must be open and not closed.
             One adds one data item to a bundle (dictionary, list, tuple, scalar, or dataframe).
             Calling this replaces the latest item -- only the latest will be included in the bundle on close.
 
         Args:
-            data (list|tuple|scalar|`pandas.DataFrame`):
+            data (list|tuple|dict|scalar|`pandas.DataFrame`):
 
         Returns:
-            None
+            self
         """
+        assert(self.open and not self.closed)
+        if self.data is not None:
+            _logger.warning("Disdat API add_data replacing existing data on bundle")
         self.data = data
+        return self
 
-    def to_df(self):
-        if self.closed:
-            return self.df
-        else:
-            _logger.warn("Close bundle to convert to dataframe")
-            return None
+    def rm(self):
+        """ Remove bundle from the current context associated with this bundle object
+        Only remove this bundle with this uuid.
+        This only makes sense if the bundle is closed.
+        """
+        assert(self.closed and not self.open)
+        fs.rm(uuid=self.uuid, data_context=self.data_context)
+        return self
 
     def commit(self):
-        """
-        TODO: should do this or use the api below?  If we have the HFR we don't have to find it.
+        """ Shortcut version of api.commit(uuid=bundle.uuid)
 
         Returns:
-
+            self
         """
-        raise NotImplementedError
+        fs.commit(None, None, uuid=self.uuid, data_context=self.data_context)
+        return self
 
     def push(self):
-        """
-        TODO: should do this or use the api below?  If we have the HFR we don't have to find it.
-
-        Args:
-            remote:
-            bndl:
-            uuid:
-            tags:
+        """ Shortcut version of api.push(uuid=bundle.uuid)
 
         Returns:
             (`disdat.api.Bundle`): this bundle
 
         """
-        raise NotImplementedError
 
-    def tag(self, key, value):
+        assert(self.closed and not self.open)
+
+        if self.data_context.get_remote_object_dir() is None:
+            raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(self.data_context.get_repo_name(),
+                                                                                          self.data_context.get_local_name()))
+
+        fs.push(uuid=self.uuid, data_context=self.data_context)
+
+        return self
+
+    def pull(self, localize=False):
+        """ Shortcut version of api.pull()
+
+        Note if localizing, then we update this bundle to reflect the possibility of new, local links
+
+        """
+        assert( (not self.open and not self.closed) or (not self.open and self.closed) )
+        fs.pull(uuid=self.uuid, localize=localize, data_context=self.data_context)
+        if localize:
+            assert self.is_presentable()
+            self.data = self.data_context.present_hfr(self) # actualize link urls
+        return self
+
+    def add_tags(self, tags):
         """ Add tag to our set of input tags
 
         Args:
-            key (str): The tag key
-            value (str): The tag value
+            k,v (dict): string:string dictionary
 
         Returns:
-
+            self
         """
         if not self.open:
             _logger.warn("Open the bundle to modify tags.")
@@ -252,7 +366,8 @@ class Bundle(object):
         if self.closed:
             _logger.warn("Unable to modify tags in a closed bundle.")
             return
-        self.tags[key] = value
+        super(Bundle, self).add_tags(tags)
+        return self
 
     def db_table(self, dsn, table_name, schema_name):
         """
@@ -275,8 +390,12 @@ class Bundle(object):
         return db_target
 
     def make_directory(self, dir_name):
-        """
-        Returns a path to a disdat managed directory.
+        """ Returns path `<disdat-managed-directory>/<dir_name>`.  This is used if you need
+        to hand a process an output directory and you do not have control of what it writes in
+        that directory.
+
+        Add this path as you would add file paths to your output bundle.  Disdat will incorporate
+        all the data found in this directory into the bundle.
 
         See Pipe.create_output_dir()
 
@@ -296,21 +415,80 @@ class Bundle(object):
 
         return fqp
 
-    def make_file(self, name):
+    def make_file(self, filename):
         """
-        Returns a path to a disdat managed file.
+        Create a file-like object to write to called 'filename'
 
-        See Pipe.create_output_file()
+        The file will be placed in the output bundle directory.  However it won't be
+        recorded as part of the bundle unless the path or this target is placed
+        in the output.  I.e., `bundle.add_data(bundle.make_file("my_file"))`
 
         Arguments:
-            name (str): The human readable name to a file reference
+            filename (str,list,dict): filename to create in the bundle
 
         Returns:
-            str: A file path managed by disdat
+            `luigi.LocalTarget` or `luigi.s3.S3Target`
         """
         assert (self.open and not self.closed)
 
-        return self.make_luigi_targets_from_basename(filename)
+        return PipeBase.filename_to_luigi_targets(self.local_dir, filename)
+
+    def add_file(self, filename):
+        """
+        Create a file-like object to write to called 'filename' and automatically add
+        it to the output bundle.  This is useful if your bundle only contains output files
+        and you don't wish to include any other information in your bundle.
+
+        The file will be placed in the output bundle directory.
+
+        Note: if you call `bundle.add_data()` it will overwrite any previous file adds.
+
+        Arguments:
+            filename (str,list,dict): filename to create in the bundle
+
+        Returns:
+            `luigi.LocalTarget` or `luigi.contrib.s3.S3Target`
+        """
+        assert (self.open and not self.closed)
+
+        target = PipeBase.filename_to_luigi_targets(self.local_dir, filename)
+
+        if self.data is None:
+            self.data = target
+        elif isinstance(self.data, list):
+            self.data.append(target)
+        else:
+            assert(isinstance(self.data, (luigi.LocalTarget, s3.S3Target)))
+            self.data = [self.data, target]
+
+        return target
+
+    def add_dependency(self, bundle):
+        """ Add an upstream bundle as a dependency
+
+        Args:
+            bundle(`api.Bundle`): Another bundle that may have been used to produce this one
+        """
+        self.depends_on.append((bundle.processing_name, bundle.uuid))
+
+    def _set_processing_name(self):
+        """ Set a processing name that may be used to identify bundles that
+        were created in the same way -- they used the same task and task paramaters.
+        In cases where Luigi tasks create bundles, this is the luigi.Task.taskid()
+        Here we use a wrapper luigi task to do the same.
+        Note that we assume you have placed your parameters as tags.
+
+        Returns:
+            processing_name(str)
+
+        """
+        wrapper_task = BundleWrapperTask(name=self.name,
+                                         owner=self.owner,
+                                         tags=self.tags)
+
+        self.pb.processing_name = wrapper_task.pipe_id()
+
+        return self.pb.processing_name
 
 
 def _get_context(context_name):
@@ -363,20 +541,22 @@ def context(context_name):
     Returns:
         None
     """
+
     fs.branch(context_name)
 
 
-def delete_branch(context_name, force=False):
+def delete_context(context_name, remote=False, force=False):
     """ Delete a context
 
     Args:
         context_name (str): <remote context>/<local context> or <local context>
+        remote (bool): Delete remote context as well, force must be True
         force (bool): Force deletion if dirty
 
     Returns:
         None
     """
-    fs.delete_branch(context_name, force=force)
+    fs.delete_branch(context_name, remote=remote, force=force)
 
 
 def switch(context_name):
@@ -462,7 +642,7 @@ def search(local_context, search_name=None, search_tags=None, is_committed=None,
                     continue
 
         # We have filtered out
-        bundle = Bundle(local_context)
+        bundle = Bundle(local_context, 'unknown')
         bundle.fill_from_hfr(r)
         results.append(bundle)
 
@@ -494,23 +674,35 @@ def get(local_context, bundle_name, uuid=None, tags=None):
     else:
         hfr = fs.get_hframe_by_uuid(uuid, tags=tags, data_context=data_context)
 
-    b = Bundle(local_context)
+    if hfr is None:
+        return None
+
+    b = Bundle(local_context, 'unknown')
     b.fill_from_hfr(hfr)
 
     return b
 
 
-def rm(local_context, bundle_name, uuid=None):
+def rm(local_context, bundle_name=None, uuid=None, tags=None, rm_all=False, rm_old_only=False, force=False):
     """ Delete a bundle
 
     Args:
-        local_context:
-        bundle_name:
-        uuid:
+        local_context (str): Local context name
+        bundle_name (str): Optional human-given name for the bundle
+        uuid (str): Optional UUID for the bundle to remove.  Trumps bundle_name argument if both given
+        tags (dict(str:str)): Optional dictionary of tags that must be present on bundle to remove
+        rm_all (bool): Remove latest and all historical if given bundle_name
+        rm_old_only (bool): remove everything but latest if given bundle_name
+        force (bool): If a db-link exists and it is the latest on the remote DB, force remove. Default False.
 
     Returns:
 
     """
+
+    data_context = _get_context(local_context)
+
+    fs.rm(human_name=bundle_name, rm_all=rm_all, rm_old_only=rm_old_only,
+          uuid=uuid, tags=tags, force=force, data_context=data_context)
 
 
 def cat(local_context, bundle_name):
@@ -594,8 +786,9 @@ def pull(local_context, bundle_name=None, uuid=None, localize=False):
 
 
 def apply(local_context, input_bundle, output_bundle, transform,
-          input_tags=None, output_tags=None, force=False, params=None, output_bundle_uuid=None,
-          central_scheduler=False, workers=1, incremental_push=False):
+          input_tags=None, output_tags=None, force=False, params=None,
+          output_bundle_uuid=None, central_scheduler=False, workers=1,
+          incremental_push=False, incremental_pull=False):
     """
     Similar to apply.main() but we create our inputs and supply the context
     directly.
@@ -613,6 +806,7 @@ def apply(local_context, input_bundle, output_bundle, transform,
         central_scheduler (bool): Use a central scheduler, default False, i.e., use local scheduler
         workers (int): Number of workers, default 1.
         incremental_push (bool): commit and push task bundles as they complete
+        incremental_pull (bool): localize bundles from remote as they are required by downstream tasks
 
     Returns:
 
@@ -642,7 +836,8 @@ def apply(local_context, input_bundle, output_bundle, transform,
                                 central_scheduler=central_scheduler,
                                 workers=workers,
                                 data_context=data_context,
-                                incremental_push=incremental_push)
+                                incremental_push=incremental_push,
+                                incremental_pull=incremental_pull)
 
     # If no raise, but luigi says not successful
     # If API (here), then raise for caller to catch.

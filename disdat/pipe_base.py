@@ -289,6 +289,39 @@ class PipeBase(object):
 
         return luigi_outputs
 
+    @staticmethod
+    def filename_to_luigi_targets(output_dir, output_value):
+        """
+        Create Luigi file objects from a file name, dictionary of file names, or list of file names.
+
+        Return the same object type as output_value, but with Luigi.Targets instead.
+
+        Args:
+            output_dir (str): Managed output path.
+            output_value (str, dict, list): A basename, dictionary of basenames, or list of basenames.
+
+        Return:
+            (`luigi.LocalTarget`, `luigi.S3Target`): Singleton, list, or dictionary of Luigi Target objects.
+        """
+
+        if isinstance(output_value, list) or isinstance(output_value, tuple):
+            luigi_outputs = []
+            for i in output_value:
+                full_path = os.path.join(output_dir, i)
+                luigi_outputs.append(PipeBase._interpret_scheme(full_path))
+            if len(luigi_outputs) == 1:
+                luigi_outputs = luigi_outputs[0]
+        elif isinstance(output_value, dict):
+            luigi_outputs = {}
+            for k, v in output_value.iteritems():
+                full_path = os.path.join(output_dir, v)
+                luigi_outputs[k] = PipeBase._interpret_scheme(full_path)
+        else:
+            full_path = os.path.join(output_dir, output_value)
+            luigi_outputs = PipeBase._interpret_scheme(full_path)
+
+        return luigi_outputs
+
     def make_luigi_targets_from_basename(self, output_value):
         """
         Determine the output paths AND create the Luigi objects.
@@ -307,25 +340,10 @@ class PipeBase(object):
 
         # Find the path cache entry for this pipe to find its output path
         pce = self.pfs.get_path_cache(self)
+
         assert(pce is not None)
 
-        if isinstance(output_value, list) or isinstance(output_value, tuple):
-            luigi_outputs = []
-            for i in output_value:
-                full_path = os.path.join(pce.path, i)
-                luigi_outputs.append(self._interpret_scheme(full_path))
-            if len(luigi_outputs) == 1:
-                luigi_outputs = luigi_outputs[0]
-        elif isinstance(output_value, dict):
-            luigi_outputs = {}
-            for k, v in output_value.iteritems():
-                full_path = os.path.join(pce.path, v)
-                luigi_outputs[k] = self._interpret_scheme(full_path)
-        else:
-            full_path = os.path.join(pce.path, output_value)
-            luigi_outputs = self._interpret_scheme(full_path)
-
-        return luigi_outputs
+        return self.filename_to_luigi_targets(pce.path, output_value)
 
     @staticmethod
     def rm_bundle_dir(output_path, uuid, db_targets):
@@ -356,29 +374,19 @@ class PipeBase(object):
                 uuid, why))
 
     @staticmethod
-    def parse_pipe_return_val(hfid, val, data_context, pipe):
+    def parse_return_val(hfid, val, data_context):
         """
-
-        Interpret the return values and create an HFrame to wrap them.
-        This means setting the correct presentation bit in the HFrame so that
-        we call downstream tasks with parameters as the author intended.
-
-        POLICY / NOTE:  An non-HF output is a Presentable.
-        NOTE: For now, a task output is *always* presentable.
-        NOTE: No other code should set presentation in a HyperFrame.
-
-        The mirror to this function (that unpacks a presentable is disdat.fs.present_hfr()
 
         Args:
-            hfid:
-            val:
-            data_context (`disdat.data_context.DataContext`):
-            pipe: The disdat pipe producing these values, has human_name, bundle_inputs, and pipe_id()
+            hfid (str): UUID
+            val (object): A scalar, dict, tuple, list, dataframe
+            data_context (DataContext): The data context into which to place this value
 
         Returns:
-            Frames, Presentation
+            (presentation, frames[])
 
         """
+
         frames = []
 
         managed_path = os.path.join(data_context.get_object_dir(), hfid)
@@ -404,11 +412,11 @@ class PipeBase(object):
         elif isinstance(val, dict):
             presentation = hyperframe_pb2.ROW
             for k, v in val.iteritems():
-                if False: # For now require dict values to be sequences
-                    if not isinstance(v, collections.Sequence):
-                        frames.append(DataContext.convert_scalar2frame(hfid, k, v, managed_path))
-                assert isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray))
-                frames.append(DataContext.convert_serieslike2frame(hfid, k, v, managed_path))
+                if not isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, collections.Sequence)):
+                    frames.append(DataContext.convert_scalar2frame(hfid, k, v, managed_path))
+                else:
+                    assert isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, collections.Sequence))
+                    frames.append(DataContext.convert_serieslike2frame(hfid, k, v, managed_path))
 
         elif isinstance(val, pd.DataFrame):
             presentation = hyperframe_pb2.DF
@@ -418,8 +426,36 @@ class PipeBase(object):
             presentation = hyperframe_pb2.SCALAR
             frames.append(DataContext.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
 
-        hfr = PipeBase.make_hframe(frames, hfid, pipe.bundle_inputs(),
-                                   pipe.pipeline_id(), pipe.pipe_id(), pipe,
-                                   tags={"presentable": "True"},
-                                   presentation=presentation)
-        return hfr
+        return presentation, frames
+
+    @staticmethod
+    def parse_pipe_return_val(hfid, val, data_context, pipe):
+        """
+
+        Interpret the return values and create an HFrame to wrap them.
+        This means setting the correct presentation bit in the HFrame so that
+        we call downstream tasks with parameters as the author intended.
+
+        POLICY / NOTE:  An non-HF output is a Presentable.
+        NOTE: For now, a task output is *always* presentable.
+        NOTE: No other code should set presentation in a HyperFrame.
+
+        The mirror to this function (that unpacks a presentable is disdat.fs.present_hfr()
+
+        Args:
+            hfid: UUID
+            val: Value to parse
+            data_context (`data_context.DataContext`):
+            pipe: The disdat pipe producing these values, has human_name, bundle_inputs, and pipe_id()
+
+        Returns:
+            HyperFrameRecord
+
+        """
+
+        presentation, frames = PipeBase.parse_return_val(hfid, val, data_context)
+
+        return PipeBase.make_hframe(frames, hfid, pipe.bundle_inputs(),
+                                    pipe.pipeline_id(), pipe.pipe_id(), pipe,
+                                    tags={"presentable": "True"},
+                                    presentation=presentation)
