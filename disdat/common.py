@@ -17,7 +17,6 @@
 Configuration
 """
 
-import json
 import logging
 import os
 import sys
@@ -48,6 +47,7 @@ BUNDLE_URI_SCHEME = 'bundle://'
 
 # Some tags in bundles are special.  They are prefixed with '__'
 BUNDLE_TAG_PARAMS_PREFIX = '__param_'
+BUNDLE_TAG_TRANSIENT = '__transient'
 
 
 class ApplyException(Exception):
