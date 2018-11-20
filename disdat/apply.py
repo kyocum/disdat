@@ -28,7 +28,6 @@ import logging
 import sys
 import json
 import collections
-import inspect
 import disdat.common as common  # config, especially logging, before luigi ever loads
 import disdat.pipe_base as pipe_base
 import disdat.fs as fs

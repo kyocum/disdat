@@ -448,6 +448,31 @@ def delete_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_n
     return results
 
 
+def delete_fr_db(engine_g, hfr_uuid):
+    """ Remove all frames from the database that belong to the hyperframe with uuid hfr_uuid
+
+    Args:
+        engine_g: query engine
+        hfr_uuid: the hyperframe uuid to which the frames belong
+
+    Returns:
+        results
+    """
+
+    pb_cls = FrameRecord
+
+    where = "WHERE hframe_uuid {}".format(_translate(hfr_uuid))
+
+    fr_del = text(
+        "DELETE FROM {} {}".format(pb_cls.table_name, where)
+    )
+
+    with engine_g.connect() as conn:
+        results = conn.execute(fr_del)
+
+    return [results]
+
+
 def get_files_in_dir(dir):
     """ Look for files in a user returned directory
     1.) Only look one-level down (in this directory)

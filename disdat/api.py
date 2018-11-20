@@ -16,7 +16,7 @@
 
 
 """
-api
+API
 
 A Disdat API for creating and publishing bundles.
 
@@ -28,21 +28,6 @@ in the CLI and vice versa.
 To make this work we get a pointer to the singelton FS object, and we temporarily change the context (it will
 automatically assume the context of the CLI) and perform our operation.
 
-
-import disdat as dsdt
-
-dsdt.contexts()
-dsdt.bundle(data=None, tags=None)
-dsdt.remote(remote_ctxt, s3_url)
-dsdt.add(ctxt, bndl)
-dsdt.ls(ctxt, bndl)
-dsdt.commit(ctxt, bndl, tags=None)
-dsdt.bundle_to_df(bndl)
-dsdt.pull(remote, bndl, uuid, tags)
-dsdt.push(remote, bndl, uuid, tags)
-dsdt.apply(in, out, transform, in_tags, out_tags, force, **kwargs)
-dsdt.run(in, out, transform, in_tags, out_tags, force, **kwargs)
-
 Author: Kenneth Yocum
 """
 
@@ -51,7 +36,7 @@ import logging
 import os
 import json
 import luigi
-import getpass
+from luigi.contrib import s3
 
 import disdat.apply
 import disdat.run
@@ -107,7 +92,6 @@ class BundleWrapperTask(PipeTask):
     name = luigi.Parameter(default=None)
     owner = luigi.Parameter(default=None)
     tags = luigi.DictParameter(default={})
-    creation_date = luigi.Parameter(default=None)
 
     def bundle_inputs(self):
         """ Determine input bundles """
@@ -117,10 +101,15 @@ class BundleWrapperTask(PipeTask):
         """ Determine input bundles """
         raise NotImplementedError
 
+    def pipeline_id(self):
+        """ default is shortened version of pipe_id
+        But here we want it to be the set name """
+        return self.name
+
 
 class Bundle(HyperFrameRecord):
 
-    def __init__(self, local_context, name):
+    def __init__(self, local_context, name, owner=''):
         """ Given name and a local context, create a handle that users can
         work with to:
         a.) Create files / directories / dbtables (i.e., Bundle Links)
@@ -143,7 +132,7 @@ class Bundle(HyperFrameRecord):
             _logger.error("Unable to allocate bundle in context: {} ".format(local_context, e))
             return
 
-        super(Bundle, self).__init__(human_name=name, owner=getpass.getuser())
+        super(Bundle, self).__init__(human_name=name, owner=owner)
 
         self.local_dir = None
         self.remote_dir = None
@@ -308,6 +297,8 @@ class Bundle(HyperFrameRecord):
             self
         """
         assert(self.open and not self.closed)
+        if self.data is not None:
+            _logger.warning("Disdat API add_data replacing existing data on bundle")
         self.data = data
         return self
 
@@ -427,19 +418,50 @@ class Bundle(HyperFrameRecord):
     def make_file(self, filename):
         """
         Create a file-like object to write to called 'filename'
+
         The file will be placed in the output bundle directory.  However it won't be
         recorded as part of the bundle unless the path or this target is placed
-        in the output.
+        in the output.  I.e., `bundle.add_data(bundle.make_file("my_file"))`
 
         Arguments:
             filename (str,list,dict): filename to create in the bundle
 
         Returns:
-            single, list, or dictionary of `luigi.LocalTarget` or `luigi.s3.S3Target`
+            `luigi.LocalTarget` or `luigi.s3.S3Target`
         """
         assert (self.open and not self.closed)
 
         return PipeBase.filename_to_luigi_targets(self.local_dir, filename)
+
+    def add_file(self, filename):
+        """
+        Create a file-like object to write to called 'filename' and automatically add
+        it to the output bundle.  This is useful if your bundle only contains output files
+        and you don't wish to include any other information in your bundle.
+
+        The file will be placed in the output bundle directory.
+
+        Note: if you call `bundle.add_data()` it will overwrite any previous file adds.
+
+        Arguments:
+            filename (str,list,dict): filename to create in the bundle
+
+        Returns:
+            `luigi.LocalTarget` or `luigi.contrib.s3.S3Target`
+        """
+        assert (self.open and not self.closed)
+
+        target = PipeBase.filename_to_luigi_targets(self.local_dir, filename)
+
+        if self.data is None:
+            self.data = target
+        elif isinstance(self.data, list):
+            self.data.append(target)
+        else:
+            assert(isinstance(self.data, (luigi.LocalTarget, s3.S3Target)))
+            self.data = [self.data, target]
+
+        return target
 
     def add_dependency(self, bundle):
         """ Add an upstream bundle as a dependency
@@ -462,8 +484,7 @@ class Bundle(HyperFrameRecord):
         """
         wrapper_task = BundleWrapperTask(name=self.name,
                                          owner=self.owner,
-                                         tags=self.tags,
-                                         creation_date=self.creation_date)
+                                         tags=self.tags)
 
         self.pb.processing_name = wrapper_task.pipe_id()
 
@@ -524,17 +545,18 @@ def context(context_name):
     fs.branch(context_name)
 
 
-def delete_branch(context_name, force=False):
+def delete_context(context_name, remote=False, force=False):
     """ Delete a context
 
     Args:
         context_name (str): <remote context>/<local context> or <local context>
+        remote (bool): Delete remote context as well, force must be True
         force (bool): Force deletion if dirty
 
     Returns:
         None
     """
-    fs.delete_branch(context_name, force=force)
+    fs.delete_branch(context_name, remote=remote, force=force)
 
 
 def switch(context_name):
@@ -620,7 +642,7 @@ def search(local_context, search_name=None, search_tags=None, is_committed=None,
                     continue
 
         # We have filtered out
-        bundle = Bundle(local_context)
+        bundle = Bundle(local_context, 'unknown')
         bundle.fill_from_hfr(r)
         results.append(bundle)
 
@@ -652,7 +674,10 @@ def get(local_context, bundle_name, uuid=None, tags=None):
     else:
         hfr = fs.get_hframe_by_uuid(uuid, tags=tags, data_context=data_context)
 
-    b = Bundle(local_context)
+    if hfr is None:
+        return None
+
+    b = Bundle(local_context, 'unknown')
     b.fill_from_hfr(hfr)
 
     return b

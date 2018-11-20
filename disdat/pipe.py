@@ -79,7 +79,7 @@ class PipeTask(luigi.Task, PipeBase):
     output_tags = luigi.DictParameter(default={}, significant=True)
 
     # Each pipeline executes wrt a data context.
-    data_context = luigi.Parameter(significant=False)
+    data_context = luigi.Parameter(default=None, significant=False)
 
     # Each pipeline can be configured to commit and push intermediate values to the remote
     incremental_push = luigi.BoolParameter(default=False, significant=False)
