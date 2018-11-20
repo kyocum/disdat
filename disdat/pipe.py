@@ -36,6 +36,7 @@ from disdat.pipe_base import PipeBase
 from disdat.db_target import DBTarget
 from disdat.driver import DriverTask
 from disdat.fs import DisdatFS
+from disdat.common import BUNDLE_TAG_TRANSIENT
 import luigi
 import logging
 import os
@@ -316,11 +317,9 @@ class PipeTask(luigi.Task, PipeBase):
 
             self.data_context.write_hframe(hfr)
 
-            transient = hfr.get_tag('transient_bundle')
-            if transient is not None and transient == "True":
+            transient = False
+            if hfr.get_tag(BUNDLE_TAG_TRANSIENT) is not None:
                 transient = True
-            else:
-                transient = False
 
             if self.incremental_push and not transient:
                 self.pfs.commit(None, None, uuid=pce.uuid, data_context=self.data_context)
@@ -604,4 +603,4 @@ class PipeTask(luigi.Task, PipeBase):
         Returns:
             None
         """
-        self.add_tags({'transient_bundle': 'True'})
+        self.add_tags({BUNDLE_TAG_TRANSIENT: 'True'})

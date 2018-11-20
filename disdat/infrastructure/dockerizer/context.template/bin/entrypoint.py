@@ -209,6 +209,13 @@ def add_argument_help_string(help_string, default=None):
         return "{} (default '{}')".format(help_string, default)
 
 
+def _commit_and_push(b):
+    """ commit and push bundle b if not transient """
+    if disdat.common.BUNDLE_TAG_TRANSIENT not in b.tags:
+        b.commit()
+        b.push()
+
+
 def run_disdat_container(args):
     """ Execute Disdat inside of container
 
@@ -251,21 +258,6 @@ def run_disdat_container(args):
         _logger.error("Failed to pull and localize all bundles from context {} due to {}".format(args.branch, e))
         sys.exit(os.EX_IOERR)
 
-    # If we received JSON, convert it into a temporary tab-separated file,
-    # and use that as the input bundle.
-    if args.input_json is not None:
-        with tempfile.NamedTemporaryFile(suffix='.tsv') as input_file:
-            # To be nice, strip newlines and any single-quotes left over by
-            # the shell
-            input_json = args.input_json.strip('\'\n')
-            _logger.debug("Adding JSON {}".format(input_json))
-            input_path = input_file.name
-            _logger.debug("Saving JSON data to temporary file {}".format(input_file.name))
-            pd.read_json(input_json).to_csv(input_path, sep='\t')
-            if not _add(fs, bundle_name=args.input_bundle, input_path=input_file.name):
-                _logger.error("Failed to add JSON to input bundle \'{}\'".format(args.input))
-                sys.exit(os.EX_IOERR)
-
     # If specified, decode the ordinary 'key:value' strings into a dictionary of tags.
     input_tags = {}
     if args.input_tag is not None:
@@ -274,7 +266,7 @@ def run_disdat_container(args):
     if args.output_tag is not None:
         output_tags = disdat.common.parse_args_tags(args.output_tag)
 
-    # convert string of pipeline args into dictionary for api.apply
+    # Convert string of pipeline args into dictionary for api.apply
     pipeline_args = disdat.common.parse_params(args.pipeline_args)
 
     # If the user wants final and intermediate, then inc push.
@@ -287,7 +279,6 @@ def run_disdat_container(args):
     incremental_pull = True
 
     try:
-
         result = disdat.api.apply(args.branch,
                                   args.input_bundle,
                                   args.output_bundle,
@@ -304,17 +295,14 @@ def run_disdat_container(args):
         if not incremental_push:
             if not args.no_push:
                 if not args.no_push_intermediates:
-                    # push all intermediates
                     to_push = disdat.api.search(args.branch, is_committed=False, find_intermediates=True)
                     for b in to_push:
-                        disdat.api.commit(args.branch, b.name, uuid=b.uuid)
-                        disdat.api.push(args.branch, b.name, uuid=b.uuid)
-
-                # push final output bundle: don't need name w/ uuid
+                        _commit_and_push(b)
                 if result['did_work']:
                     _logger.info("Pipeline ran.  Committing and pushing output bundle UUID {}.".format(args.output_bundle_uuid))
-                    disdat.api.commit(args.branch, None, uuid=args.output_bundle_uuid)
-                    disdat.api.push(args.branch, None, uuid=args.output_bundle_uuid)
+                    b = disdat.api.get(None, uuid=args.output_bundle_uuid)
+                    assert(b is not None)
+                    _commit_and_push(b)
                 else:
                     _logger.info("Pipeline ran but did no useful work (output bundle exists).")
             else:
@@ -346,12 +334,6 @@ def main(input_args):
         description=_HELP,
     )
 
-    parser.add_argument(
-        '--input-json',
-        default=None,
-        type=str,
-        help='JSON-encoded data to load as the input bundle',
-    )
     parser.add_argument(
         '--dump-output',
         help='Dump the output to standard output',
