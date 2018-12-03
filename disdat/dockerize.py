@@ -36,19 +36,36 @@ _DOCKERIZER_ROOT = os.path.dirname(inspect.getsourcefile(infrastructure.dockeriz
 _logger = logging.getLogger(__name__)
 
 
-def dockerize(disdat_config,
-              pipeline_root,
+def _do_subprocess(cmd, cli):
+    """ Standardize error processing
+
+    Args:
+        cmd (str): command to execute
+        cli (bool): whether called from CLI (True) or API (False)
+
+    Returns:
+
+    """
+    try:
+        subprocess.check_call(cmd)
+    except subprocess.CalledProcessError as cpe:
+        if not cli:
+            return cpe.returncode
+        raise
+
+
+def dockerize(pipeline_root,
               pipeline_class_name,
               config_dir=None,
               os_type=None,
               os_version=None,
               build=True,
               push=False,
-              sagemaker=False):
+              sagemaker=False,
+              cli=False):
     """ Create a Docker image for running a pipeline.
 
     Args:
-        disdat_config:
         pipeline_root: Root of the Python source tree containing the
         user-defined transform; must have a setuptools-style setup.py file.
         pipeline_class_name: The fully-qualified name of the pipeline
@@ -58,9 +75,14 @@ def dockerize(disdat_config,
         build (bool): Build the image (default True)
         push (bool): Push to registry listed in Disdat config file
         sagemaker (bool): Build a container for 'train' or 'serve' in SageMaker
+        cli (bool): Whether dockerize was called from the CLI (True) or an API (False -- default)
+
     Returns:
+        (int): 0 equals success, >0 for error
 
     """
+
+    disdat_config = disdat.common.DisdatConfig.instance()
 
     # Get configuration parameters
     image_os_type = os_type if os_type is not None else disdat_config.parser.get(_MODULE_NAME, 'os_type')
@@ -82,7 +104,7 @@ def dockerize(disdat_config,
         docker_context,
     ]
 
-    subprocess.check_call(rsync_command)
+    _do_subprocess(rsync_command, cli)
 
     # PIP: Overwrite pip.conf in the context.template in your repo if they have set the option,
     # else just create empty file.
@@ -97,7 +119,7 @@ def dockerize(disdat_config,
             'touch',
             pip_file_path
         ]
-        subprocess.check_call(touch_command)
+        _do_subprocess(touch_command, cli)
 
     # ODBC: Overwrite the .odbc.ini in the context.template in your repo if the user set the option,
     # else just create empty file.
@@ -112,7 +134,7 @@ def dockerize(disdat_config,
             'touch',
             odbc_file_path
         ]
-        subprocess.check_call(touch_command)
+        _do_subprocess(touch_command, cli)
 
     pipeline_image_name = disdat.common.make_pipeline_image_name(pipeline_class_name)
     DEFAULT_DISDAT_HOME = os.path.join('/', *os.path.dirname(disdat.dockerize.__file__).split('/')[:-1])
@@ -135,7 +157,7 @@ def dockerize(disdat_config,
         if sagemaker:
             build_command.append('SAGEMAKER_TRAIN_IMAGE_NAME={}'.format(disdat.common.make_sagemaker_pipeline_image_name(pipeline_class_name)))
             build_command.append('sagemaker')
-        subprocess.check_call(build_command)
+        _do_subprocess(build_command, cli)
 
     if push:
         docker_client = docker.from_env()
@@ -167,7 +189,10 @@ def dockerize(disdat_config,
         docker_client.api.tag(pipeline_image_name, fq_repository_name)
         for line in docker_client.images.push(fq_repository_name, auth_config=auth_config, stream=True):
             if 'error' in line:
-                raise RuntimeError(line)
+                if cli:
+                    raise RuntimeError(line)
+                else:
+                    return 1
             else:
                 print line
 
@@ -215,29 +240,28 @@ def add_arg_parser(parsers):
         help="Root of the Python source tree containing the user-defined transform; must have a setuptools-style setup.py file"
     )
     dockerize_p.add_argument("pipe_cls", type=str, help="User-defined transform, e.g., module.PipeClass")
-    dockerize_p.set_defaults(func=lambda args: main(disdat.common.DisdatConfig.instance(), args))
+    dockerize_p.set_defaults(func=lambda args: dockerize_entry(cli=True, **vars(args)))
     return parsers
 
 
-def main(disdat_config, args):
-    """Run the dockerize command with some parameters from the command line.
+def dockerize_entry(cli=False, **kwargs):
+    """Run the dockerize command with parameters from the command line or the api.
 
     Parameters:
-        disdat_config:
-        args:
+        cli (bool): Whether this was called from the command line or the api, default False
+        **kwargs
 
     Returns:
-        ()
+        (int): 0 for success, 1 for failure
     """
 
-    dockerize(
-        disdat_config,
-        args.pipe_root,
-        args.pipe_cls,
-        config_dir=args.config_dir,
-        os_type=args.os_type,
-        os_version=args.os_version,
-        build=args.build,
-        push=args.push,
-        sagemaker=args.sagemaker
-    )
+    return dockerize(kwargs['pipe_root'],
+                     kwargs['pipe_cls'],
+                     config_dir=kwargs['config_dir'],
+                     os_type=kwargs['os_type'],
+                     os_version=kwargs['os_version'],
+                     build=kwargs['build'],
+                     push=kwargs['push'],
+                     sagemaker=kwargs['sagemaker'],
+                     cli=cli
+                     )

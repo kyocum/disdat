@@ -14,57 +14,29 @@ import disdat.fs
 import disdat.api
 import logging
 import os
-import pandas as pd
 import sys
-import tempfile
 
 import boto3
 from botocore.exceptions import ClientError
-
-from multiprocessing import Process
-
 
 _PIPELINE_CLASS_ENVVAR = 'PIPELINE_CLASS'
 
 
 _HELP = """ Run a Disdat pipeline. This script wraps up several of the
-steps required to run a pipeline, including: creating a working branch
-inside a Disdat context, applying a pipeline class to an input bundle to
+steps required to run a pipeline, including: creating a working context, 
+applying a pipeline class to an input bundle to
 generate an output bundle, and pushing an output bundle to a Disdat remote.
 """
 
 _logger = logging.getLogger(__name__)
 
 
-def _add(fs, bundle_name, input_path):
-    """Add a file as a bundle to a Disdat branch.
-
-    :param fs: A Disdat file system handle.
-    :param bundle_name: The name of the bundle
-    :param input_path: The path to the file
-    """
-    _logger.debug("Adding file '{}' as bundle '{}'".format(input_path, bundle_name))
-    if not os.path.exists(input_path):
-        _logger.error('Failed to find input file {} for bundle {}: Not copied into shared volume?'.format(input_file, bundle_name))
-        raise RuntimeError()
-    # We have to spawn the add task as a child process otherwise the entire
-    # run process will exit after we complete adding the bundle.
-
-    def _inner():
-        fs.add(bundle_name, input_path)
-        fs._context = disdat.fs.DataContext.load(fs.disdat_config.get_meta_dir())
-
-    p = Process(target=_inner)
-    p.start()
-    p.join()
-    return True
-
-
 def _context_and_remote(context_name, remote=None):
     """Create a new Disdat context and bind remote if not None.
 
     Note we do not switch to the context, as running the container locally may inadvertently
-    change the context the CLI is in.
+    change the context the CLI is in.  And if context already exists we neither change the remote_context
+    nor bind the remote.
 
     Args:
         context_name (str): A fully-qualified context name. remote-context/local-context
@@ -75,43 +47,18 @@ def _context_and_remote(context_name, remote=None):
         _logger.error("Partial context name: Expected <remote-context>/<local-context>, got '{}'".format(context_name))
         return False
 
-    disdat.api.context(context_name)
+    retval = disdat.api.context(context_name)
 
-    # At this point we are either a.) running locally or b.) running remotely
-    # if running locally, the user might already have a context they are in.
-    # IF they have called run and set a different context, if we "switch" in here
-    # then we will change the state on disk.
-
-    # If we have a current context already, don't switch, print out an error
-    # saying, you have a current context, it's not this one, and if you want
-    # to run a container locally, then first switch into that context.
-    # Else if there is no current context, then we're probably running
-    # on a fresh disdat install, and we can switch into the one we
-    # already made.
-
-    current_context = disdat.api.current_context()
-
-    if current_context is None:
-        # we are probably safe to switch at this point
-        _logger.info("Entrypoint found that there is no current context, switching into {}".format(context_name))
-        disdat.api.switch(context_name)
+    if retval == 1: # branch exists
+        _logger.warn("Entrypoint found existing local context {} ".format(context_name))
+        _logger.warn("Entrypoint not switching and ignoring directive to change to remote context {}".format(remote))
+    elif retval == 0: # just made a new branch
         if remote is not None:
+            _logger.info("Entrypoint made a new context {}, attaching remote {}".format(context_name, remote))
             _remote(context_name, remote)
     else:
-        remote, local = context_name.split('/')  # always fully qualified when running from run
-        if local == current_context:
-            _logger.warn("Entrypoint found current local context {}: same as branch arg {}".format(current_context, context_name))
-            _logger.warn("Entrypoint not switching and ignoring directive to change to remote context {}".format(remote))
-            # TODO XXX
-            # Add code here to check if remote is different
-            # We don't want to transparently bind to a different remote.
-        else:
-            _logger.warn("Entrypoint found current local context {} **different** than branch arg {}".format(current_context, context_name))
-            _logger.warn("Assume you are running this container locally.  To do so first switch into the target branch")
-            _logger.warn("e.g., `dsdt switch {}`".format(local))
-            sys.exit(os.EX_IOERR)
-
-    # We are switched in to the right context
+        _logger.error("Entrypoint got non standard retval {} from api.context({}) command.".format(retval, context_name))
+        return False
 
     return True
 
@@ -146,17 +93,6 @@ def _remote(context_arg, remote_url):
     except Exception:
         return False
     return True
-
-
-def _remove(fs, bundle_name):
-    """Remove all versions of a bundle from a Disdat branch.
-
-    :param fs: A Disdat file system handle.
-    :param bundle_name: The name of the bundle
-    :return: a list of all removed bundle versions
-    :rtype: list
-    """
-    return fs.rm(bundle_name, rm_all=True)
 
 
 def retrieve_secret(secret_name):
@@ -237,7 +173,7 @@ def run_disdat_container(args):
     if not os.path.exists(os.path.join(os.environ['HOME'], '.config', 'disdat')):
         _logger.warning("Disdat environment possibly uninitialized?")
 
-    # Create branch, add remote, and switch to it
+    # Create context, add remote, and switch to it
     if not _context_and_remote(args.branch, args.remote):
         _logger.error("Failed to branch to \'{}\' and optionally bind  to \'{}\'".format(args.branch,
                                                                                          args.remote))

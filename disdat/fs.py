@@ -693,13 +693,14 @@ class DisdatFS(object):
     def branch(self, fq_context_name):
         """
 
-        Create a new branch from <repo>/<context_name> or <context_name>
+        Create a new context from <remote_context>/<context_name> or <context_name>
         Create a new local directory with this local context name.
 
         Args:
             fq_context_name:  The unique string for a context
 
         Returns:
+            (int): 0 if context does not exist, 1 if context already exists
 
         """
 
@@ -712,9 +713,9 @@ class DisdatFS(object):
                     cprint("\t[{}@{}]".format(ctxt.remote_ctxt, self._curr_context.get_remote_object_dir()))
                 else:
                     print("\t{}\t[{}@{}]".format(ctxt.local_ctxt, ctxt.remote_ctxt, ctxt.get_remote_object_dir()))
-            return
+            return 0
 
-        repo, local_context = DisdatFS._parse_fq_context_name(fq_context_name)
+        remote_context, local_context = DisdatFS._parse_fq_context_name(fq_context_name)
 
         context_dir = DisdatConfig.instance().get_context_dir()
 
@@ -723,12 +724,12 @@ class DisdatFS(object):
         if local_context in self._all_contexts:
             assert(os.path.exists(ctxt_dir))
             _logger.info("The context '{}' already exists.".format(local_context))
-            return
+            return 1
 
         DataContext.create_branch(context_dir, local_context)
 
         context = DataContext(context_dir,
-                              remote_ctxt=repo,
+                              remote_ctxt=remote_context,
                               local_ctxt=local_context,
                               remote_ctxt_url=None)
 
@@ -736,9 +737,10 @@ class DisdatFS(object):
 
         self._all_contexts[local_context] = context
 
-        _logger.info("Disdat checked out repo {} into local data context {} at object dir {}.".format(repo,
-                                                                                                      local_context,
-                                                                                                      context.get_object_dir()))
+        _logger.info("Disdat created data context {}/{} at object dir {}.".format(remote_context,
+                                                                                  local_context,
+                                                                                  context.get_object_dir()))
+        return 0
 
     def delete_branch(self, fq_context_name, remote, force):
         """

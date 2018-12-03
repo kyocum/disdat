@@ -38,29 +38,12 @@ import logging
 _logger = logging.getLogger(__name__)
 
 
-class LiteralParam(object):
-    """
-    Only store literals: str, int, float, etc.  here.
-    There is no checking that you're doing the right thing.
-    """
-
-    def __init__(self, thing):
-        self.thing = thing
-
-    def to_json(self):
-        """
-        Do *not* encode.  Convenience wrapper only.
-        :return:
-        """
-        return self.thing  # json.dumps(self.thing)
-
-
 class DriverTask(luigi.WrapperTask, PipeBase):
     """
     Properties:
          input_bundle:  The data set to be processed
          output_bundle: The name of the collection of resulting data items
-         param_bundles: A dictionary of parameter:bundle_name entries for the wrapped pipe
+         param_bundles: A dictionary of arguments to the first underlying Luigi Task
          pipe_cls:      The name of pipe.  It is string: <module>.<class>
          input_tags:
          output_tags:
@@ -68,7 +51,7 @@ class DriverTask(luigi.WrapperTask, PipeBase):
     """
     input_bundle = luigi.Parameter(default=None)
     output_bundle = luigi.Parameter(default=None)
-    param_bundles = luigi.Parameter(default=None)
+    pipe_params = luigi.Parameter(default=None)
     pipe_cls = luigi.Parameter(default=None)
     input_tags = luigi.DictParameter()
     output_tags = luigi.DictParameter()
@@ -222,41 +205,6 @@ class DriverTask(luigi.WrapperTask, PipeBase):
         task = load_task(mod, cls, params)
         return task
 
-    @staticmethod
-    def df_to_json(param_dfs):
-        """
-        Convert a dictionary of bundle_name -> df
-        into a dictionary of bundle_name -> df json strings
-
-        :param param_dfs:
-        :return: dictionary of json'd dataframes
-        """
-        return {k: v.to_json() for k, v in param_dfs.iteritems()}
-
-    def prep_param_bundles(self, pfs):
-        """
-        For all the parameters beyond the "inputs" create dataframes.
-        self.param_bundles is None or json string dictionary
-
-        :param pfs:           pipesfs handle
-        :return:              dict of parameter:bundle_df -- if none return empty dict
-        """
-
-        resolved = {}
-
-        if self.param_bundles is None:
-            return resolved
-
-        param_bundles = json.loads(self.param_bundles)
-
-        for p in param_bundles:
-            bundle_name = param_bundles[p]
-
-            ''' Get a literal '''
-            resolved[p] = LiteralParam(bundle_name)
-
-        return resolved
-
     def requires(self):
         """
         The driver orchestrates the execution of a user's transform (a sequence of Luigi tasks) on an
@@ -290,10 +238,6 @@ class DriverTask(luigi.WrapperTask, PipeBase):
         if self.output_bundle == '-':
             self.output_bundle = None
 
-        # Get the parameter bundles -- empty dict if none specified
-        param_dfs = self.prep_param_bundles(self.pfs)
-        param_dfs_json = DriverTask.df_to_json(param_dfs)
-
         task_params = {'closure_hframe': presentable_hfr,
                        'calling_task':  self,
                        'closure_bundle_proc_name': closure_bundle_proc_name,
@@ -308,7 +252,9 @@ class DriverTask(luigi.WrapperTask, PipeBase):
                        'incremental_pull': self.incremental_pull
                        }
 
-        task_params.update(param_dfs_json)
+        # Get user pipeline parameters for this Pipe / Luigi Task
+        if self.pipe_params is not None:
+            task_params.update(json.loads(self.pipe_params))
 
         t = DriverTask.inflate_cls(self.pipe_cls, task_params)
 
