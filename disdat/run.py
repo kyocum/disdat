@@ -77,15 +77,17 @@ class Backend(Enum):
         return [i.name for i in list(Backend)]
 
 
-def _run_local(arglist, pipeline_class_name, backend):
+def _run_local(cli, arglist, pipeline_class_name, backend):
     """
     Run container locally or run sagemaker container locally
     Args:
+        cli (bool): Whether we were called from the CLI or API
         arglist:
         pipeline_class_name:
         backend:
 
     Returns:
+        output (str): Returns None if there is a failure
 
     """
 
@@ -129,10 +131,11 @@ def _run_local(arglist, pipeline_class_name, backend):
 
         stdout = client.containers.run(pipeline_image_name, arglist, detach=False,
                                        environment=environment, init=True, stderr=True, volumes=volumes)
-        print stdout
+        if cli: print stdout
+        return stdout
     except docker.errors.ImageNotFound:
         _logger.error("Unable to find the docker image {}".format(pipeline_image_name))
-        return
+        return None
 
 
 def get_fq_docker_repo_name(is_sagemaker, pipeline_class_name):
@@ -247,7 +250,7 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name,
 
         job_definition_fqn = aws.batch_get_job_definition(job_definition_name)
 
-        print ("New AWS Batch run job definition {}".format(job_definition_fqn))
+        _logger.info("New AWS Batch run job definition {}".format(job_definition_fqn))
 
     if no_submit:
         return
@@ -279,11 +282,12 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name,
                             containerOverrides=container_overrides)
     status = job['ResponseMetadata']['HTTPStatusCode']
     if status == 200:
-        print 'Job {} (ID {}) with definition {} submitted to AWS Batch queue {}'.format(job['jobName'], job['jobId'],
-                                                                                         job_definition_fqn, job_queue)
+        _logger.info('Job {} (ID {}) with definition {} submitted to AWS Batch queue {}'.format(job['jobName'], job['jobId'],
+                                                                                         job_definition_fqn, job_queue))
+        return job
     else:
         _logger.error('Job submission failed: HTTP Status {}'.format())
-
+        return None
 
 def _sagemaker_hyperparameters_from_arglist(arglist):
     """
@@ -305,8 +309,11 @@ def _run_aws_sagemaker(arglist, job_name, pipeline_class_name):
     Runs a training job on AWS SageMaker.  This uses the default machine type
     in the disdat.cfg file.
 
-    Returns:
+    Args:
+        cli (bool): Whether we were called from the CLI or API
 
+    Returns:
+        TrainingJobArn (str)
     """
 
     disdat_config = DisdatConfig.instance()
@@ -383,64 +390,62 @@ def _run_aws_sagemaker(arglist, job_name, pipeline_class_name):
         Tags=tags
     )
 
-    print "Disdat SageMaker create_training_job response {}".format(response)
-
+    _logger.info("Disdat SageMaker create_training_job response {}".format(response))
+    return response['TrainingJobArn']
 
 def _run(
-        input_bundle,
-        output_bundle,
-        pipeline_params,
-        pipeline_class_name,
-        backend=Backend.Local,
-        aws_session_token_duration=0,
-        input_tags=None,
-        output_tags=None,
-        fetch_list=None,
-        other_args=None
-):
+        input_bundle = '-',
+        output_bundle = '-',
+        pipeline_args ='',
+        pipe_cls = None,
+        backend = None,
+        input_tags = {},
+        output_tags = {},
+        force = False,
+        context = None,
+        remote = None,
+        no_pull = False,
+        no_push = False,
+        no_push_int = False,
+        vcpus = 1,
+        memory = 2000,
+        workers = 1,
+        no_submit = False,
+        job_role_arn = None,
+        aws_session_token_duration = 0,
+        cli=False):
     """Run the dockerized version of a pipeline.
 
+    Note these are named parameters so we avoid bugs related to argument order.
+
     Args:
-        input_bundle: The human name of the input bundle
-        output_bundle: The human name of the output bundle
-        pipeline_class_name: Name of the pipeline class to run
-        pipeline_params: Optional arguments to pass to the pipeline class
+        input_bundle (str): The human name of the input bundle
+        output_bundle (str): The human name of the output bundle
+        pipeline_args: Optional arguments to pass to the pipeline class
+        pipe_cls: Name of the pipeline class to run
         backend: The batch execution back-end to use (default
             `Backend.Local`)
-
-
         input_tags (list(str)): Find bundle with these tags ['key:value',...]
         output_tags (list(str)): Push result bundle with these tags ['key:value',...]
-        fetch_list (list(str)): Fetch these bundles before starting pipeline
-        other_args (argparse args):  Args that didn't need special handling
-            force: If `True` force recomputation of all upstream pipe requirements (default `False`)
-            no_push (bool): Do not push any new bundles to remote (useful for testing locally)
-            no_push_int (bool): Do not push new intermediate bundles to remote
-            context (str): <remote context>/<local context> context string
-            remote (str): The remote S3 URL.
-            no_pull (bool): Do not pull down context before executing
-            vcpus (int):  Number of AWS vCPUs the container requests
-            memory (int):  Amount of memory container requests in MB
-            workers (int): Number of Luigi workers to run tasks in DAG
+        force (bool): If `True` force recomputation of all upstream pipe requirements (default `False`)
+        context (str): <remote context>/<local context> context string
+        remote (str): The remote S3 URL.
+        no_pull (bool): Do not pull before executing (start in empty local context)
+        no_push (bool): Do not push any new bundles to remote (useful for testing locally)
+        no_push_int (bool): Do not push new intermediate bundles to remote
+        vcpus (int):  Number of AWS vCPUs the container requests
+        memory (int):  Amount of memory container requests in MB
+        workers (int): Number of Luigi workers to run tasks in DAG
+        no_submit (bool): Produce the AWS job config (for AWS Batch), but do not submit the job
+        job_role_arn (str):  The AWS role under which the job should execute
+        aws_session_token_duration (int): the number of seconds our temporary credentials should last.
+        cli (bool): Whether we called run from the API (buffer output) or the CLI
 
     Returns:
-        `None`
+        job_result (json): A json blob that contains information about the run job.
     """
 
     pfs = fs.DisdatFS()
-
-    force = other_args.force
-    context = other_args.context
-    remote = other_args.remote
-    no_pull = other_args.no_pull
-    no_push = other_args.no_push
-    no_push_int = other_args.no_push_int
-    vcpus = other_args.vcpus
-    memory = other_args.memory
-    workers = other_args.workers
-    no_submit = other_args.no_submit
-    job_role_arn = other_args.job_role_arn
-
 
     try:
         output_bundle_uuid = pfs.disdat_uuid()
@@ -452,27 +457,29 @@ def _run(
         return
 
     arglist = common.make_run_command(input_bundle, output_bundle, output_bundle_uuid, remote, context,
-                                      input_tags, output_tags, fetch_list, no_pull, no_push, no_push_int, workers, pipeline_params)
+                                      input_tags, output_tags, force, no_pull, no_push, no_push_int, workers, pipeline_args)
 
     if backend == Backend.AWSBatch or backend == Backend.SageMaker:
 
-        pipeline_image_name = common.make_pipeline_image_name(pipeline_class_name)
+        pipeline_image_name = common.make_pipeline_image_name(pipe_cls)
 
         job_name = '{}-{}'.format(pipeline_image_name, int(time.time()))
 
         if backend == Backend.AWSBatch:
-            _run_aws_batch(arglist, job_name, pipeline_class_name,
+            retval = _run_aws_batch(arglist, job_name, pipe_cls,
                            aws_session_token_duration, vcpus, memory,
                            no_submit, job_role_arn)
         else:
-            _run_aws_sagemaker(arglist, job_name, pipeline_class_name)
+            retval = _run_aws_sagemaker(arglist, job_name, pipe_cls)
 
     elif backend == Backend.Local or backend == Backend.LocalSageMaker:
 
-        _run_local(arglist, pipeline_class_name, backend)
+        retval = _run_local(cli, arglist, pipe_cls, backend)
 
     else:
         raise ValueError('Got unrecognized job backend \'{}\': Expected {}'.format(backend, Backend.options()))
+
+    return retval
 
 
 def add_arg_parser(parsers):
@@ -512,8 +519,7 @@ def add_arg_parser(parsers):
     )
     run_p.add_argument(
         '--use-aws-session-token',
-        nargs=1,
-        default=[43200], # 12 hours of default time -- for long pipelines!
+        default=43200, # 12 hours of default time -- for long pipelines!
         type=int,
         help='For AWS Batch: Use temporary AWS session token, valid for AWS_SESSION_TOKEN_DURATION seconds. Default 43200. Set to zero to not use a token.',
         dest='aws_session_token_duration',
@@ -542,93 +548,59 @@ def add_arg_parser(parsers):
                        type=str,
                        default=None,
                        help="Remote URL, i.e, 's3://<bucket>/dsdt/', else use remote on current context")
-    run_p.add_argument('-f', '--fetch', nargs=1, type=str, action='append',
-                       help="Fetch bundle into context: '-f some.input.bundle'")
     run_p.add_argument('-it', '--input-tag', nargs=1, type=str, action='append',
-                       help="Input bundle tags: '-it authoritative:True -it version:0.7.1'")
+                       help="Input bundle tags: '-it authoritative:True -it version:0.7.1'",
+                       dest='input_tags')
     run_p.add_argument('-ot', '--output-tag', nargs=1, type=str, action='append',
-                       help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'")
+                       help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'",
+                       dest='output_tags')
     run_p.add_argument("input_bundle", type=str, help="Name of source data bundle.  '-' means no input bundle.")
     run_p.add_argument("output_bundle", type=str, help="Name of destination bundle.  '-' means default output bundle.")
     run_p.add_argument("pipe_cls", type=str, help="User-defined transform, e.g., module.PipeClass")
     run_p.add_argument("pipeline_args", type=str,  nargs=argparse.REMAINDER,
                        help="Optional set of parameters for this pipe '--parameter value'")
-    run_p.set_defaults(func=lambda args: main(args))
+    run_p.set_defaults(func=lambda args: run_entry(cli=True, **vars(args)))
     return parsers
 
 
-def main(args):
-    """Convert cli args into luigi task and params and execute
+def run_entry(cli=False, **kwargs):
+    """
+    Handles parameter defaults for calling _run()
+
+    From the CLI, the parseargs object has all the arguments
+    From the API, the arguments are explicitly set
+
+    Note: pipeline_args is an array of args: ['name',json.dumps(value),'name2',json.dumps(value2)]
 
     Args:
-        args:
+        kwargs (dict):
 
     Returns:
-        `None`
+
     """
 
     pfs = fs.DisdatFS()
 
+    # Ensure kwargs only contains the arguments we want when calling _run
+    [kwargs.pop(k) for k in kwargs.keys() if k not in _run.__code__.co_varnames]
+
     # if any set, the other must be set.  if a or b, then a and b are set
-    if args.context is not None or args.remote is not None:
-        if args.context is None or args.remote is None:
-            print "Must set both context [{}] and remote [{}] simultaneously.".format(args.context, args.remote)
+    if kwargs['context'] is not None or kwargs['remote'] is not None:
+        if kwargs['context'] is None or kwargs['remote'] is None:
+            print "Must set both context [{}] and remote [{}] simultaneously.".format(kwargs['context'], kwargs['remote'])
             return
     else:
         if not pfs.in_context():
             print "'Must be in a context (or specify --context and --remote) to execute 'dsdt run'"
             return
 
-    if args.backend is not None:
-        backend = Backend[args.backend]
+    if kwargs['backend'] is not None:
+        kwargs['backend'] = Backend[kwargs['backend']]
     else:
-        backend = Backend.default()
+        kwargs['backend'] = Backend.default()
 
-    input_tags = common.parse_args_tags(args.input_tag, to='list')
-    output_tags = common.parse_args_tags(args.output_tag, to='list')
+    kwargs['input_tags'] = common.parse_args_tags(kwargs['input_tags'], to='list')
+    kwargs['output_tags'] = common.parse_args_tags(kwargs['output_tags'], to='list')
+    kwargs['cli'] = cli
 
-    if args.fetch:
-        fetch_list = ['{}'.format(kv[0]) for kv in args.fetch]
-    else:
-        fetch_list = []
-
-    _run(input_bundle=args.input_bundle,
-         output_bundle=args.output_bundle,
-         pipeline_class_name=args.pipe_cls,
-         pipeline_params=list(args.pipeline_args),  # for some reason ListParameter is creating a tuple
-         backend=backend,
-         aws_session_token_duration=args.aws_session_token_duration[0],
-         input_tags=input_tags,
-         output_tags=output_tags,
-         fetch_list=fetch_list,
-         other_args=args
-         )
-
-
-if __name__ == '__main__':
-
-    class OtherArg(object): pass
-    OtherArg.force = False
-    OtherArg.context = 'tester'
-    OtherArg.remote  = 'tester'
-    OtherArg.no_pull = False
-    OtherArg.no_push = False
-    OtherArg.no_push_int = False
-    OtherArg.vcpus = 2
-    OtherArg.memory = 4000
-    OtherArg.workers = 2
-    OtherArg.no_submit = True
-    OtherArg.job_role_arn = None
-
-    _run(
-            '-',
-            '-',
-            [],
-            'pipeline.yourjob',
-            backend=Backend.AWSBatch,
-            aws_session_token_duration=1440,
-            input_tags=[],
-            output_tags=[],
-            fetch_list=[],
-            other_args=OtherArg
-    )
+    return _run(**kwargs)

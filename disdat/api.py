@@ -46,6 +46,8 @@ from disdat.pipe_base import PipeBase, get_pipe_version
 from disdat.db_target import DBTarget
 from disdat.pipe import PipeTask
 from disdat.hyperframe import HyperFrameRecord, LineageRecord
+from disdat.run import Backend, run_entry
+from disdat.dockerize import dockerize_entry
 
 _logger = logging.getLogger(__name__)
 
@@ -284,6 +286,14 @@ class Bundle(HyperFrameRecord):
         return self
 
     """ Convenience Routines """
+
+    def cat(self):
+        """ Return the data in the bundle
+        The data is already present in .data
+
+        """
+        assert(self.closed and not self.open)
+        return self.data
 
     def add_data(self, data):
         """ Add data to a bundle.   The bundle must be open and not closed.
@@ -539,10 +549,10 @@ def context(context_name):
         context_name(str): <remote context>/<local context> or <local context>
 
     Returns:
-        None
+        (int) : 0 if successfully created branch, 1 if branch exists
     """
 
-    fs.branch(context_name)
+    return fs.branch(context_name)
 
 
 def delete_context(context_name, remote=False, force=False):
@@ -789,13 +799,10 @@ def apply(local_context, input_bundle, output_bundle, transform,
           input_tags=None, output_tags=None, force=False, params=None,
           output_bundle_uuid=None, central_scheduler=False, workers=1,
           incremental_push=False, incremental_pull=False):
-    """
-    Similar to apply.main() but we create our inputs and supply the context
-    directly.
+    """ Execute a pipeline locally
 
     Args:
         local_context:
-        input_bundle:
         output_bundle:
         transform:
         input_tags: optional tags dictionary for selecting input bundle
@@ -823,14 +830,12 @@ def apply(local_context, input_bundle, output_bundle, transform,
     if params is None:
         params = {}
 
-    #result = {'success': False, 'did_work': False}
-
-    dynamic_params = json.dumps(params)
+    task_params = json.dumps(params)
 
     # IF apply raises, let it go up.
     # If API, caller can catch.
     # If CLI, python will exit 1
-    result = disdat.apply.apply(input_bundle, output_bundle, dynamic_params, transform,
+    result = disdat.apply.apply(input_bundle, output_bundle, task_params, transform,
                                 input_tags, output_tags, force,
                                 output_bundle_uuid=output_bundle_uuid,
                                 central_scheduler=central_scheduler,
@@ -847,24 +852,123 @@ def apply(local_context, input_bundle, output_bundle, transform,
     return result
 
 
-def run(local_context, input_bundle, output_bundle, transform, input_tags, output_tags, force=False, **kwargs):
-    """
+def run(local_context,
+        remote_context,
+        output_bundle,
+        pipe_cls,
+        pipeline_args,
+        remote=None,
+        backend=Backend.default(),
+        input_tags=None,
+        output_tags=None,
+        force=False,
+        no_pull=False,
+        no_push=False,
+        no_push_int=False,
+        vcpus=2,
+        memory=4000,
+        workers=1,
+        no_submit=False,
+        aws_session_token_duration=42300,
+        job_role_arn=None):
+    """ Execute a pipeline in a container.  Run locally, on AWS Batch, or AWS Sagemaker
+    _run() finds out whether we have a
 
     Args:
-        local_context:
-        input_bundle:
-        output_bundle:
-        transform:
-        input_tags:
-        output_tags:
-        force:
-        **kwargs:
+        local_context (str):  The local context in which the pipeline will run in the container
+        remote_context (str): The remote context to pull / push bundles during execution
+        output_bundle (str): human name of output bundle
+        pipe_cls (str): The pkg.module.class of the root of the pipeline DAG
+        pipeline_args (dict): Dictionary of the parameters of the root task
+        input_tags (dict): str:str dictionary of tags required of the input bundle
+        output_tags (dict): str:str dictionary of tags placed on all output bundles (including intermediates)
+        force (bool):  Currently not respected.  But should re-run the entire pipeline no matter prior outputs
+        no_pull (bool): Do not pull before execution
+        no_push (bool): Do not push any output bundles after task execution
+        no_push_int (bool):  Do not push intermediate task bundles after execution
+        vcpus (int): Number of virtual CPUs (if backend=`AWSBatch`). Default 2.
+        memory (int): Number of MB (if backend='AWSBatch'). Default 2000.
+        workers (int):  Number of Luigi workers. Default 1.
+        no_submit (bool): If True, just create the AWS Batch Job definition, but do not submit the job
+        aws_session_token_duration (int): Seconds lifetime of temporary token (backend='AWSBatch'). Default 42300
+        job_role_arn (str): AWS ARN for job execution in a batch container (backend='AWSBatch')
 
     Returns:
+        json (str):
 
     """
 
-    raise NotImplementedError
+
+
+    # Args are string: python object. The run CLI puts the parameters into an array of strings.  Replicate.
+
+    pipeline_arg_list = []
+    if pipeline_args is not None:
+        for k,v in pipeline_args.iteritems():
+            pipeline_arg_list.append(k)
+            pipeline_arg_list.append(json.dumps(v))
+
+    context = "{}/{}".format(remote_context, local_context) # remote_name/local_name
+
+    retval = run_entry(input_bundle='-',
+                       output_bundle=output_bundle,
+                       pipeline_args=pipeline_arg_list,
+                       pipe_cls=pipe_cls,
+                       backend=backend,
+                       input_tags=input_tags,
+                       output_tags=output_tags,
+                       force=force,
+                       context=context,
+                       remote=remote,
+                       no_pull=no_pull,
+                       no_push=no_push,
+                       no_push_int=no_push_int,
+                       vcpus=vcpus,
+                       memory=memory,
+                       workers=workers,
+                       no_submit=no_submit,
+                       job_role_arn=job_role_arn,
+                       aws_session_token_duration=aws_session_token_duration)
+
+    return retval
+
+
+def dockerize(setup_dir,
+              pipe_cls,
+              config_dir=None,
+              build=True,
+              push=False,
+              sagemaker=False):
+    """ Create a docker container image using a setup.py and pkg.module.class description of the pipeline.
+
+    Note:
+        Users set the os_type and os_version in the disdat.cfg file.
+        os_type: The base operating system type for the Docker image
+        os_version: The base operating system version for the Docker image
+
+    Args:
+        setup_dir (str): The directory that contains the setup.py holding the requirements for any pipelines
+        pipe_cls (str): The package.module.class string of the pipeline root.
+        config_dir (str): The directory containing the configuration of .deb packages
+        build (bool): If False, just copy files into the Docker build context without building image.
+        push (bool):  Push the container to the repository
+        sagemaker (bool): Create a Docker image executable as a SageMaker container (instead of a local / AWSBatch container).
+
+    Returns:
+        (int): 0 if success, 1 on failure
+
+    """
+
+    retval = dockerize_entry(pipe_root=setup_dir,
+                             pipe_cls=pipe_cls,
+                             config_dir=config_dir,
+                             os_type=None,
+                             os_version=None,
+                             build=build,
+                             push=push,
+                             sagemaker=sagemaker)
+
+    return retval
 
 
 def _no_op():
