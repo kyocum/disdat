@@ -77,15 +77,17 @@ class Backend(Enum):
         return [i.name for i in list(Backend)]
 
 
-def _run_local(arglist, pipeline_class_name, backend):
+def _run_local(cli, arglist, pipeline_class_name, backend):
     """
     Run container locally or run sagemaker container locally
     Args:
+        cli (bool): Whether we were called from the CLI or API
         arglist:
         pipeline_class_name:
         backend:
 
     Returns:
+        output (str): Returns None if there is a failure
 
     """
 
@@ -129,10 +131,11 @@ def _run_local(arglist, pipeline_class_name, backend):
 
         stdout = client.containers.run(pipeline_image_name, arglist, detach=False,
                                        environment=environment, init=True, stderr=True, volumes=volumes)
-        print stdout
+        if cli: print stdout
+        return stdout
     except docker.errors.ImageNotFound:
         _logger.error("Unable to find the docker image {}".format(pipeline_image_name))
-        return
+        return None
 
 
 def get_fq_docker_repo_name(is_sagemaker, pipeline_class_name):
@@ -247,7 +250,7 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name,
 
         job_definition_fqn = aws.batch_get_job_definition(job_definition_name)
 
-        print ("New AWS Batch run job definition {}".format(job_definition_fqn))
+        _logger.info("New AWS Batch run job definition {}".format(job_definition_fqn))
 
     if no_submit:
         return
@@ -279,11 +282,12 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name,
                             containerOverrides=container_overrides)
     status = job['ResponseMetadata']['HTTPStatusCode']
     if status == 200:
-        print 'Job {} (ID {}) with definition {} submitted to AWS Batch queue {}'.format(job['jobName'], job['jobId'],
-                                                                                         job_definition_fqn, job_queue)
+        _logger.info('Job {} (ID {}) with definition {} submitted to AWS Batch queue {}'.format(job['jobName'], job['jobId'],
+                                                                                         job_definition_fqn, job_queue))
+        return job
     else:
         _logger.error('Job submission failed: HTTP Status {}'.format())
-
+        return None
 
 def _sagemaker_hyperparameters_from_arglist(arglist):
     """
@@ -305,8 +309,11 @@ def _run_aws_sagemaker(arglist, job_name, pipeline_class_name):
     Runs a training job on AWS SageMaker.  This uses the default machine type
     in the disdat.cfg file.
 
-    Returns:
+    Args:
+        cli (bool): Whether we were called from the CLI or API
 
+    Returns:
+        TrainingJobArn (str)
     """
 
     disdat_config = DisdatConfig.instance()
@@ -383,8 +390,8 @@ def _run_aws_sagemaker(arglist, job_name, pipeline_class_name):
         Tags=tags
     )
 
-    print "Disdat SageMaker create_training_job response {}".format(response)
-
+    _logger.info("Disdat SageMaker create_training_job response {}".format(response))
+    return response['TrainingJobArn']
 
 def _run(
         input_bundle = '-',
@@ -405,8 +412,8 @@ def _run(
         workers = 1,
         no_submit = False,
         job_role_arn = None,
-        aws_session_token_duration = 0
-):
+        aws_session_token_duration = 0,
+        cli=False):
     """Run the dockerized version of a pipeline.
 
     Note these are named parameters so we avoid bugs related to argument order.
@@ -432,6 +439,7 @@ def _run(
         no_submit (bool): Produce the AWS job config (for AWS Batch), but do not submit the job
         job_role_arn (str):  The AWS role under which the job should execute
         aws_session_token_duration (int): the number of seconds our temporary credentials should last.
+        cli (bool): Whether we called run from the API (buffer output) or the CLI
 
     Returns:
         job_result (json): A json blob that contains information about the run job.
@@ -458,18 +466,20 @@ def _run(
         job_name = '{}-{}'.format(pipeline_image_name, int(time.time()))
 
         if backend == Backend.AWSBatch:
-            _run_aws_batch(arglist, job_name, pipe_cls,
+            retval = _run_aws_batch(arglist, job_name, pipe_cls,
                            aws_session_token_duration, vcpus, memory,
                            no_submit, job_role_arn)
         else:
-            _run_aws_sagemaker(arglist, job_name, pipe_cls)
+            retval = _run_aws_sagemaker(arglist, job_name, pipe_cls)
 
     elif backend == Backend.Local or backend == Backend.LocalSageMaker:
 
-        _run_local(arglist, pipe_cls, backend)
+        retval = _run_local(cli, arglist, pipe_cls, backend)
 
     else:
         raise ValueError('Got unrecognized job backend \'{}\': Expected {}'.format(backend, Backend.options()))
+
+    return retval
 
 
 def add_arg_parser(parsers):
@@ -549,15 +559,18 @@ def add_arg_parser(parsers):
     run_p.add_argument("pipe_cls", type=str, help="User-defined transform, e.g., module.PipeClass")
     run_p.add_argument("pipeline_args", type=str,  nargs=argparse.REMAINDER,
                        help="Optional set of parameters for this pipe '--parameter value'")
-    run_p.set_defaults(func=lambda args: run_entry(**vars(args)))
+    run_p.set_defaults(func=lambda args: run_entry(cli=True, **vars(args)))
     return parsers
 
 
-def run_entry(**kwargs):
+def run_entry(cli=False, **kwargs):
     """
     Handles parameter defaults for calling _run()
+
     From the CLI, the parseargs object has all the arguments
     From the API, the arguments are explicitly set
+
+    Note: pipeline_args is an array of args: ['name',json.dumps(value),'name2',json.dumps(value2)]
 
     Args:
         kwargs (dict):
@@ -588,36 +601,6 @@ def run_entry(**kwargs):
 
     kwargs['input_tags'] = common.parse_args_tags(kwargs['input_tags'], to='list')
     kwargs['output_tags'] = common.parse_args_tags(kwargs['output_tags'], to='list')
+    kwargs['cli'] = cli
 
-    kwargs['pipeline_args'] = list(kwargs['pipeline_args'])  # for some reason ListParameter is creating a tuple
-
-    _run(**kwargs)
-
-
-if __name__ == '__main__':
-
-    class OtherArg(object): pass
-    OtherArg.force = False
-    OtherArg.context = 'tester/tester'
-    OtherArg.remote  = 's3://something'
-    OtherArg.no_pull = False
-    OtherArg.no_push = False
-    OtherArg.no_push_int = False
-    OtherArg.vcpus = 2
-    OtherArg.memory = 4000
-    OtherArg.workers = 2
-    OtherArg.no_submit = True
-    OtherArg.job_role_arn = None
-
-    _run(
-        '-',
-        '-',
-        [],
-        'pipeline.yourjob',
-        backend=Backend.AWSBatch,
-        aws_session_token_duration=1440,
-        input_tags=[],
-        output_tags=[],
-        fetch_list=[],
-        other_args=OtherArg
-    )
+    return _run(**kwargs)

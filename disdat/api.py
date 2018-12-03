@@ -287,6 +287,14 @@ class Bundle(HyperFrameRecord):
 
     """ Convenience Routines """
 
+    def cat(self):
+        """ Return the data in the bundle
+        The data is already present in .data
+
+        """
+        assert(self.closed and not self.open)
+        return self.data
+
     def add_data(self, data):
         """ Add data to a bundle.   The bundle must be open and not closed.
             One adds one data item to a bundle (dictionary, list, tuple, scalar, or dataframe).
@@ -860,6 +868,7 @@ def run(local_context,
         vcpus=2,
         memory=4000,
         workers=1,
+        no_submit=False,
         aws_session_token_duration=42300,
         job_role_arn=None):
     """ Execute a pipeline in a container.  Run locally, on AWS Batch, or AWS Sagemaker
@@ -880,6 +889,7 @@ def run(local_context,
         vcpus (int): Number of virtual CPUs (if backend=`AWSBatch`). Default 2.
         memory (int): Number of MB (if backend='AWSBatch'). Default 2000.
         workers (int):  Number of Luigi workers. Default 1.
+        no_submit (bool): If True, just create the AWS Batch Job definition, but do not submit the job
         aws_session_token_duration (int): Seconds lifetime of temporary token (backend='AWSBatch'). Default 42300
         job_role_arn (str): AWS ARN for job execution in a batch container (backend='AWSBatch')
 
@@ -888,34 +898,39 @@ def run(local_context,
 
     """
 
-    if pipeline_args is None:
-        pipeline_args = {}
 
-    pipeline_args = json.dumps(pipeline_args)
+
+    # Args are string: python object. The run CLI puts the parameters into an array of strings.  Replicate.
+
+    pipeline_arg_list = []
+    if pipeline_args is not None:
+        for k,v in pipeline_args.iteritems():
+            pipeline_arg_list.append(k)
+            pipeline_arg_list.append(json.dumps(v))
 
     context = "{}/{}".format(remote_context, local_context) # remote_name/local_name
 
-    run_entry(
-        input_bundle='-',
-        output_bundle=output_bundle,
-        pipeline_args=pipeline_args,
-        pipe_cls=pipe_cls,
-        backend=backend,
-        input_tags=input_tags,
-        output_tags=output_tags,
-        force=force,
-        context=context,
-        remote=remote,
-        no_pull=no_pull,
-        no_push=no_push,
-        no_push_int=no_push_int,
-        vcpus=vcpus,
-        memory=memory,
-        workers=workers,
-        no_submit=no_submit,
-        job_role_arn=job_role_arn,
-        aws_session_token_duration=aws_session_token_duration
-    )
+    retval = run_entry(input_bundle='-',
+                       output_bundle=output_bundle,
+                       pipeline_args=pipeline_arg_list,
+                       pipe_cls=pipe_cls,
+                       backend=backend,
+                       input_tags=input_tags,
+                       output_tags=output_tags,
+                       force=force,
+                       context=context,
+                       remote=remote,
+                       no_pull=no_pull,
+                       no_push=no_push,
+                       no_push_int=no_push_int,
+                       vcpus=vcpus,
+                       memory=memory,
+                       workers=workers,
+                       no_submit=no_submit,
+                       job_role_arn=job_role_arn,
+                       aws_session_token_duration=aws_session_token_duration)
+
+    return retval
 
 
 def dockerize(setup_dir,

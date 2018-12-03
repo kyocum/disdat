@@ -44,14 +44,22 @@ def _do_subprocess(cmd, cli):
         cli (bool): whether called from CLI (True) or API (False)
 
     Returns:
+        (int): 0 if success, >0 if failure
 
     """
+    output = 'No captured output from running CMD [{}]'.format(cmd)
     try:
-        subprocess.check_call(cmd)
+        if not cli:
+            output = subprocess.check_output(cmd)
+        else:
+            subprocess.check_call(cmd)
     except subprocess.CalledProcessError as cpe:
         if not cli:
+            print (output)
             return cpe.returncode
         raise
+
+    return 0
 
 
 def dockerize(pipeline_root,
@@ -104,7 +112,8 @@ def dockerize(pipeline_root,
         docker_context,
     ]
 
-    _do_subprocess(rsync_command, cli)
+    retval = _do_subprocess(rsync_command, cli)
+    if retval: return retval
 
     # PIP: Overwrite pip.conf in the context.template in your repo if they have set the option,
     # else just create empty file.
@@ -119,7 +128,8 @@ def dockerize(pipeline_root,
             'touch',
             pip_file_path
         ]
-        _do_subprocess(touch_command, cli)
+        retval = _do_subprocess(touch_command, cli)
+        if retval: return retval
 
     # ODBC: Overwrite the .odbc.ini in the context.template in your repo if the user set the option,
     # else just create empty file.
@@ -134,7 +144,8 @@ def dockerize(pipeline_root,
             'touch',
             odbc_file_path
         ]
-        _do_subprocess(touch_command, cli)
+        retval = _do_subprocess(touch_command, cli)
+        if retval: return retval
 
     pipeline_image_name = disdat.common.make_pipeline_image_name(pipeline_class_name)
     DEFAULT_DISDAT_HOME = os.path.join('/', *os.path.dirname(disdat.dockerize.__file__).split('/')[:-1])
@@ -157,7 +168,8 @@ def dockerize(pipeline_root,
         if sagemaker:
             build_command.append('SAGEMAKER_TRAIN_IMAGE_NAME={}'.format(disdat.common.make_sagemaker_pipeline_image_name(pipeline_class_name)))
             build_command.append('sagemaker')
-        _do_subprocess(build_command, cli)
+        retval = _do_subprocess(build_command, cli)
+        if retval: return retval
 
     if push:
         docker_client = docker.from_env()
@@ -194,7 +206,9 @@ def dockerize(pipeline_root,
                 else:
                     return 1
             else:
-                print line
+                if cli: print line
+
+    return 0
 
 
 def add_arg_parser(parsers):

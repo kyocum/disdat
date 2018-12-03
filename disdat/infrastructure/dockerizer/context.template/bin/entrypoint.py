@@ -165,6 +165,10 @@ def run_disdat_container(args):
 
     print "Entrypoint running with args: {}".format(args)
 
+    # By default containerized execution ALWAYS localize's bundles on demand
+    incremental_pull = True
+    print ("Entrypoint running with incremental_pull=={}".format(incremental_pull))
+
     client = boto3.client('sts')
     response = client.get_caller_identity()
     _logger.info("boto3 caller identity {}".format(response))
@@ -182,7 +186,7 @@ def run_disdat_container(args):
     # Pull the remote branch into the local branch or download individual items
     try:
         if not args.no_pull:
-            disdat.api.pull(args.branch, localize=True)
+            disdat.api.pull(args.branch, localize=not incremental_pull)
         else:
             fetch_list = []
             if args.fetch is not None:
@@ -210,9 +214,6 @@ def run_disdat_container(args):
         incremental_push = True
     else:
         incremental_push = False
-
-    # By default containerized execution ALWAYS localize's bundles on demand
-    incremental_pull = True
 
     try:
         result = disdat.api.apply(args.branch,

@@ -15,8 +15,8 @@
 #
 
 import luigi
-import pandas as pd
 import numpy as np
+import os
 from disdat.pipe import PipeTask
 import disdat.api as api
 
@@ -24,6 +24,10 @@ import disdat.api as api
 TEST_CONTEXT = '_test_context_'
 TEST_NAME    = 'test_bundle'
 TEST_REMOTE  = 's3://disdat-prod-486026647292-us-west-2/beta/'
+PWD          = os.path.dirname(__file__)
+SETUP_DIR    = os.path.join(PWD,'..')
+PIPELINE_CLS = 'pipelines.test_api_run.DataMaker'
+OUTPUT_BUNDLE = 'test_local_run'
 
 
 def test():
@@ -39,45 +43,68 @@ def test():
 
     """
 
+    test_arg = [1000,2000,8000]
+
     api.context(TEST_CONTEXT)
+    api.remote(TEST_CONTEXT, TEST_CONTEXT, TEST_REMOTE, force=True)
 
+    print ("--0: Create docker container")
+    api.dockerize(SETUP_DIR, PIPELINE_CLS)
 
-    """def run(local_context,
-        remote_context,
-        output_bundle,
-        transform,
-        params,
-        remote=None,
-        backend=Backend.default(),
-        input_tags=None,
-        output_tags=None,
-        force=False,
-        no_pull=False,
-        no_push=False,
-        no_push_int=False,
-        vcpus=2,
-        memory=4000,
-        workers=1,
-        aws_session_token_duration=42300,
-        job_role_arn=None):
-        """
-    # First run locally
-    api.run(TEST_CONTEXT, TEST_CONTEXT, 'test_local_run', 'DataMaker', pipeline_args={'int_array': '[1000,2000,3000]'},
-            remote=TEST_REMOTE, no_pull=True, no_push=True)
-
-    b = api.get(TEST_CONTEXT, 'test_local_run')
-
+    print ("--1: Running container locally and storing results locally...")
+    retval = api.run(TEST_CONTEXT, TEST_CONTEXT, OUTPUT_BUNDLE, PIPELINE_CLS,
+                     pipeline_args={'int_array': test_arg},
+                     remote=TEST_REMOTE,
+                     no_pull=True,
+                     no_push=True)
+    print ("--1: 100 chars of RETVAL {}".format(retval[:100]))
+    b = api.get(TEST_CONTEXT, OUTPUT_BUNDLE)
     assert(b is not None)
-
+    print ("--1: Pipeline tried to store {} and we found {}".format(test_arg, b.cat()))
+    assert(np.array_equal(b.cat(), test_arg))
     b.rm()
 
-    #api.apply(TEST_CONTEXT, '-', '-', 'Root')
+    print ("--2: Running container locally and pushing results ...")
+    retval = api.run(TEST_CONTEXT, TEST_CONTEXT, OUTPUT_BUNDLE, PIPELINE_CLS,
+                     pipeline_args={'int_array': test_arg},
+                     remote=TEST_REMOTE,
+                     no_pull=True,
+                     no_push=False)
+    print ("--2: 100 chars of RETVAL {}".format(retval[:100]))
+    print ("--2B: Removing local output bundle...")
+    api.get(TEST_CONTEXT, OUTPUT_BUNDLE).rm()
+    print ("--2C: Pulling remote bundle and verifying...")
+    api.pull(TEST_CONTEXT)
+    b = api.get(TEST_CONTEXT, OUTPUT_BUNDLE)
+    print ("--2C: Pipeline tried to store {} and we found {}".format(test_arg, b.cat()))
+    assert(np.array_equal(b.cat(), test_arg))
+    b.rm()
+
+    print ("--3: Running container on AWS pulling and pushing results ...")
+    print ("--3B: Push docker container")
+    api.dockerize(SETUP_DIR, PIPELINE_CLS, push=True)
+    print ("--3C: Run docker container on AWS Batch")
+    retval = api.run(TEST_CONTEXT, TEST_CONTEXT, OUTPUT_BUNDLE, PIPELINE_CLS,
+                     pipeline_args={'int_array': test_arg},
+                     remote=TEST_REMOTE,
+                     backend='AWSBatch')
+    print ("--3C: RETVAL {}".format(retval))
+    print ("--3D: Pulling remote bundle and verifying...")
+    api.pull(TEST_CONTEXT)
+    b = api.get(TEST_CONTEXT, OUTPUT_BUNDLE)
+    print ("--3D: Pipeline tried to store {} and we found {}".format(test_arg, b.cat()))
+    assert(np.array_equal(b.cat(), test_arg))
+    b.rm()
+
+
+    #api.apply(TEST_CONTEXT, '-', '-', 'Root'
+    # )
 
     #b = api.get(TEST_CONTEXT, 'PreMaker_auf_root')
 
     #assert(b is not None)
 
-    #api.delete_context(TEST_CONTEXT)
+    api.delete_context(TEST_CONTEXT)
 
 
 class DataMaker(PipeTask):
