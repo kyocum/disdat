@@ -96,6 +96,16 @@ def test():
     assert(np.array_equal(b.cat(), test_arg))
     b.rm()
 
+    print ("--4: Running with no submit ...")
+    print ("--4B: Reusing docker container")
+    print ("--4C: Submit Job on AWS Batch")
+    retval = api.run(TEST_CONTEXT, TEST_CONTEXT, OUTPUT_BUNDLE, PIPELINE_CLS,
+                     pipeline_args={'int_array': test_arg},
+                     remote=TEST_REMOTE,
+                     backend='AWSBatch',
+                     no_submit=True)
+    print ("--4C: RETVAL {}".format(retval))
+
 
     #api.apply(TEST_CONTEXT, '-', '-', 'Root'
     # )
