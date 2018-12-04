@@ -253,6 +253,7 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name,
         _logger.info("New AWS Batch run job definition {}".format(job_definition_fqn))
 
     if no_submit:
+        # Return the job description object
         return job_definition_obj
 
     job_queue = disdat_config.parser.get(_MODULE_NAME, 'aws_batch_queue')
