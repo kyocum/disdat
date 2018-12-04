@@ -1356,9 +1356,10 @@ class DisdatFS(object):
             obj_suffix = s3_obj.key.replace(remote_obj_dir,'')
             obj_suffix_dir = os.path.dirname(obj_suffix).strip('/')  # remote_obj_dir won't have a trailing slash
             local_uuid_dir = os.path.join(data_context.get_object_dir(), obj_suffix_dir)
-            multiple_results.append(pool.apply_async(aws_s3.get_s3_key,
-                                                     (s3_bucket,s3_obj.key,os.path.join(local_uuid_dir, obj_basename))))
-
+            local_object_path = os.path.join(local_uuid_dir, obj_basename)
+            if not os.path.exists(local_object_path):
+                multiple_results.append(pool.apply_async(aws_s3.get_s3_key,
+                                                         (s3_bucket,s3_obj.key,local_object_path)))
         pool.close()
 
         results = [res.get(timeout=MAX_WAIT) for res in multiple_results]

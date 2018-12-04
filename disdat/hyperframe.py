@@ -62,6 +62,11 @@ _logger = logging.getLogger(__name__)
 
 HyperFrameTuple = namedtuple('HyperFrameTuple', 'columns, links, uuid, tags')
 
+# UPSERT policy for inserts that violate constraints (explicit or primary key uniqueness)
+# We can ROLLBACK, ABORT, FAIL, IGNORE, and REPLACE
+# Most cases we want to REPLACE (UPSERT)
+UPSERT_POLICY = 'FAIL'
+
 
 class RecordState(enum.Enum):
     """
@@ -649,6 +654,10 @@ class PBObject(object):
         You set the state on your in-memory copy when you write to the db.
         You set the state on your in-memory copy when you read from the cb.
 
+        We use sqlite at the moment, so
+        https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html
+        See ON CONFLICT support for constraints
+
         Args:
             state (enum): invalid, valid, pending, deleted
             db_conn:
@@ -992,7 +1001,7 @@ class HyperFrameRecord(PBObject):
         :return: Table
         """
         hframes = Table(HyperFrameRecord.table_name, metadata,
-                        Column('uuid', String(50), primary_key=True),
+                        Column('uuid', String(50), primary_key=True),# sqlite_on_conflict_primary_key=UPSERT_POLICY),
                         Column('owner', String),
                         Column('human_name', String),
                         Column('processing_name', String),
@@ -1006,7 +1015,7 @@ class HyperFrameRecord(PBObject):
                      Column('uuid', String(50)),
                      Column('value', String),
                      # explicit/composite unique constraint.  'name' is optional.
-                     UniqueConstraint('key', 'uuid', name='uix_1')
+                     UniqueConstraint('key', 'uuid', name='uix_1')#, sqlite_on_conflict=UPSERT_POLICY)
                      )
 
         return {HyperFrameRecord.table_name: hframes,
@@ -1274,7 +1283,7 @@ class LineageRecord(PBObject):
         :return: Table
         """
         lineage = Table(LineageRecord.table_name, metadata,
-                         Column('hframe_uuid', String(50), primary_key=True),
+                         Column('hframe_uuid', String(50), primary_key=True),# sqlite_on_conflict_primary_key=UPSERT_POLICY),
                          Column('hframe_name', String),
                          Column('code_repo', String),
                          Column('code_hash', String(50)),
@@ -1395,7 +1404,7 @@ class FrameRecord(PBObject):
         """
 
         frame_tbl = Table(FrameRecord.table_name, metadata,
-                          Column('uuid', String(50), primary_key=True),
+                          Column('uuid', String(50), primary_key=True),# sqlite_on_conflict_primary_key=UPSERT_POLICY),
                           Column('hframe_uuid', String(50)),
                           Column('name', String),
                           Column('state', Enum(RecordState)),
@@ -1981,7 +1990,7 @@ class LinkAuthBase(PBObject):
         :return: Table
         """
         linkauth = Table(LinkAuthBase.table_name, metadata,
-                         Column('uuid', String(50), primary_key=True),
+                         Column('uuid', String(50), primary_key=True),# sqlite_on_conflict_primary_key=UPSERT_POLICY),
                          Column('profile', String),
                          Column('state', Enum(RecordState)),
                          Column('pb', BLOB)
