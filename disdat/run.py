@@ -101,6 +101,8 @@ def _run_local(cli, arglist, pipeline_class_name, backend):
     if 'AWS_PROFILE' in os.environ:
         environment['AWS_PROFILE'] = os.environ['AWS_PROFILE']
 
+    environment[common.LOCAL_EXECUTION] = 'True'
+
     volumes = {}
     aws_config_dir = os.getenv('AWS_CONFIG_DIR', os.path.join(os.environ['HOME'], '.aws'))
     if aws_config_dir is not None and os.path.exists(aws_config_dir):

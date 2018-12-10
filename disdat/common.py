@@ -49,6 +49,8 @@ BUNDLE_URI_SCHEME = 'bundle://'
 BUNDLE_TAG_PARAMS_PREFIX = '__param_'
 BUNDLE_TAG_TRANSIENT = '__transient'
 
+LOCAL_EXECUTION = 'LOCAL_EXECUTION'  # Docker endpoint env variable if we're running a container locally
+
 
 class ApplyException(Exception):
     pass

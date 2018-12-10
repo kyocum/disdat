@@ -34,9 +34,11 @@ _logger = logging.getLogger(__name__)
 def _context_and_remote(context_name, remote=None):
     """Create a new Disdat context and bind remote if not None.
 
-    Note we do not switch to the context, as running the container locally may inadvertently
-    change the context the CLI is in.  And if context already exists we neither change the remote_context
-    nor bind the remote.
+    Check environment for 'LOCAL_EXECUTION', which should exist and be True if we are running
+    a container in an existing .disdat environment (e.g., on someone's laptop).
+
+    If so, do not take any actions that would change the state of the users CLI.  That is, do not
+    switch contexts.
 
     Args:
         context_name (str): A fully-qualified context name. remote-context/local-context
@@ -59,6 +61,11 @@ def _context_and_remote(context_name, remote=None):
     else:
         _logger.error("Entrypoint got non standard retval {} from api.context({}) command.".format(retval, context_name))
         return False
+
+    if disdat.common.LOCAL_EXECUTION not in os.environ:
+        disdat.api.switch(context_name)
+    else:
+        _logger.info("Container running locally (not in a cloud provider, aka AWS).  Not switching contexts")
 
     return True
 
