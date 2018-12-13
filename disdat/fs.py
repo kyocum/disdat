@@ -509,7 +509,7 @@ class DisdatFS(object):
         else:
             return None
 
-    def ls(self, search_name, print_tags, print_intermediates, print_long, committed=None, maxbydate=False, tags=None, data_context=None):
+    def ls(self, search_name, print_tags, print_intermediates, print_long, print_args, committed=None, maxbydate=False, tags=None, data_context=None):
         """
         Enumerate bundles (hyperframes) in this context.
 
@@ -517,6 +517,7 @@ class DisdatFS(object):
             search_name: May be None.  Interpret as a simple regex (one kleene star)
             print_tags (bool): Whether to print the bundle tags
             print_intermediates (bool): Whether to show intermediate bundles
+            print_args (bool): Whether to print the arguments used to produce this bundle
             committed (bool): If True, just committed, if False, just uncommitted, if None then ignore.
             maxbydate (bool): return the latest by date
             tags: Optional. A dictionary of tags to search for.
@@ -553,7 +554,7 @@ class DisdatFS(object):
                         continue
 
             if print_long:
-                output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags))
+                output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags, print_args=print_args))
             else:
                 if r.pb.human_name not in output_strings:
                     output_strings.append(r.pb.human_name)
@@ -565,7 +566,7 @@ class DisdatFS(object):
         return header
 
     @staticmethod
-    def _pretty_print_hframe(hfr, print_tags=False):
+    def _pretty_print_hframe(hfr, print_tags=False, print_args=False):
 
         if 'committed' in hfr.tag_dict:
             committed = 'True'
@@ -579,8 +580,14 @@ class DisdatFS(object):
                                                                    committed,
                                                                    hfr.pb.uuid)
         if print_tags:
-            tags = ["[{}]:[{}]".format(k, v) for k, v in hfr.tag_dict.iteritems() if k != 'committed']
+            tags = ["[{}]:[{}]".format(k, v) for k, v in hfr.tag_dict.iteritems() if k != 'committed' and common.BUNDLE_TAG_PARAMS_PREFIX not in k]
             output_string += ' '.join(tags)
+
+        if print_args:
+            tags = ["[{}]:[{}]".format(k.strip(common.BUNDLE_TAG_PARAMS_PREFIX), v)
+                    for k, v in hfr.tag_dict.iteritems() if common.BUNDLE_TAG_PARAMS_PREFIX in k]
+            if len(tags) > 0:
+                output_string += '\n\t ARGS: ' + ' '.join(tags)
 
         return output_string
 
@@ -1596,6 +1603,7 @@ def _ls(fs, args):
                    args.print_tags,
                    args.intermediates,
                    args.verbose,
+                   args.print_args,
                    committed=committed,
                    maxbydate=args.latest_by_date,
                    tags=common.parse_args_tags(args.tag)):
@@ -1684,6 +1692,7 @@ def init_fs_cl(subparsers):
     # ls
     ls_p = subparsers.add_parser('ls')
     ls_p.add_argument('bundle', nargs='*', type=str, help="Show all bundles 'dsdt ls' or explicit bundle 'dsdt ls <somebundle>' in current context")
+    ls_p.add_argument('-a', '--print-args', action='store_true', help="Print the arguments (if any) used to create the bundle.")
     ls_p.add_argument('-p', '--print-tags', action='store_true', help="Print each bundle's tags.")
     ls_p.add_argument('-i', '--intermediates', action='store_true',
                       help="List all bundles, including intermediate outputs.")

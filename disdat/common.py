@@ -46,7 +46,7 @@ DEFAULT_FRAME_NAME = 'unnamed'
 BUNDLE_URI_SCHEME = 'bundle://'
 
 # Some tags in bundles are special.  They are prefixed with '__'
-BUNDLE_TAG_PARAMS_PREFIX = '__param_'
+BUNDLE_TAG_PARAMS_PREFIX = '__param.'
 BUNDLE_TAG_TRANSIENT = '__transient'
 
 LOCAL_EXECUTION = 'LOCAL_EXECUTION'  # Docker endpoint env variable if we're running a container locally

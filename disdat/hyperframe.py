@@ -1157,8 +1157,6 @@ class HyperFrameRecord(PBObject):
         """
         Add tags to the hyperframe.
 
-        Note: This resets by default
-
         Args:
             tags (:dict: (string, string)): dictionary of tags to add
 
