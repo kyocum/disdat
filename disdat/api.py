@@ -880,6 +880,7 @@ def run(local_context,
         output_bundle (str): human name of output bundle
         pipe_cls (str): The pkg.module.class of the root of the pipeline DAG
         pipeline_args (dict): Dictionary of the parameters of the root task
+        remote (str): The remote's S3 path
         input_tags (dict): str:str dictionary of tags required of the input bundle
         output_tags (dict): str:str dictionary of tags placed on all output bundles (including intermediates)
         force (bool):  Currently not respected.  But should re-run the entire pipeline no matter prior outputs

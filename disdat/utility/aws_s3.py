@@ -144,6 +144,8 @@ def batch_register_job_definition(job_definition_name, remote_pipeline_image_nam
     if response['ResponseMetadata']['HTTPStatusCode'] != 200:
         raise RuntimeError('Failed to create job definition {}: HTTP Status {}'.format(job_definition_name, response['ResponseMetadata']['HTTPStatusCode']))
 
+    return response
+
 
 def ecr_create_fq_respository_name(repository_name, policy_resource_package=None, policy_resource_name=None):
     ecr_client = b3.client('ecr', region_name=profile_get_region())
