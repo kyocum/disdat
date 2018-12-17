@@ -13,87 +13,65 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""
-SimpleTree
 
-A simple tree of pipes:   Task C <- Task B <- Task A
-
-author: Kenneth Yocum
-"""
-
-from disdat.pipe import PipeTask, PipesExternalBundle
+from disdat.pipe import PipeTask
 import luigi
 import logging
 
-PIPE_PKG = 'pipe'
+"""
+TreeLeaves
+
+This file contains a couple of the tasks used by simple_tree.py
+See simple_tree.py for instructions on how to run.
+
+These tasks use self.set_bundle_name to set the human output bundle name.
+They also add their own tags to their bundles with self.add_tags.
+
+"""
+
 
 _logger = logging.getLogger(__name__)
 
 
 class C(PipeTask):
-    """
-    Adding a comment
-    """
+
     task_label    = luigi.Parameter(default='None')
     uuid          = luigi.Parameter(default='None')
-
-    def pipe_requires(self, pipeline_input=None):
-        """
-
-        Args:
-            pipeline_input:
-
-        Returns:
-
-        """
-        return None
 
     def pipe_run(self, pipeline_input=None):
         """
 
         Args:
-            pipeline_input:
+            pipeline_input: unused
 
         Returns:
-            `luigi.Target`
+            path(str): The path to the output file
         """
 
         fh = self.create_output_file('output_'.format(self.uuid))
         with fh.open('w') as outputfile:
             outputfile.write("Task C index {} uuid {} finished".format(self.task_label, self.uuid))
 
-        self.set_bundle_name("TaskC_label{}_uuid{}".format(self.task_label, self.uuid))
-        self.add_tags({'TopLevelTask':'True','NeededBy':'TaskB'})
+        self.add_tags({'SimpleTreeTask':'True', 'NumInputs':'0'})
 
         return fh.path
 
 
 class B(PipeTask):
-    """
-    """
+
     task_label    = luigi.Parameter(default='None')
     uuid          = luigi.Parameter(default='None')
 
     def pipe_requires(self, pipeline_input=None):
-        """
-        Args:
-            pipeline_input:
-
-        Return:
-            (:tuple) tasks (dict), params (dict:)
-        """
-
-        for i in range(2):
+        for i in range(1):
             self.add_dependency("task_{}".format(i), C, {'task_label': str(i) + str(self.task_label), 'uuid': 0xdeadbeef})
-
-        return
 
     def pipe_run(self, pipeline_input=None, task_0=None, task_1=None):
         """
         Args:
-            pipeline_input:
-            task_0:
-            task_1:
+            pipeline_input: unused
+            task_0: Output of one instance of task C
+            task_1: Output of second instance of task C
 
         Returns:
             `luigi.Target`
@@ -103,7 +81,6 @@ class B(PipeTask):
         with fh.open('w') as outputfile:
             outputfile.write("Task B index {} uuid {} finished".format(self.task_label, self.uuid))
 
-        self.set_bundle_name("TaskB_label{}_uuid{}".format(self.task_label, self.uuid))
-        self.add_tags({'TopLevelTask':'False','NeededBy':'SimpleTree'})
+        self.add_tags({'SimpleTreeTask':'True', 'NumInputs':'2'})
 
         return fh.path

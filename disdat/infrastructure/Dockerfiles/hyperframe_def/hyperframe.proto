@@ -1,0 +1,256 @@
+syntax = "proto3";
+package bundle;
+
+
+// -----------------------------------------------------------------------------
+// HyperFrame
+//
+// Metadata for each HyperFrame
+// We use string UUIDs to find the external Frame PBs
+// Frames may use UUIDs to find external Link PBs
+// -----------------------------------------------------------------------------
+
+
+message StringTuple {
+    string k = 1;
+    string v = 2;
+}
+
+message HyperFrame {
+
+    /* who built this bundle */
+    string owner = 1;
+
+    /* simple, human given name for the bundle */
+    string human_name = 2;
+
+    /* unique name that represents code name and hash(args) */
+    string processing_name = 3;
+
+    /* Unique identifier of the bundle  */
+    string uuid = 4;
+
+    /* An ordered mapping from column to frame uuid */
+    repeated StringTuple frames = 5;
+
+    /* Lineage of this bundle */
+    Lineage lineage = 6;
+
+    /* tags -- simple value may be a json string */
+    repeated StringTuple tags = 7;
+
+    /* Describes the form of the data when this hframe was created */
+    Presentation presentation = 8;
+
+    /* The hash of this message when hash is set to 0 */
+    string hash = 9;
+}
+
+// -----------------------------------------------------------------------------
+// Presentation
+//
+// Records the format of the data when the hframe was created
+// And is used to reconstitute the same form when presenting the data to the user.
+// The DEFAULT tag represent an unset / default presentation entry.
+// -----------------------------------------------------------------------------
+
+
+enum Presentation {
+    HF      = 0;
+    DF      = 1;
+    SCALAR  = 3;
+    TENSOR  = 4;
+    ROW     = 5;
+    DEFAULT = 6;
+}
+
+
+// -----------------------------------------------------------------------------
+// Frame -- like a tensor, can be n dimensional
+//
+// Frames hold a set of bytes or HyperFrames or Links
+// -----------------------------------------------------------------------------
+
+
+message Frame {
+
+    /* tensor name */
+    string name = 1;
+
+    /* uuid */
+    string uuid = 2;
+
+    /* Frame has data of a single type */
+    Type type = 3;
+
+    /* data shape, like [3,3] or [1,5,10] */
+    repeated uint32 shape = 4;
+
+    /* byteorder - ndarrays allow re-interpretation of the bytes */
+    ByteOrder byteorder = 5;
+
+    /* Frame contains type = 'HFRAME' -- an array of HyperFrames */
+    repeated HyperFrame hframes = 6;
+
+    /* OR type = 'LINK' -- an array of Links */
+    repeated Link links = 7;
+
+    repeated string strings = 8;
+
+    /* OR type != 'LINK' | 'HFRAME' -- Contents can be an in-place data array */
+    bytes data = 9;
+
+    /* The hash of this message when hash is set to 0 */
+    string hash = 10;
+}
+
+
+// -----------------------------------------------------------------------------
+// Lineage
+//
+// Track lineage from (:list:'HyperFrame', :code_name) to :'HyperFrame'
+// -----------------------------------------------------------------------------
+
+
+message Lineage {
+    string hframe_name = 1;
+    string hframe_uuid = 2;
+    string code_repo = 3;
+    string code_name = 4;
+    string code_semver = 5;
+    string code_hash  = 6;
+    string code_branch = 7;
+    string data_context = 8;
+    string data_branch  = 9;
+    double creation_date = 10;
+    message Dependency {
+        string hframe_name = 1;
+        string hframe_uuid = 2;
+    }
+    repeated Dependency depends_on = 11;
+}
+
+
+// -----------------------------------------------------------------------------
+// Metadata
+// -----------------------------------------------------------------------------
+
+enum ByteOrder {
+    BIG = 0;
+    LITTLE = 1;
+    NA = 2;
+}
+
+
+enum Type {
+    NONE = 0;
+    LINK = 1;
+    FLOAT16 = 2;
+    FLOAT32 = 3;
+    FLOAT64 = 4;
+    UINT8 = 5;
+    UINT16 = 6;
+    UINT32 = 7;
+    UINT64 = 8;
+    INT8 = 9;
+    INT16 = 10;
+    INT32 = 11;
+    INT64 = 12;
+    STRING = 13;
+    BOOL = 14;
+    COMPLEX64 = 15;
+    COMPLEX128 = 16;
+    HFRAME = 17;
+    OBJECT = 18;
+}
+
+
+// -----------------------------------------------------------------------------
+// LinkAuth -- How to serialize link capabilities
+// -----------------------------------------------------------------------------
+
+message LinkAuth {
+    /* Access information for data at link */
+    string profile = 1;
+    string uuid = 2;
+    oneof auth {
+        S3LinkAuth s3_auth = 3;
+        VerticaLinkAuth vertica_auth = 4;
+    }
+    string hash = 5;
+}
+
+message S3LinkAuth {
+    string aws_access_key_id = 1;
+    string aws_secret_access_key = 2;
+    string aws_session_token = 3;
+}
+
+message VerticaLinkAuth {
+    string driver = 1;
+    string description = 2;
+    string database = 3;
+    string servername = 4;
+    string uid = 5;
+    string pwd = 6;
+    string port = 7;
+    string sslmode = 8;
+}
+
+// -----------------------------------------------------------------------------
+// Link -- The information for a particular link.
+// -----------------------------------------------------------------------------
+
+message Link {
+    /* Metadata for external data links */
+    string uuid = 1;
+    /* uuid of frame that makes this reference */
+    string frame_uuid = 2;
+    /* the current authorization info to use the link */
+    string linkauth_uuid = 3;
+    /* my contents, hashed */
+    string hash = 4;
+    /* our current different link types */
+    oneof link {
+        LocalLink local = 5;
+        S3Link s3 = 6;
+        DatabaseLink database = 7;
+    }
+}
+
+message LocalLink {
+    /* Absolute path to the local data */
+    string path = 1;
+}
+
+message S3Link {
+    /* Absolute S3 bucket URL */
+    string url = 1;
+}
+
+message DatabaseLink {
+
+    /* Database url */
+    string url = 1;
+
+    /* Database */
+    string database = 2;
+
+    /* servername */
+    string servername = 3;
+
+    /* Database schema */
+    string schema = 4;
+
+    /* table */
+    string table = 5;
+
+    /* Table columns */
+    repeated string columns = 6;
+
+    /* Data Source Name */
+    string dsn = 7;
+
+    /* Server port */
+    int32 port = 8;
+}

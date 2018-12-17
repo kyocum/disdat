@@ -17,7 +17,6 @@
 Configuration
 """
 
-import json
 import logging
 import os
 import sys
@@ -46,12 +45,46 @@ DISDAT_CONTEXT_DIR = 'context'  # ~/.disdat/context/<local_context_name>
 DEFAULT_FRAME_NAME = 'unnamed'
 BUNDLE_URI_SCHEME = 'bundle://'
 
-PUT_LUIGI_PARAMS_IN_FUNC_PARAMS = False  # transparently place luigi parameters as kwargs in run() and requires()
+# Some tags in bundles are special.  They are prefixed with '__'
+BUNDLE_TAG_PARAMS_PREFIX = '__param.'
+BUNDLE_TAG_TRANSIENT = '__transient'
+
+LOCAL_EXECUTION = 'LOCAL_EXECUTION'  # Docker endpoint env variable if we're running a container locally
+
+
+class ApplyException(Exception):
+    pass
 
 
 def error(msg, *args, **kwargs):
     _logger.error(msg, *args, **kwargs)
     sys.exit(1)
+
+
+def apply_handle_result(apply_result, raise_not_exit=False):
+    """ Execute an appropriate sys.exit() call based on the dictionary
+    returned by apply.
+
+    Args:
+        apply_result(dict): Has keys 'success' and 'did_work' that give Boolean values.
+        raise_not_exit (bool): Raise ApplyException instead of performing sys.exit
+
+    Returns:
+        None
+
+    """
+
+    if apply_result['success']:
+        if raise_not_exit:
+            pass
+        else:
+            sys.exit(None) # None yields exit value of 0
+    else:
+        error_str = "Disdat Apply ran, but one or more tasks failed."
+        if raise_not_exit:
+            raise ApplyException(error_str)
+        else:
+            sys.exit(error_str)
 
 
 def setup_default_logging():
@@ -64,7 +97,12 @@ def setup_default_logging():
     Returns:
 
     """
+    global _logger
+
     logging.basicConfig(stream=sys.stderr, format=_logging_format_simple, level=_logging_default_level)
+
+    # so that the logger for this file is set up.
+    _logger = logging.getLogger(__name__)
 
 
 class SingletonType(type):
@@ -139,12 +177,12 @@ class DisdatConfig(object):
         Paths in the config might be relative.  If so, add the prefix to them.
         Next, see if there is a disdat.cfg in cwd.  Then configure disdat and (re)configure logging.
         """
-
-        _logger.debug("Loading config file [{}]".format(disdat_config_file))
-        config = ConfigParser.SafeConfigParser({'meta_dir_root': self.meta_dir_root})
+        # _logger.debug("Loading config file [{}]".format(disdat_config_file))
+        config = ConfigParser.SafeConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
         config.read(disdat_config_file)
         self.meta_dir_root = os.path.expanduser(config.get('core', 'meta_dir_root'))
         self.meta_dir_root = DisdatConfig._fix_relative_path(disdat_config_file, self.meta_dir_root)
+        self.ignore_code_version = config.getboolean('core', 'ignore_code_version')
 
         try:
             self.logging_config = os.path.expanduser(config.get('core', 'logging_conf_file'))
@@ -228,8 +266,26 @@ def make_pipeline_image_name(pipeline_class_name):
     return '-'.join(['disdat'] + pipeline_class_name.split('.')[:-1]).lower()
 
 
+def make_sagemaker_pipeline_image_name(pipeline_class_name):
+    """ Create the string for the image for this pipeline if it uses sagemaker's
+    calling convention
+
+    Args:
+        pipeline_class_name:
+
+    Returns:
+        str: The name of the image 'disdat-module[-submodule]...-sagemaker'
+    """
+
+    return make_pipeline_image_name(pipeline_class_name) + "-sagemaker"
+
+
 def make_pipeline_repository_name(docker_repository_prefix, pipeline_class_name):
     return '/'.join(([docker_repository_prefix.strip('/')] if docker_repository_prefix is not None else []) + [make_pipeline_image_name(pipeline_class_name)])
+
+
+def make_sagemaker_pipeline_repository_name(docker_repository_prefix, pipeline_class_name):
+    return '/'.join(([docker_repository_prefix.strip('/')] if docker_repository_prefix is not None else []) + [make_sagemaker_pipeline_image_name(pipeline_class_name)])
 
 
 #
@@ -237,46 +293,77 @@ def make_pipeline_repository_name(docker_repository_prefix, pipeline_class_name)
 #
 
 def get_run_command_parameters(pfs):
-    output_bundle_uuid = pfs.disdat_uuid()
     remote = pfs.get_curr_context().remote_ctxt_url
     if remote is None:
         raise ValueError
     remote = remote.replace('/{}'.format(DISDAT_CONTEXT_DIR), '')
     local_ctxt = "{}/{}".format(pfs.get_curr_context().remote_ctxt, pfs.get_curr_context().local_ctxt)
-    return output_bundle_uuid, remote, local_ctxt
+    return remote, local_ctxt
 
 
-def make_run_command(input_bundle, output_bundle, output_bundle_uuid, remote, local_ctxt, input_tags,
-                     output_tags, pipeline_params):
-    return [x.strip() for x in [
-        '--output-bundle-uuid ', output_bundle_uuid,
-        '--remote', remote,
-        '--branch', local_ctxt,
-        '--input-tags', "'" + json.dumps(dict(input_tags)) + "'",
-        '--output-tags', "'" + json.dumps(dict(output_tags)) + "'",
+def make_run_command(
         input_bundle,
         output_bundle,
-    ] + pipeline_params]
+        output_bundle_uuid,
+        remote,
+        context,
+        input_tags,
+        output_tags,
+        force,
+        no_pull,
+        no_push,
+        no_push_int,
+        workers,
+        pipeline_params
+):
+    args = [
+        '--output-bundle-uuid ', output_bundle_uuid,
+        '--remote', remote,
+        '--branch', context,
+        '--workers', unicode(workers)
+    ]
+    if no_pull:
+        args += ['--no-pull']
+    if no_push:
+        args += ['--no-push']
+    if no_push_int:
+        args += ['--no-push-intermediates']
+    if force:
+        args += ['--force']
+    if len(input_tags) > 0:
+        for next_tag in input_tags:
+            args += ['--input-tag', next_tag]
+    if len(output_tags) > 0:
+        for next_tag in output_tags:
+            args += ['--output-tag', next_tag]
+
+    args += [input_bundle, output_bundle]
+    return [x.strip() for x in args + pipeline_params]
 
 
-def parse_args_tags(args_tag):
+def parse_args_tags(args_tag, to='dict'):
     """ parse argument string of tags 'tag:value tag:value'
     into a dictionary.
 
     Args:
         args_tag (str): tags in string format 'tag:value tag:value'
-
+        to (str): Make a 'list' or 'dict' (default)
     Returns:
-        (dict):
-
+        (list(str) or dict(str)):
     """
 
-    if args_tag:
-        tag_dict = {k: v for k, v in [kv[0].split(':') for kv in args_tag]}
+    if to == 'list':
+        tag_thing = []
     else:
-        tag_dict = {}
+        tag_thing = {}
 
-    return tag_dict
+    if args_tag:
+        if to == 'list':
+            tag_thing = ['{}'.format(kv[0]) for kv in args_tag]
+        if to == 'dict':
+            tag_thing = {k: v for k, v in [kv[0].split(':') for kv in args_tag]}
+
+    return tag_thing
 
 
 def parse_params(params):
@@ -289,85 +376,6 @@ def parse_params(params):
     """
 
     return {k.lstrip('--'): v for k, v in zip(params[::2], params[1::2])}
-
-
-def explode_json_column(df, column, prefix=None, inplace=False, drop=False):
-    """
-    Explode a JSON text column into discrete columns. If the texts are lists,
-    create a column per element of the form "column.0", "column.1", etc.; the
-    numbers will be zero-filled so that lexical sorting of the new column
-    names preserves the order of the elements in the original lists. If the
-    texts are objects, create a column per key of the form "column.key0", etc.
-    Assumes that each row in the dataframe contains JSON texts of the same
-    format: all arrays with the same number of elements, or all objects with
-    the same keys.
-
-    Note that this method will raise an exception if the column contains only
-    JSON primitives.
-
-    Args:
-        df: The dataframe containing the JSON column
-        column: The name of the JSON column
-        inplace: If `True`, modify the dataframe in place, otherwise, create
-            and modify a copy of the dataframe; by default, `False`.
-        drop: If `True`, drop the original JSON column; by default, `False`
-
-    Returns:
-        A tuple containing the dataframe, and a list of the new columns, if
-            any.
-
-    """
-    _logger.debug('Dataframe columns: %s' % (df.columns))
-    if column not in df.columns:
-        raise KeyError('Column %s not in the dataframe' % (column))
-
-    # Check to see if it's already been decoded
-    tp = type(df[column][0])
-    if tp not in [unicode, str]:
-        _logger.debug('Column %s already of type %s; unchanged' % (column, tp))
-        return (df, [])
-
-    # If no prefix supplied, use an empty string.
-    if prefix is None:
-        prefix = ''
-
-    # Make a copy of the dataframe if necessary, then explode the
-    if not inplace:
-        df = df.copy()
-    json_texts = df[column].apply(json.loads)
-    if json_texts.shape[0] <= 0:
-        _logger.warning('Column %s has no records' % (column))
-        return (df, [])
-
-    json_type = type(json_texts[0])
-    columns_new = []
-    if json_type == list:
-        length = len(json_texts[0])
-        _logger.debug('Column %s is a JSON list with %d elements' % (column, length))
-        # The column extension template ensures that numeric column names are
-        # zero-filled; otherwise, operations that lexically sort column names
-        # will behave strangely (think '0 2 20 3' vs. '00 02 03 20').
-        column_extension = '.%s{:0%dd}' % (prefix, len(str(length - 1)))
-        for i in range(length):
-            column_new = column + column_extension.format(i)
-            columns_new += [column_new]
-            df[column_new] = json_texts.apply((lambda x: x[i]))
-    elif json_type == dict:
-        keys = json_texts[0].keys()
-        _logger.debug('Column %s is a JSON object with %d keys' % (column, len(keys)))
-        for i in keys:
-            column_new = '%s.%s%s' % (column, prefix, i)
-            columns_new += [column_new]
-            df[column_new] = json_texts.apply((lambda x: x[i]))
-    else:
-        raise ValueError('Column %s is a JSON primitive type')
-
-    # Drop the original column
-    if drop:
-        df.drop(column, axis=1, inplace=True)
-    _logger.debug('Created new columns: {}'.format(df.columns))
-
-    return df, columns_new
 
 
 def get_local_file_path(url):

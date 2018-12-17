@@ -13,40 +13,56 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-"""
-DF Duplicate
-
-Simple Pipe Task example: take an input dataframe or dictionary and double in size.
-
-author: Kenneth Yocum
-"""
 
 from disdat.pipe import PipeTask
+import disdat.api as api
 import pandas as pd
-import luigi
+
+"""
+DF Duplicate Example
+
+Double the size of an input dataframe or dictionary by replicating its rows.
+Note, this pipeline has no upstream dependencies.
+
+This examples shows:
+1.) A simple single upstream dependency
+2.) How to return a dataframe in 'DataMaker' and how DFDup reads it.
+
+Pre Execution:
+$export PYTHONPATH=$DISDAT_HOME/disdat/examples/pipelines
+$dsdt context examples; dsdt switch examples
+
+Execution:
+$python ./df_dup.py
+or:
+$dsdt apply - - df_dup.DFDup
+
+"""
+
+
+class DataMaker(PipeTask):
+    def pipe_run(self, pipeline_input=None):
+        data = pd.DataFrame({'heart_rate': [60, 70, 100, 55], 'age': [30, 44, 18, 77]})
+        return data
 
 
 class DFDup(PipeTask):
-    stop = luigi.BoolParameter(default=False)
-
     def pipe_requires(self, pipeline_input=None):
-        """No upstream dependencies
+        if pipeline_input is None:
+            self.add_dependency('example_data', DataMaker, {})
+
+    def pipe_run(self, pipeline_input=None, example_data=None):
+        """
+        Doubles data in a dataframe or dictionary and writes to the output
 
         Args:
-            pipeline_input: Input bundle data
-
-        Returns:
-            None
-        """
-        return
-
-    def pipe_run(self, pipeline_input=None):
-        """Doubles data in a dataframe or dictionary and writes to the output
-
-        Args:
-            pipeline_input:
+            pipeline_input:  The user's input
+            example_data:  Data if the user doesn't give us anything
 
         """
+
+        if pipeline_input is None:
+            pipeline_input = example_data
 
         if isinstance(pipeline_input, dict):
             pipeline_input.update({"{}_copy".format(k): v for k, v in pipeline_input.iteritems()})
@@ -58,3 +74,7 @@ class DFDup(PipeTask):
             output = None
 
         return output
+
+
+if __name__ == "__main__":
+    api.apply('examples', '-', '-', 'DFDup', params={})

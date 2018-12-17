@@ -13,20 +13,41 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+
+from disdat.pipe import PipeTask
+import disdat.api as api
+import luigi
+import logging
+from tree_leaves import B
+
 """
 SimpleTree
 
 A simple tree of pipes:   Task C <- Task B <- Task A
 
-author: Kenneth Yocum
+This example illustrates a slightly more complicated chain of tasks.
+In this case SimpleTree depends on B, which then depends on two C's.
+
+See tree_leaves.py for the definitions of B and C.
+B and C also add their own tags to their bundles with self.add_tags
+
+Pre Execution:
+$export PYTHONPATH=$DISDAT_HOME/disdat/examples/pipelines
+$dsdt context examples; dsdt switch examples
+
+Execution:
+$python ./simple_tree.py
+or:
+$dsdt apply - SimpleTree.example.output simple_tree.SimpleTree
+
+You can look at specific outputs by tag:
+$ dsdt ls -iv -pt -t NumInputs:2
+'-i' means print final and intermediate bundles
+'-v' means print verbose
+'-pt' means print tags
+'-t <key>:<value>' means with these tags
+
 """
-
-from disdat.pipe import PipeTask, PipesExternalBundle
-import luigi
-import logging
-from tree_leaves import B
-
-PIPE_PKG = 'pipe'
 
 _logger = logging.getLogger(__name__)
 
@@ -47,11 +68,11 @@ class SimpleTree(PipeTask):
 
         """
 
-        for i in range(2):
+        for i in range(4):
             self.add_dependency('B_{}'.format(i), B, {'task_label': str(i), 'uuid': '12340000'})
         return
 
-    def pipe_run(self, pipeline_input=None, B_0=None, B_1=None):
+    def pipe_run(self, pipeline_input=None, **kwargs):
         """
 
         Args:
@@ -63,4 +84,8 @@ class SimpleTree(PipeTask):
 
         """
 
-        return
+        return "Shark Bait"
+
+
+if __name__ == "__main__":
+    api.apply('examples', '-', 'SimpleTree.example.output', 'SimpleTree')

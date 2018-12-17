@@ -37,23 +37,25 @@ It will then need to run it remotely.   Thus we need to submit a job.
 author: Kenneth Yocum
 """
 
-from disdat.pipe_base import PipeBase
-import disdat.constants as constants
-from disdat.hyperframe import FrameRecord
-import disdat.hyperframe_pb2 as hyperframe_pb2
+# Built-in imports
+import argparse
+
+# Third-party imports
+import boto3_session_cache as b3
 import disdat.fs as fs
 import disdat.common as common
 import disdat.utility.aws_s3 as aws
-import luigi
-from luigi import retcodes, build
-import boto3_session_cache as b3
 import docker
 import inspect
 import logging
 import os
+import tempfile
 import time
-
+import json
+from disdat.common import DisdatConfig
 from enum import Enum
+from sys import platform
+
 
 _MODULE_NAME = inspect.getmodulename(__file__)
 
@@ -63,6 +65,8 @@ _logger = logging.getLogger(__name__)
 class Backend(Enum):
     Local = 0
     AWSBatch = 1
+    LocalSageMaker = 2
+    SageMaker = 3
 
     @staticmethod
     def default():
@@ -73,285 +77,533 @@ class Backend(Enum):
         return [i.name for i in list(Backend)]
 
 
-class RunTask(luigi.Task, PipeBase):
-    """Run the dockerized version of a pipeline.  This may run locally or in a pre-configured
-    set of optional container execution services.  Currently we have support for AWS Batch
-
-    Properties:
-        input_bundle: The human name of the input bundle
-        output_bundle: The human name of the output bundle
-        pipeline_class_name: Name of the pipeline class to run
-        pipeline_params: Optional arguments to pass to the pipeline class
-        backend: The batch execution back-end to use (default
-            `Backend.Local`)
-        force: If `True` force recomputation of all upstream pipe
-            requirements (default `False`)
-        push_input_bundle (bool): Push the input bundle from local context to remote.
-        input_tags (dict): The tags used to find the input bundle
-        output_tags (dict): The tags for the output bundle
-
+def _run_local(cli, arglist, pipeline_class_name, backend):
     """
-    input_bundle = luigi.Parameter(default=None)
-    output_bundle = luigi.Parameter(default=None)
-    pipeline_class_name = luigi.Parameter(default=None)
-    pipeline_params = luigi.ListParameter(default=[])
-    backend = luigi.EnumParameter(enum=Backend, default=Backend.default())
-    force = luigi.BoolParameter(default=False)
-    push_input_bundle = luigi.BoolParameter(default=True)
-    input_tags = luigi.DictParameter()
-    output_tags = luigi.DictParameter()
-
-    def __init__(self, *args, **kwargs):
-        """
-        Initialize some variables we'll use to track state.
-
-        Returns:
-        """
-        super(RunTask, self).__init__(*args, **kwargs)
-
-    def bundle_outputs(self):
-        """
-        Override PipeBase.bundle_outputs
-
-        Standard "operator" pipes first create a bundle and make an entry in the pce
-        before being called.
-
-        Returns: [(bundle_processing_name, uuid), ... ]
-        """
-
-        output_bundles = [(self.pipe_id(), self.pfs.get_path_cache(self).uuid)]
-        return output_bundles
-
-    def bundle_inputs(self):
-        """
-        Override PipeBase.bundle_inputs
-
-        This is a "base" data input bundle.  No inputs.
-
-        Returns: [(bundle_name, uuid), ... ]
-        """
-
-        return []
-
-    def pipe_id(self):
-        """
-        PipeBase.name_output_bundle
-
-        Given a pipe instance, return a unique string based on the class name and
-        the parameters.  This re-uses Luigi code for getting the unique string, placed in
-        LuigiTask.task_id.   Note that since one of the driver's parameters is the output_bundle_name,
-        this name includes the pipesline name (which is the output bundle name).
-
-        """
-
-        return self.task_id
-
-    def pipeline_id(self):
-        """
-        This is a "less unique" id than the unique id.  It is supposed to be the "human readable" name of the stage
-        this pipe occupies in the pipesline.
-
-        For the driver, we are producing the final user-named bundle.   The pipe version of this call produces
-        <driver_output_bundle_name>-<task_name>-<task_index>.    However, here there is no task_index and the task_name
-        is "Driver" and it is implicit.  So we only output the first part <driver_output_bundle_name>
-
-        Returns:
-            (str)
-        """
-        return self.output_bundle
-
-    def requires(self):
-        """ Operates with no upstream dependencies.
-        Returns:
-            None
-        """
-        return None
-
-    def output(self):
-        """ The driver output only the bundle meta files.  The actual driver bundle
-        consists of these files plus the output bundles of all pipes in the pipesline.
-
-        :return: {PipeBase.BUNDLE_META: luigifileobj, PipeBase.BUNDLE_LINEAGE, luigifileobj}
-        """
-
-        return PipeBase.add_bundle_meta_files(self)
-
-    def run(self):
-        """Interpret the luigi input params and call the internal run function
-        """
-
-        _run(
-            input_bundle=self.input_bundle,
-            output_bundle=self.output_bundle,
-            pipeline_class_name=self.pipeline_class_name,
-            pipeline_params=list(self.pipeline_params), # for some reason ListParameter is creating a tuple
-            backend=self.backend,
-            force=bool(self.force),
-            push_input_bundle=bool(self.push_input_bundle),
-            input_tags=self.input_tags,
-            output_tags=self.output_tags
-        )
-
-
-def _run(input_bundle, output_bundle, pipeline_params, pipeline_class_name,
-         backend=Backend.Local, force=False, push_input_bundle=True, input_tags=None, output_tags=None):
-    """Run the dockerized version of a pipeline.
-
+    Run container locally or run sagemaker container locally
     Args:
-        input_bundle: The human name of the input bundle
-        output_bundle: The human name of the output bundle
-        pipeline_class_name: Name of the pipeline class to run
-        pipeline_params: Optional arguments to pass to the pipeline class
-        backend: The batch execution back-end to use (default
-            `Backend.Local`)
-        force: If `True` force recomputation of all upstream pipe
-            requirements (default `False`)
-        input_tags: Find bundle with these tags
-        output_tags: Push result bundle with these tags
+        cli (bool): Whether we were called from the CLI or API
+        arglist:
+        pipeline_class_name:
+        backend:
 
     Returns:
-        `None`
+        output (str): Returns None if there is a failure
+
     """
 
-    #print "_run args are {}".format(pipeline_params)
+    on_macos = False
+    if platform == "darwin":
+        on_macos = True
 
-    pfs = fs.DisdatFS()
-    disdat_config = common.DisdatConfig.instance()
+    client = docker.from_env()
 
-    pipeline_image_name = common.make_pipeline_image_name(pipeline_class_name)
+    environment = {}
+    if 'AWS_PROFILE' in os.environ:
+        environment['AWS_PROFILE'] = os.environ['AWS_PROFILE']
+
+    environment[common.LOCAL_EXECUTION] = 'True'
+
+    volumes = {}
+    aws_config_dir = os.getenv('AWS_CONFIG_DIR', os.path.join(os.environ['HOME'], '.aws'))
+    if aws_config_dir is not None and os.path.exists(aws_config_dir):
+        volumes[aws_config_dir] = {'bind': '/root/.aws', 'mode': 'rw'}
+
+    local_disdat_meta_dir = DisdatConfig.instance().get_meta_dir()
+    volumes[local_disdat_meta_dir] = {'bind': '/root/.disdat', 'mode': 'rw'}
 
     try:
-        output_bundle_uuid, remote, branch_name = common.get_run_command_parameters(pfs)
+        if backend == Backend.LocalSageMaker:
+            pipeline_image_name = common.make_sagemaker_pipeline_image_name(pipeline_class_name)
+            tempdir = tempfile.mkdtemp()
+            with open(os.path.join(tempdir, 'hyperparameters.json'), 'w') as of:
+                json.dump(_sagemaker_hyperparameters_from_arglist(arglist), of)
+                args = ['train']  # rewrite to just 'train'
+                # On mac OS, tempdir returns /var, but is actually /private/var
+                # Add /private since it that dir is shared (and not /var) with Docker.
+                if on_macos:
+                    localdir = os.path.join('/private', tempdir[1:])
+                else:
+                    localdir = tempdir
+                volumes[localdir] = {'bind': '/opt/ml/input/config/', 'mode': 'rw'}
+                _logger.info("VOLUMES: {}".format(volumes))
+        else:
+            pipeline_image_name = common.make_pipeline_image_name(pipeline_class_name)
+
+        _logger.debug('Running image {} with arguments {}'.format(pipeline_image_name, arglist))
+
+        stdout = client.containers.run(pipeline_image_name, arglist, detach=False,
+                                       environment=environment, init=True, stderr=True, volumes=volumes)
+        if cli: print stdout
+        return stdout
+    except docker.errors.ImageNotFound:
+        _logger.error("Unable to find the docker image {}".format(pipeline_image_name))
+        return None
+
+
+def get_fq_docker_repo_name(is_sagemaker, pipeline_class_name):
+    """
+    Produce the fully qualified docker repo name.
+
+    Args:
+        is_sagemaker (bool): for sagemaker image
+        pipeline_class_name (str): the package.module.class string
+
+    Returns:
+        (str): The fully qualified docker image repository name
+    """
+    disdat_config = DisdatConfig.instance()
+
+    repository_prefix = None
+    if disdat_config.parser.has_option('docker', 'repository_prefix'):
+        repository_prefix = disdat_config.parser.get('docker', 'repository_prefix')
+    if is_sagemaker:
+        repository_name = common.make_sagemaker_pipeline_repository_name(repository_prefix, pipeline_class_name)
+    else:
+        repository_name = common.make_pipeline_repository_name(repository_prefix, pipeline_class_name)
+
+    # Figure out the fully-qualified repository name, i.e., the name
+    # including the registry.
+    registry_name = disdat_config.parser.get('docker', 'registry').strip('/')
+    if registry_name == '*ECR*':
+        fq_repository_name = aws.ecr_get_fq_respository_name(repository_name)
+    else:
+        fq_repository_name = '{}/{}'.format(registry_name, repository_name)
+
+    return fq_repository_name
+
+
+def _run_aws_batch(arglist, job_name, pipeline_class_name,
+                   aws_session_token_duration, vcpus, memory,
+                   no_submit, job_role_arn):
+    """
+    Run job on AWS Batch.   Sends to queue configured in disdat.cfg.
+    This assumes that you have already created a cluster that will run the jobs
+    that have been assigned to that queue.
+
+    Args:
+        arglist:
+        pipeline_class_name:
+        aws_session_token_duration:
+        vcpus:
+        memory:
+        no_submit (bool): default False
+        job_role_arn (str): Can be None
+
+    Returns:
+
+    """
+
+    def check_role_arn(job_dict, jra):
+        """ Check to see if the job desc dictionary contains the same job_role_arn (jra)
+        """
+
+        if jra is None:
+            if 'jobRoleArn' not in job_dict['containerProperties']:
+                return True
+        else:
+            if 'jobRoleArn' in job_dict['containerProperties']:
+                if job_dict['containerProperties']['jobRoleArn'] == jra:
+                    return True
+        return False
+
+    disdat_config = DisdatConfig.instance()
+
+    # Get the parameter values required to kick off an AWS Batch job.
+    # Every batch job must:
+    # 1. Have a name
+    # 2. Have a job definition that declares which ECR-hosted Docker
+    #    image to use.
+    # 3. Have a queue that feeds jobs into a compute cluster.
+    # 4. The command to execute inside the Docker image; the command
+    #    args are more-or-less the same as the ones used to execute
+    #    locally using 'dsdt run'
+
+    # Create a Job Definition and upload it.
+    # We create per-user job definitions so multiple users do not clobber each other.
+    # In addition, we never re-use a job definition, since the user may update
+    # the vcpu or memory requirements and those are stuck in the job definition
+
+    fq_repository_name = get_fq_docker_repo_name(False, pipeline_class_name)
+
+    job_definition_name = aws.batch_get_job_definition_name(pipeline_class_name)
+
+    if disdat_config.parser.has_option(_MODULE_NAME, 'aws_batch_job_definition'):
+        job_definition_name = disdat_config.parser.get(_MODULE_NAME, 'aws_batch_job_definition')
+
+    # TODO: Look through all of history to find one that matches?
+    # TODO: Delete old jobs here or let user do it?
+    job_definition_obj = aws.batch_get_latest_job_definition(job_definition_name)
+
+    if (job_definition_obj is not None and
+            job_definition_obj['containerProperties']['image'] == fq_repository_name and
+            job_definition_obj['containerProperties']['vcpus'] == vcpus and
+            job_definition_obj['containerProperties']['memory'] == memory and
+            check_role_arn(job_definition_obj, job_role_arn)):
+
+        job_definition_fqn = aws.batch_extract_job_definition_fqn(job_definition_obj)
+
+        _logger.info("Re-using prior AWS Batch run job definition : {}".format(job_definition_obj))
+
+    else:
+        """ Whether None or doesn't match, make a new one """
+
+        job_definition_obj = aws.batch_register_job_definition(job_definition_name, fq_repository_name,
+                                          vcpus=vcpus, memory=memory, job_role_arn=job_role_arn)
+
+        job_definition_fqn = aws.batch_get_job_definition(job_definition_name)
+
+        _logger.info("New AWS Batch run job definition {}".format(job_definition_fqn))
+
+    if no_submit:
+        # Return the job description object
+        return job_definition_obj
+
+    job_queue = disdat_config.parser.get(_MODULE_NAME, 'aws_batch_queue')
+
+    container_overrides = {'command': arglist}
+
+    # Through the magic of boto3_session_cache, the client in our script
+    # here can get at AWS profiles and temporary AWS tokens created in
+    # part from MFA tokens generated through the user's shells; we don't
+    # have to write special code of our own to deal with authenticating
+    # with AWS.
+    client = b3.client('batch', region_name=aws.profile_get_region())
+    # A bigger problem might be that the IAM role executing the job on
+    # a batch EC2 instance might not have access to the S3 remote. To
+    # get around this, allow the user to create some temporary AWS
+    # credentials.
+    if aws_session_token_duration > 0 and job_role_arn is None:
+        sts_client = b3.client('sts')
+        token = sts_client.get_session_token(DurationSeconds=aws_session_token_duration)
+        credentials = token['Credentials']
+        container_overrides['environment'] = [
+            {'name': 'AWS_ACCESS_KEY_ID', 'value': credentials['AccessKeyId']},
+            {'name': 'AWS_SECRET_ACCESS_KEY', 'value': credentials['SecretAccessKey']},
+            {'name': 'AWS_SESSION_TOKEN', 'value': credentials['SessionToken']}
+        ]
+    job = client.submit_job(jobName=job_name, jobDefinition=job_definition_fqn, jobQueue=job_queue,
+                            containerOverrides=container_overrides)
+    status = job['ResponseMetadata']['HTTPStatusCode']
+    if status == 200:
+        _logger.info('Job {} (ID {}) with definition {} submitted to AWS Batch queue {}'.format(job['jobName'], job['jobId'],
+                                                                                         job_definition_fqn, job_queue))
+        return job
+    else:
+        _logger.error('Job submission failed: HTTP Status {}'.format())
+        return None
+
+def _sagemaker_hyperparameters_from_arglist(arglist):
+    """
+    Return a dictionary of str:str that emulates
+    what SageMaker will return when using boto3 interface.
+
+    Args:
+        arglist (list (str)): List of string arguments to entrypoint.py
+
+    Returns:
+        (dict (str:str)): Dictionary of string to string
+    """
+
+    return {'arglist': json.dumps(arglist)}
+
+
+def _run_aws_sagemaker(arglist, job_name, pipeline_class_name):
+    """
+    Runs a training job on AWS SageMaker.  This uses the default machine type
+    in the disdat.cfg file.
+
+    Args:
+        cli (bool): Whether we were called from the CLI or API
+
+    Returns:
+        TrainingJobArn (str)
+    """
+
+    disdat_config = DisdatConfig.instance()
+
+    job_name = job_name.replace('_', '-') # b/c SageMaker complains it must be ^[a-zA-Z0-9](-*[a-zA-Z0-9])*
+
+    hyperparameter_dict = _sagemaker_hyperparameters_from_arglist(arglist)
+
+    fq_repository_name = get_fq_docker_repo_name(True, pipeline_class_name)
+
+    algorithm_specification = {'TrainingImage': fq_repository_name,
+                               'TrainingInputMode': 'File'}
+
+    role_arn = disdat_config.parser.get(_MODULE_NAME, 'aws_sagemaker_role_arn')
+
+    input_channel_config = [
+        {
+            'ChannelName': 'disdat_sagemaker_input_blackhole',
+            'DataSource': {
+                'S3DataSource': {
+                    'S3DataType': 'S3Prefix',
+                    'S3Uri': disdat_config.parser.get(_MODULE_NAME, 'aws_sagemaker_s3_input_uri'),
+                    'S3DataDistributionType': 'FullyReplicated'
+                }
+            },
+            'ContentType': 'application/javascript',
+            'CompressionType': 'None',  # | 'Gzip',
+            'RecordWrapperType': 'None' # | 'RecordIO'
+        },
+    ]
+
+    output_data_config = {'S3OutputPath': os.path.join(
+        disdat_config.parser.get(_MODULE_NAME, 'aws_sagemaker_s3_output_uri'), job_name)}
+
+    resource_config = {
+            'InstanceType': disdat_config.parser.get(_MODULE_NAME, 'aws_sagemaker_instance_type'),
+            'InstanceCount': int(disdat_config.parser.get(_MODULE_NAME, 'aws_sagemaker_instance_count')),
+            'VolumeSizeInGB': int(disdat_config.parser.get(_MODULE_NAME, 'aws_sagemaker_volume_sizeGB'))
+            # 'VolumeKmsKeyId': 'string'
+        }
+
+    vpc_config = None #'SecurityGroupIds': [], 'Subnets': []}
+
+    stopping_condition = {'MaxRuntimeInSeconds': int(disdat_config.parser.get(_MODULE_NAME, 'aws_sagemaker_max_runtime_sec'))}
+
+    tags = [{'Key': 'user', 'Value': 'disdat'},
+            {'Key': 'job', 'Value': job_name}]
+
+    if False:
+        print "Disdat SageMaker configs"
+        print "job name: {}".format(job_name)
+        print "hparams: {}".format(hyperparameter_dict)
+        print "algorithm: {}".format(algorithm_specification)
+        print "Role ARN: {}".format(role_arn)
+        print "Input data conf: {}".format(input_channel_config)
+        print "Output data conf: {}".format(output_data_config)
+        print "Resource conf: {}".format(resource_config)
+        print "VPC conf: {}".format(vpc_config)
+        print "Stopping condition seconds: {}".format(stopping_condition)
+        print "Tags: {}".format(tags)
+
+    client = b3.client('sagemaker', region_name=aws.profile_get_region())
+
+    response = client.create_training_job(
+        TrainingJobName=job_name,
+        HyperParameters= hyperparameter_dict,
+        AlgorithmSpecification=algorithm_specification,
+        RoleArn=role_arn,
+        InputDataConfig=input_channel_config,
+        OutputDataConfig=output_data_config,
+        ResourceConfig=resource_config,
+        #VpcConfig=vpc_config,
+        StoppingCondition=stopping_condition,
+        Tags=tags
+    )
+
+    _logger.info("Disdat SageMaker create_training_job response {}".format(response))
+    return response['TrainingJobArn']
+
+def _run(
+        input_bundle = '-',
+        output_bundle = '-',
+        pipeline_args ='',
+        pipe_cls = None,
+        backend = None,
+        input_tags = {},
+        output_tags = {},
+        force = False,
+        context = None,
+        remote = None,
+        no_pull = False,
+        no_push = False,
+        no_push_int = False,
+        vcpus = 1,
+        memory = 2000,
+        workers = 1,
+        no_submit = False,
+        job_role_arn = None,
+        aws_session_token_duration = 0,
+        cli=False):
+    """Run the dockerized version of a pipeline.
+
+    Note these are named parameters so we avoid bugs related to argument order.
+
+    Args:
+        input_bundle (str): The human name of the input bundle
+        output_bundle (str): The human name of the output bundle
+        pipeline_args: Optional arguments to pass to the pipeline class
+        pipe_cls: Name of the pipeline class to run
+        backend: The batch execution back-end to use (default
+            `Backend.Local`)
+        input_tags (list(str)): Find bundle with these tags ['key:value',...]
+        output_tags (list(str)): Push result bundle with these tags ['key:value',...]
+        force (bool): If `True` force recomputation of all upstream pipe requirements (default `False`)
+        context (str): <remote context>/<local context> context string
+        remote (str): The remote S3 URL.
+        no_pull (bool): Do not pull before executing (start in empty local context)
+        no_push (bool): Do not push any new bundles to remote (useful for testing locally)
+        no_push_int (bool): Do not push new intermediate bundles to remote
+        vcpus (int):  Number of AWS vCPUs the container requests
+        memory (int):  Amount of memory container requests in MB
+        workers (int): Number of Luigi workers to run tasks in DAG
+        no_submit (bool): Produce the AWS job config (for AWS Batch), but do not submit the job
+        job_role_arn (str):  The AWS role under which the job should execute
+        aws_session_token_duration (int): the number of seconds our temporary credentials should last.
+        cli (bool): Whether we called run from the API (buffer output) or the CLI
+
+    Returns:
+        job_result (json): A json blob that contains information about the run job.
+    """
+
+    pfs = fs.DisdatFS()
+
+    try:
+        output_bundle_uuid = pfs.disdat_uuid()
+        if remote is None or context is None:
+            # If either is none, then both are, b/c we checked in calling function
+            remote, context = common.get_run_command_parameters(pfs)
     except ValueError:
         _logger.error("'run' requires a remote set with `dsdt remote <s3 url>`")
         return
 
-    if backend == Backend.AWSBatch:
-        # Get the parameter values required to kick off an AWS Batch job.
-        # Every batch job must:
-        # 1. Have a name
-        # 2. Have a job definition that declares which ECR-hosted Docker
-        #    image to use.
-        # 3. Have a queue that feeds jobs into a compute cluster.
-        # 4. The command to execute inside the Docker image; the command
-        #    args are more-or-less the same as the ones used to execute
-        #    locally using 'dsdt run'
+    arglist = common.make_run_command(input_bundle, output_bundle, output_bundle_uuid, remote, context,
+                                      input_tags, output_tags, force, no_pull, no_push, no_push_int, workers, pipeline_args)
+
+    if backend == Backend.AWSBatch or backend == Backend.SageMaker:
+
+        pipeline_image_name = common.make_pipeline_image_name(pipe_cls)
+
         job_name = '{}-{}'.format(pipeline_image_name, int(time.time()))
-        job_definition_name = aws.batch_get_job_definition_name(pipeline_class_name)
-        if disdat_config.parser.has_option(_MODULE_NAME, 'aws_batch_job_definition'):
-            job_definition_name = disdat_config.parser.get(_MODULE_NAME, 'aws_batch_job_definition')
 
-        # If the job definition does not exist, create it.
-        job_definition = aws.batch_get_job_definition(job_definition_name)
-        if job_definition is None:
-            repository_prefix = disdat_config.parser.get('docker', 'repository_prefix')
-            repository_name = common.make_pipeline_repository_name(repository_prefix, pipeline_class_name)
-            # Figure out the fully-qualified repository name, i.e., the name
-            # including the registry.
-            registry_name = disdat_config.parser.get('docker', 'registry').strip('/')
-            if registry_name == '*ECR*':
-                fq_repository_name = aws.ecr_get_fq_respository_name(repository_name)
-            else:
-                fq_repository_name = '{}/{}'.format(registry_name, repository_name)
-            aws.batch_register_job_definition(job_definition_name, fq_repository_name)
-            job_definition = aws.batch_get_job_definition(job_definition_name)
-        job_queue = disdat_config.parser.get(_MODULE_NAME, 'aws_batch_queue')
-
-        # Assemble the command...
-        job_command = common.make_run_command(input_bundle, output_bundle, output_bundle_uuid, remote, branch_name,
-                                              input_tags, output_tags, pipeline_params)
-        container_overrides = {'command': job_command}
-
-        # Through the magic boto3_session_cache, we get clients to interact
-        # with AWS services and (if necessary) temporary tokens if using
-        # AWS profiles/MFA tokens.
-        client = b3.client('batch', region_name=aws.profile_get_region())
-        job = client.submit_job(jobName=job_name, jobDefinition=job_definition, jobQueue=job_queue,
-                                containerOverrides=container_overrides)
-        status = job['ResponseMetadata']['HTTPStatusCode']
-        if status == 200:
-            print 'Job {} (ID {}) with definition {} submitted to AWS Batch queue {}'.format(job['jobName'], job['jobId'], job_definition, job_queue)
+        if backend == Backend.AWSBatch:
+            retval = _run_aws_batch(arglist, job_name, pipe_cls,
+                           aws_session_token_duration, vcpus, memory,
+                           no_submit, job_role_arn)
         else:
-            _logger.error('Job submission failed: HTTP Status {}'.format())
-    elif backend == Backend.Local:
+            retval = _run_aws_sagemaker(arglist, job_name, pipe_cls)
 
-        client = docker.from_env()
-        # Configure the container environment and mounted file systems.
-        environment = {}
-        if 'AWS_PROFILE' in os.environ:
-            environment['AWS_PROFILE'] = os.environ['AWS_PROFILE']
-        volumes = {}
-        aws_config_dir = os.getenv('AWS_CONFIG_DIR', os.path.join(os.environ['HOME'], '.aws'))
-        if aws_config_dir is not None and os.path.exists(aws_config_dir):
-            volumes[aws_config_dir] = {'bind': '/root/.aws', 'mode': 'rw'}
-        # Make sure latest committed is sent to remote
-        if push_input_bundle:
-            result = pfs.push(human_name=input_bundle)
-            if result is None:
-                _logger.error("'run' failed trying to push input bundle {} to remote.".format(input_bundle))
-                return
-        # Now try to run the container
-        try:
-            args = ' '.join(common.make_run_command(input_bundle, output_bundle, output_bundle_uuid, remote, branch_name,
-                                                    input_tags, output_tags, pipeline_params))
+    elif backend == Backend.Local or backend == Backend.LocalSageMaker:
 
-            print "run.py ARGS {}".format(args)
+        retval = _run_local(cli, arglist, pipe_cls, backend)
 
-            _logger.debug('Running image {} with arguments {}'.format(pipeline_image_name, args))
-            stdout = client.containers.run(pipeline_image_name, args, detach=False, environment=environment, init=True, stderr=True, volumes=volumes)
-            print stdout
-        except docker.errors.ImageNotFound:
-            _logger.error("Unable to find the docker image {}".format(pipeline_image_name))
-            return
-        # Now that this is finished, we need to pull this from the remote.
-        pfs.pull(output_bundle, output_bundle_uuid)
     else:
         raise ValueError('Got unrecognized job backend \'{}\': Expected {}'.format(backend, Backend.options()))
 
+    return retval
 
-def main(disdat_config, args):
-    """Convert cli args into luigi task and params and execute
+
+def add_arg_parser(parsers):
+    run_p = parsers.add_parser('run', description="Run a containerized version of transform.")
+    run_p.add_argument(
+        '--backend',
+        default=Backend.default(),
+        type=str,
+        choices=Backend.options(),
+        help='An optional batch execution back-end to use',
+    )
+    run_p.add_argument(
+        "--force",
+        action='store_true',
+        help="If there are dependencies, force re-computation."
+    )
+    run_p.add_argument(
+        "--no-submit",
+        action='store_true',
+        help="For AWS Batch: Do not submit job -- only create the Batch job description."
+    )
+    run_p.add_argument(
+        "--no-push",
+        action='store_true',
+        help="Do not commit and push newly created bundles to remote context."
+    )
+    run_p.add_argument(
+        '--no-push-intermediates',
+        action='store_true',
+        help='Do not push the intermediate bundles to the remote repository (default is to push)',
+        dest='no_push_int'
+    )
+    run_p.add_argument(
+        '--no-pull',
+        action='store_true',
+        help='Do not pull (synchronize) remote repository with local repo.  This may cause entire pipeline to re-run.',
+    )
+    run_p.add_argument(
+        '--use-aws-session-token',
+        default=43200, # 12 hours of default time -- for long pipelines!
+        type=int,
+        help='For AWS Batch: Use temporary AWS session token, valid for AWS_SESSION_TOKEN_DURATION seconds. Default 43200. Set to zero to not use a token.',
+        dest='aws_session_token_duration',
+    )
+    run_p.add_argument('--workers',
+                       type=int,
+                       default=2,
+                       help="The number of Luigi workers to spawn.  Default is 2.")
+    run_p.add_argument('--vcpus',
+                       type=int,
+                       default=2,
+                       help="The vCPU count for an AWS Batch container.")
+    run_p.add_argument('--memory',
+                       type=int,
+                       default=4000,
+                       help="The memory (MiB) required by this AWS Batch container.")
+    run_p.add_argument('--job-role-arn',
+                       type=str,
+                       default=None,
+                       help="For AWS Batch: Use this ARN to indicate the role under which batch containers run.")
+    run_p.add_argument('-c', '--context',
+                       type=str,
+                       default=None,
+                       help="'<remote context>/<local context>', else use current context.")
+    run_p.add_argument('-r', '--remote',
+                       type=str,
+                       default=None,
+                       help="Remote URL, i.e, 's3://<bucket>/dsdt/', else use remote on current context")
+    run_p.add_argument('-it', '--input-tag', nargs=1, type=str, action='append',
+                       help="Input bundle tags: '-it authoritative:True -it version:0.7.1'",
+                       dest='input_tags')
+    run_p.add_argument('-ot', '--output-tag', nargs=1, type=str, action='append',
+                       help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'",
+                       dest='output_tags')
+    run_p.add_argument("input_bundle", type=str, help="Name of source data bundle.  '-' means no input bundle.")
+    run_p.add_argument("output_bundle", type=str, help="Name of destination bundle.  '-' means default output bundle.")
+    run_p.add_argument("pipe_cls", type=str, help="User-defined transform, e.g., module.PipeClass")
+    run_p.add_argument("pipeline_args", type=str,  nargs=argparse.REMAINDER,
+                       help="Optional set of parameters for this pipe '--parameter value'")
+    run_p.set_defaults(func=lambda args: run_entry(cli=True, **vars(args)))
+    return parsers
+
+
+def run_entry(cli=False, **kwargs):
+    """
+    Handles parameter defaults for calling _run()
+
+    From the CLI, the parseargs object has all the arguments
+    From the API, the arguments are explicitly set
+
+    Note: pipeline_args is an array of args: ['name',json.dumps(value),'name2',json.dumps(value2)]
 
     Args:
-        disdat_config:
-        args:
+        kwargs (dict):
 
     Returns:
-        `None`
+
     """
 
     pfs = fs.DisdatFS()
 
-    if not pfs.in_context():
-        print "'Must be in a context to execute 'dsdt run'"
-        return
+    # Ensure kwargs only contains the arguments we want when calling _run
+    [kwargs.pop(k) for k in kwargs.keys() if k not in _run.__code__.co_varnames]
 
-    if args.backend is not None:
-        backend = Backend[args.backend]
+    # if any set, the other must be set.  if a or b, then a and b are set
+    if kwargs['context'] is not None or kwargs['remote'] is not None:
+        if kwargs['context'] is None or kwargs['remote'] is None:
+            print "Must set both context [{}] and remote [{}] simultaneously.".format(kwargs['context'], kwargs['remote'])
+            return
     else:
-        backend = Backend.default()
+        if not pfs.in_context():
+            print "'Must be in a context (or specify --context and --remote) to execute 'dsdt run'"
+            return
 
-    print "backend type {} arg {}".format(type(backend), backend)
+    if kwargs['backend'] is not None:
+        kwargs['backend'] = Backend[kwargs['backend']]
+    else:
+        kwargs['backend'] = Backend.default()
 
-    input_tags = common.parse_args_tags(args.input_tag)
+    kwargs['input_tags'] = common.parse_args_tags(kwargs['input_tags'], to='list')
+    kwargs['output_tags'] = common.parse_args_tags(kwargs['output_tags'], to='list')
+    kwargs['cli'] = cli
 
-    output_tags = common.parse_args_tags(args.output_tag)
-
-    task_args = [args.input_bundle,
-                 args.output_bundle,
-                 args.pipe_cls,
-                 args.pipeline_args,
-                 backend,
-                 args.force,
-                 args.push_input_bundle,
-                 input_tags,
-                 output_tags
-                 ]
-
-    commit_pipe = RunTask(*task_args)
-
-    pfs.new_output_hframe(commit_pipe, is_left_edge_task=False)
-
-    # This is a superior way of calling the task, because we can make it once
-    # and not have to repeat the args into a 'fake' cli call.
-    build([commit_pipe], local_scheduler=True)
+    return _run(**kwargs)

@@ -33,6 +33,8 @@ import pkg_resources
 
 from botocore.exceptions import ClientError
 from urlparse import urlparse
+from getpass import getuser
+
 
 _logger = logging.getLogger(__name__)
 
@@ -40,8 +42,54 @@ _logger = logging.getLogger(__name__)
 def batch_get_job_definition_name(pipeline_class_name):
     """Get the most recent active AWS Batch job definition for a dockerized
     pipeline.
+
+    Note: The Python getpass docs do not specify the exception thrown when getting the user name fails.
+
     """
-    return '{}-job-definition'.format(common.make_pipeline_image_name(pipeline_class_name))
+
+    try:
+        return '{}-{}-job-definition'.format(getuser(), common.make_pipeline_image_name(pipeline_class_name))
+    except Exception as e:
+        return '{}-{}-job-definition'.format('DEFAULT', common.make_pipeline_image_name(pipeline_class_name))
+
+
+def batch_get_latest_job_definition(job_definition_name):
+    """Get the most recent active revision number for a AWS Batch job
+    definition
+
+    Args:
+        job_definition_name: The name of the job definition
+        remote_pipeline_image_name:
+        vcpus:
+        memory:
+
+    Return:
+        The latest job definition dictionary or `None` if the job definition does not exist
+    """
+    region = profile_get_region()
+    client = b3.client('batch', region_name=region)
+    response = client.describe_job_definitions(jobDefinitionName=job_definition_name, status='ACTIVE')
+    if response['ResponseMetadata']['HTTPStatusCode'] != 200:
+        raise RuntimeError(
+            'Failed to get job definition revisions for {}: HTTP Status {}'.format(job_definition_name, response['ResponseMetadata']['HTTPStatusCode'])
+        )
+    job_definitions = response['jobDefinitions']
+    revision = 0
+    job_def = None
+    for j in job_definitions:
+        if j['jobDefinitionName'] != job_definition_name:
+            continue
+        if j['revision'] > revision:
+            revision = j['revision']
+            job_def = j
+
+    return job_def
+
+
+def batch_extract_job_definition_fqn(job_def):
+    revision = job_def['revision']
+    name = job_def['jobDefinitionName']
+    return '{}:{}'.format(name, revision)
 
 
 def batch_get_job_definition(job_definition_name):
@@ -55,27 +103,16 @@ def batch_get_job_definition(job_definition_name):
         The fully-qualified job definition name with revision number, or
             `None` if the job definition does not exist
     """
-    region = profile_get_region()
-    client = b3.client('batch', region_name=region)
-    response = client.describe_job_definitions(jobDefinitionName=job_definition_name, status='ACTIVE')
-    if response['ResponseMetadata']['HTTPStatusCode'] != 200:
-        raise RuntimeError(
-            'Failed to get job definition revisions for {}: HTTP Status {}'.format(job_definition_name, response['ResponseMetadata']['HTTPStatusCode'])
-        )
-    job_definitions = response['jobDefinitions']
-    revision = 0
-    for j in job_definitions:
-        if j['jobDefinitionName'] != job_definition_name:
-            continue
-        if j['revision'] > revision:
-            revision = j['revision']
-    if revision == 0:
+    job_def = batch_get_latest_job_definition(job_definition_name)
+
+    if job_def is None:
         return None
     else:
-        return '{}:{}'.format(job_definition_name, revision)
+        return batch_extract_job_definition_fqn(job_def)
 
 
-def batch_register_job_definition(job_definition_name, remote_pipeline_image_name, vcpus=1, memory=2000):
+def batch_register_job_definition(job_definition_name, remote_pipeline_image_name,
+                                  vcpus=1, memory=2000, job_role_arn=None):
     """Register a new AWS Batch job definition.
 
     Args:
@@ -85,20 +122,29 @@ def batch_register_job_definition(job_definition_name, remote_pipeline_image_nam
         vcpus: The number of vCPUs to use to run jobs using this definition
         memory: The amount of memory in MiB to use to run jobs using this
             definition
+        job_role_arn (str): Can be None
     """
+
+    container_properties = {
+        'image': remote_pipeline_image_name,
+        'vcpus': vcpus,
+        'memory': memory,
+    }
+
+    if job_role_arn is not None:
+        container_properties['jobRoleArn'] = job_role_arn
+
     region = profile_get_region()
     client = b3.client('batch', region_name=region)
     response = client.register_job_definition(
         jobDefinitionName=job_definition_name,
         type='container',
-        containerProperties={
-            'image': remote_pipeline_image_name,
-            'vcpus': vcpus,
-            'memory': memory,
-        }
+        containerProperties=container_properties
     )
     if response['ResponseMetadata']['HTTPStatusCode'] != 200:
         raise RuntimeError('Failed to create job definition {}: HTTP Status {}'.format(job_definition_name, response['ResponseMetadata']['HTTPStatusCode']))
+
+    return response
 
 
 def ecr_create_fq_respository_name(repository_name, policy_resource_package=None, policy_resource_name=None):
@@ -257,22 +303,58 @@ def ls_s3_url_objects(s3_url):
     if s3_url[-1] is not '/':
         s3_url += '/'
 
-    s3 = b3.resource('s3')
     bucket, s3_path = split_s3_url(s3_url)
 
-    if not s3_bucket_exists(bucket):
-        return result
+    #if not s3_bucket_exists(bucket):
+    #    return result
 
-    s3_b = s3.Bucket(bucket)
-    for i in s3_b.objects.filter(Prefix=s3_path, MaxKeys=1024):
-        result.append(i)
-    if len(result) == 1024:
-        _logger.warn("ls_s3_url_objects: hit MaxKeys 1024 limit in result set.")
+    if False:
+        client = b3.client('s3')
+        paginator = client.get_paginator('list_objects_v2')
+        # use delimiter to groupby, which means, list things only at this level.
+        #page_iterator = paginator.paginate(Bucket=bucket, Delimiter='/', Prefix=s3_path)
+        page_iterator = paginator.paginate(Bucket=bucket,Prefix=s3_path)
+        for page in page_iterator:
+            result += [obj['Key'] for obj in page['Contents']]
+    else:
+        s3 = b3.resource('s3')
+        try:
+            s3_b = s3.Bucket(bucket)
+            for i in s3_b.objects.filter(Prefix=s3_path, MaxKeys=1024):
+                result.append(i)
+            if len(result) == 1024:
+                _logger.warn("ls_s3_url_objects: hit MaxKeys 1024 limit in result set.")
+        except Exception as e:
+            _logger.error("ls_s3_url_objects: failed with exception {}".format(e))
+            raise
 
     return result
 
 
 def ls_s3_url(s3_url):
+    """
+
+    Args:
+        s3_url:
+
+    Returns:
+        list(dict)
+    """
+
+    bucket, s3_path = split_s3_url(s3_url)
+    result = []
+    client = b3.client('s3')
+    paginator = client.get_paginator('list_objects_v2')
+    # use delimiter to groupby, which means, list things only at this level.
+    #page_iterator = paginator.paginate(Bucket=bucket, Delimiter='/', Prefix=s3_path)
+    page_iterator = paginator.paginate(Bucket=bucket,Prefix=s3_path)
+    for page in page_iterator:
+        result += page['Contents']
+
+    return result
+
+
+def ls_s3_url_paths(s3_url):
     """
     Return path strings at this url
 
@@ -280,7 +362,7 @@ def ls_s3_url(s3_url):
         (bool) : removed
     """
 
-    return [os.path.join('s3://', obj.bucket_name, obj.key) for obj in ls_s3_url_objects(s3_url)]
+    return [os.path.join('s3://', r['Key']) for r in ls_s3_url(s3_url)]
 
 
 def delete_s3_dir(s3_url):
@@ -351,13 +433,60 @@ def put_s3_file(local_path, s3_root):
     return filename
 
 
-def get_s3_file(s3_url, filename=None):
+def get_s3_resource():
+    return b3.resource('s3')
+
+
+def get_s3_key(bucket, key, filename=None):
+    """
+
+    Args:
+        bucket:
+        key:
+        file_name:
+        s3: A boto3.resource('s3')
+
+    Returns:
+
+    """
+
+    #print "PID({}) START bkt[] key[{}] file[{}]".format(multiprocessing.current_process(),key,filename)
+
+    dl_retry = 3
+
     s3 = b3.resource('s3')
-    bucket, s3_path = split_s3_url(s3_url)
+
     if filename is None:
-        filename = os.path.basename(s3_path)
-    s3.Object(bucket, s3_path).download_file(filename)
+        filename = os.path.basename(key)
+    else:
+        path = os.path.dirname(filename)
+        if not os.path.exists(path):
+            try:
+                os.makedirs(path)
+            except os.error as ose:
+                # swallow error -- likely file already exists.
+                _logger.warn("aws_s3.get_s3_key: Error code {}".format(os.strerror(ose.errno)))
+
+    while dl_retry > 0:
+        try:
+            s3.Bucket(bucket).download_file(key, filename)
+            dl_retry = -1
+        except Exception as e:
+            _logger.warn("aws_s3.get_s3_key Retry Count [{}] on download_file raised exception {}".format(dl_retry, e))
+            dl_retry -= 1
+            if dl_retry <= 0:
+                _logger.warn("aws_s3.get_s3_key Fail on downloading file after 3 retries with exception {}".format(e))
+                raise
+
+    #print "PID({}) STOP bkt[] key[{}] file[{}]".format(multiprocessing.current_process(),key,filename)
+
     return filename
+
+
+def get_s3_file(s3_url, filename=None):
+    bucket, s3_path = split_s3_url(s3_url)
+
+    return get_s3_key(bucket, s3_path, filename)
 
 
 def split_s3_url(s3_url):

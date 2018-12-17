@@ -1,10 +1,11 @@
-include infrastructure/Dockerfiles/hyperframe_def/*
-include infrastructure/dockerizer/Makefile
-include infrastructure/dockerizer/config.mk.template
+include disdat/infrastructure/dockerizer/Makefile
+include disdat/infrastructure/dockerizer/config.mk.template
+include disdat/infrastructure/dockerizer/config/*
 include LICENSE.txt
-include VERSION
+include setup.py
+include disdat/VERSION
 include disdat/resources/*
 recursive-include disdat/config *
-recursive-include infrastructure/dockerizer/context.template *
+recursive-include disdat/infrastructure/dockerizer/context.template *
 
 global-exclude *~ *.pyc

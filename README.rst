@@ -10,26 +10,52 @@ it easy to produce and then share the latest outputs with other users.  Instead 
 multiple file attachments, searching through Slack for the most recent S3 file path, users can instead
 ``dsdt pull awesome_data`` to get the latest 'awesome_data.'
 
+In addition, Disdat can 'dockerize' pipelines into containers that run locally, on AWS Batch, or on AWS SageMaker.   Whether running as a container or running the pipeline natively, Disdat manages the data produced by your pipeline so you don't have to.  Instead of having to find new names for the same logical dataset, e.g., "the-most-recent-today-with-the-latest-fix.csv" , Disdat manages the outputs in your local FS or S3 for you.  
+
 
 Getting Started
 ---------------
 
-Disdat includes both an API and a CLI (command-line interface).  To install either, first clone the disdat code repository:
+Disdat includes both an API and a CLI (command-line interface).  To install both into your Python environment:
+
+.. code-block:: console
+    
+    $ pip install disdat
+
+At this point you can start using Disdat to author and share pipelines and data sets.  Check that you're running at least this version:
+
+.. code-block:: console
+
+    $ dsdt --version
+    Running Disdat version 0.7.1rc0
+
+Install for developers
+----------------------
+
+Clone the disdat code repository and create a virtual environment in which to develop:
 
 .. code-block:: console
 
     $ git clone git@github.com:kyocum/disdat.git
 
-At this point you can either install the stand-alone version ( `Install the CLI`_) or you can install the package (`Install the API/Package`_).
-The first will install a ``dsdt`` binary that can be used independent from any Python virtual environment.   The second
-will install the CLI within a particular virtual environment, but also install the Disdat API so that you can manage data
-and run pipelines within Python code.
+Install disdat
 
+.. code-block:: console
 
-Install the CLI
+    $ mkvirtualenv disdat
+    $ cd disdat
+    $ pip install -e .
+
+Execute disdat:
+
+.. code-block:: console
+
+    $ dsdt -h
+
+Optional: A standalone `dsdt` binary
 ---------------
 
-Build and install the single-file ``dsdt`` executable.   The deactivate command is optional if you're currently in an existing Python virtual environment.
+We also provide an optional standlone binary that may be run on Mac OS X.  You will have needed to cloned the repository to build and install the standalone binary.   The deactivate command is optional if you're currently in an existing Python virtual environment.  We assume that you have installed virtualenvwrapper in your base Python environment.  See http://virtualenvwrapper.readthedocs.io/en/latest/install.html for instructions. 
 
 .. code-block:: console
 
@@ -41,42 +67,11 @@ Build and install the single-file ``dsdt`` executable.   The deactivate command 
 
 You now have a functioning ``dsdt`` excutable that you can use create and pull bundles, as well as run Disdat pipelines.
 
+Tutorial
+--------
 
-Install the API/Package
------------------------
-
-If you want to write Python code that works directly with bundles and pipelines, then you'll need to install the
-source distribution.  Assume you are already in your virtual environment.
-
-Install disdat
-
-.. code-block:: console
-
-    $ cd disdat
-    $ python setup.py install
-
-
-Install for developers
--------------------------
-
-Create a new virtual environment for Disdat:
-
-.. code-block:: console
-
-    $ mkvirtualenv disdat
-
-Install disdat
-
-.. code-block:: console
-
-    $ cd disdat
-    $ pip install -e .
-
-Execute disdat:
-
-.. code-block:: console
-
-    $ dsdt
+We've implemented a simple TensorFlow example as a `three-task Disdat pipeline <examples/pipelines/mnist.py>`_.   The
+directory `examples <examples>`_ has more information.
 
 Short Test Drive
 ----------------
@@ -92,7 +87,7 @@ you will track and share.  Finally, switch into that context.   The commands ``d
     $ dsdt switch mycontext
 
 Now let's add some data.  Disdat wraps up collections of literals and files into a *bundle*.   You can make bundles
-from files, directories, or csv/tsv files.   We'll add ``examples/hello_data.csv``, which contains different literals and
+from files, directories, or csv/tsv files.   We'll add `hello_data.csv <examples/hello_data.csv>`_, which contains different literals and
 some publicly available files on s3.
 
 .. code-block:: console
@@ -107,8 +102,7 @@ some publicly available files on s3.
     1  file:///Users/kyocum/.disdat/context/mycontext/objects/43b153db-14a2-45f4-91b0-a0280525c588/LC08_L1TP_233248_20170525_20170614_01_T1_MTL.txt          8         0.115150    True  uwvmcmbjpg
 
 
-Great!  You've created your first data context and bundle.  In the tutorial we'll look at how you can use a bundle as
- an input to a pipeline, and how you can push/pull your bundles to/from AWS S3 to share data with colleagues.
+Great!  You've created your first data context and bundle.  In the tutorial we'll look at how you can use a bundle as an input to a pipeline, and how you can push/pull your bundles to/from AWS S3 to share data with colleagues.
 
 Other Documentation
 -------------------

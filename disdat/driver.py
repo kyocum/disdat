@@ -38,29 +38,12 @@ import logging
 _logger = logging.getLogger(__name__)
 
 
-class LiteralParam(object):
-    """
-    Only store literals: str, int, float, etc.  here.
-    There is no checking that you're doing the right thing.
-    """
-
-    def __init__(self, thing):
-        self.thing = thing
-
-    def to_json(self):
-        """
-        Do *not* encode.  Convenience wrapper only.
-        :return:
-        """
-        return self.thing  # json.dumps(self.thing)
-
-
 class DriverTask(luigi.WrapperTask, PipeBase):
     """
     Properties:
          input_bundle:  The data set to be processed
          output_bundle: The name of the collection of resulting data items
-         param_bundles: A dictionary of parameter:bundle_name entries for the wrapped pipe
+         param_bundles: A dictionary of arguments to the first underlying Luigi Task
          pipe_cls:      The name of pipe.  It is string: <module>.<class>
          input_tags:
          output_tags:
@@ -68,11 +51,14 @@ class DriverTask(luigi.WrapperTask, PipeBase):
     """
     input_bundle = luigi.Parameter(default=None)
     output_bundle = luigi.Parameter(default=None)
-    param_bundles = luigi.Parameter(default=None)
+    pipe_params = luigi.Parameter(default=None)
     pipe_cls = luigi.Parameter(default=None)
     input_tags = luigi.DictParameter()
     output_tags = luigi.DictParameter()
     force = luigi.BoolParameter(default=False)
+    data_context = luigi.Parameter(significant=False)
+    incremental_push = luigi.BoolParameter(default=False, significant=False)
+    incremental_pull = luigi.BoolParameter(default=False, significant=False)
 
     def __init__(self, *args, **kwargs):
         """
@@ -86,7 +72,8 @@ class DriverTask(luigi.WrapperTask, PipeBase):
         super(DriverTask, self).__init__(*args, **kwargs)
 
         if self.input_bundle != '-':  # '-' means no input bundle
-            self.input_bundle_obj = self.pfs.get_latest_hframe(self.input_bundle, tags=self.input_tags)
+            self.input_bundle_obj = self.pfs.get_latest_hframe(self.input_bundle, tags=self.input_tags,
+                                                               data_context=self.data_context)
             if self.input_bundle_obj is None:
                 raise Exception("Driver unable to find input bundle {}".format(self.input_bundle))
         else:
@@ -218,61 +205,6 @@ class DriverTask(luigi.WrapperTask, PipeBase):
         task = load_task(mod, cls, params)
         return task
 
-    @staticmethod
-    def df_to_json(param_dfs):
-        """
-        Convert a dictionary of bundle_name -> df
-        into a dictionary of bundle_name -> df json strings
-
-        :param param_dfs:
-        :return: dictionary of json'd dataframes
-        """
-        return {k: v.to_json() for k, v in param_dfs.iteritems()}
-
-    def prep_param_bundles(self, pfs):
-        """
-        For all the parameters beyond the "inputs" create dataframes.
-        self.param_bundles is None or json string dictionary
-
-        :param pfs:           pipesfs handle
-        :return:              dict of parameter:bundle_df -- if none return empty dict
-        """
-
-        resolved = {}
-
-        if self.param_bundles is None:
-            return resolved
-
-        param_bundles = json.loads(self.param_bundles)
-
-        for p in param_bundles:
-            bundle_name = param_bundles[p]
-            #print "p {}".format(p)
-            #print "bundle_name {}".format(bundle_name)
-
-            #
-            # TODO:  We used to automatically find strings that looked like bundle names
-            # and then automatically convert them to dataframes.  However, we need a more robust
-            # way to identify possible bundle arguments and we should use the Bundle presentation
-            # layer to create the Python object.  So for now we just treat everything as literal values.
-            # 12-17-2017 KGY
-            #
-
-            # if DisdatFS.is_input_param_bundle_name(bundle_name):
-            #     ''' Get dataframe '''
-            #     bundle_df = pfs.cat(bundle_name)
-            #     if bundle_df is None:
-            #         _logger.warn("Bundle {} does not exist".format(bundle_name))
-            #         raise exceptions.BundleError("Bundle {} does not exist".format(bundle_name))
-            #     else:
-            #         resolved[p] = bundle_df
-            # else:
-
-            ''' Get a literal '''
-            resolved[p] = LiteralParam(bundle_name)
-
-        return resolved
-
     def requires(self):
         """
         The driver orchestrates the execution of a user's transform (a sequence of Luigi tasks) on an
@@ -306,10 +238,6 @@ class DriverTask(luigi.WrapperTask, PipeBase):
         if self.output_bundle == '-':
             self.output_bundle = None
 
-        # Get the parameter bundles -- empty dict if none specified
-        param_dfs = self.prep_param_bundles(self.pfs)
-        param_dfs_json = DriverTask.df_to_json(param_dfs)
-
         task_params = {'closure_hframe': presentable_hfr,
                        'calling_task':  self,
                        'closure_bundle_proc_name': closure_bundle_proc_name,
@@ -318,8 +246,15 @@ class DriverTask(luigi.WrapperTask, PipeBase):
                        'closure_bundle_uuid_root': closure_bundle_uuid,
                        'driver_output_bundle': self.output_bundle,
                        'force': self.force,
-                       'output_tags': json.dumps(dict(self.output_tags))}  # Ugly re-stringifying dict
-        task_params.update(param_dfs_json)
+                       'output_tags': json.dumps(dict(self.output_tags)), # Ugly re-stringifying dict
+                       'data_context': self.data_context,
+                       'incremental_push': self.incremental_push,
+                       'incremental_pull': self.incremental_pull
+                       }
+
+        # Get user pipeline parameters for this Pipe / Luigi Task
+        if self.pipe_params is not None:
+            task_params.update(json.loads(self.pipe_params))
 
         t = DriverTask.inflate_cls(self.pipe_cls, task_params)
 
@@ -352,7 +287,7 @@ class DriverTask(luigi.WrapperTask, PipeBase):
 
             # Explore hyperframes contained in the next level
             if level >= curr_level:
-                for fr in next_hf.get_frames(self.pfs.get_curr_context()):
+                for fr in next_hf.get_frames(self.data_context):
                     if fr.is_hfr_frame():
                         for hfr in fr.get_hframes():  # making a copy from the pb in this frame
                             hf_frontier.appendleft(hfr)

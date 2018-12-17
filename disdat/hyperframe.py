@@ -40,6 +40,7 @@ It may be stored in an HFrame table as a byte blob and re-inflated without worry
 """
 
 import disdat.common as common
+from disdat.db_target import DBTarget
 from collections import namedtuple, defaultdict
 import hashlib
 import time
@@ -60,6 +61,11 @@ import logging
 _logger = logging.getLogger(__name__)
 
 HyperFrameTuple = namedtuple('HyperFrameTuple', 'columns, links, uuid, tags')
+
+# UPSERT policy for inserts that violate constraints (explicit or primary key uniqueness)
+# We can ROLLBACK, ABORT, FAIL, IGNORE, and REPLACE
+# Most cases we want to REPLACE (UPSERT)
+UPSERT_POLICY = 'FAIL'
 
 
 class RecordState(enum.Enum):
@@ -306,7 +312,7 @@ def _tag_query(tags):
 
 
 def select_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_name=None, tags=None, state=None,
-                  orderby=False, groupby=False):
+                  orderby=False, groupby=False, maxbydate=False):
     """
     Create an HFrame Record from a row in our DB.
     Where uuid= && owner= && human_name= && processing_name=
@@ -321,6 +327,7 @@ def select_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_n
         state (`RecordState`):  The state of the entry
         orderby (bool): enable order by creation_date timestamp
         groupby (bool): enable grouping
+        maxbydate (bool): Return the latest bundle matched by human_name
 
     Returns:
         results (list): a list of xxxRecord objects
@@ -351,10 +358,16 @@ def select_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_n
     else:
         groupby = ''
 
-    # select from where groupby orderby
-    s = text(
-        "SELECT {} from {} {} {} {}".format(select, pb_cls.table_name, where, groupby, orderby)
-    )
+    # add sub-query if we need to maxbydate, always group by 'human_name'
+    sub_q = ''
+    if maxbydate:
+        sub_q = " AS a JOIN (SELECT human_name as hn, " + \
+                    " max(creation_date) AS max_date FROM {} GROUP BY human_name ) as b ".format(pb_cls.table_name) + \
+                " ON a.human_name = b.hn AND a.creation_date = b.max_date "
+
+    s = text("SELECT {} FROM {} {} {} {} {}".format(select, pb_cls.table_name, sub_q, where, groupby, orderby))
+
+    #print "Query {}".format(s)
 
     with engine_g.connect() as conn:
         result = conn.execute(s)
@@ -395,10 +408,10 @@ def update_hfr_db(engine_g, state, uuid=None, owner=None, human_name=None, proce
     return result
 
 
-def delete_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_name=None):
+def delete_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_name=None, state=None):
     """
     Delete HFrame row from a table where
-    uuid= && owner= && human_name= && processing_name=
+    uuid= && owner= && human_name= && processing_name= && (optional) state = hyperframe.RecordState.deleted
 
     TODO: Should be a transaction for the tags and HFR entry table.
 
@@ -408,6 +421,7 @@ def delete_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_n
         owner (str):
         human_name (str):
         processing_name (str):
+        state (enum):
 
     Returns:
         result : query result
@@ -416,7 +430,7 @@ def delete_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_n
 
     pb_cls = HyperFrameRecord
 
-    where = _where_clause(uuid, owner, human_name, processing_name)
+    where = _where_clause(uuid, owner, human_name, processing_name, state)
 
     if where == '':
         raise Exception("HFrame DB Delete requires a valid where clause")
@@ -437,6 +451,96 @@ def delete_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_n
         results.append(conn.execute(tag_del))
 
     return results
+
+
+def delete_fr_db(engine_g, hfr_uuid):
+    """ Remove all frames from the database that belong to the hyperframe with uuid hfr_uuid
+
+    Args:
+        engine_g: query engine
+        hfr_uuid: the hyperframe uuid to which the frames belong
+
+    Returns:
+        results
+    """
+
+    pb_cls = FrameRecord
+
+    where = "WHERE hframe_uuid {}".format(_translate(hfr_uuid))
+
+    fr_del = text(
+        "DELETE FROM {} {}".format(pb_cls.table_name, where)
+    )
+
+    with engine_g.connect() as conn:
+        results = conn.execute(fr_del)
+
+    return [results]
+
+
+def get_files_in_dir(dir):
+    """ Look for files in a user returned directory
+    1.) Only look one-level down (in this directory)
+    2.) Do not include anything that looks like one of disdat's pbufs
+
+    TODO: One place that defines the format of the Disdat pb file names
+    See data_context.DataContext: rebuild_db() *_frame.pb, *_hframe.pb, *_auth.pb
+    Args:
+        (str): local directory
+    Returns:
+        (list:str): List of files in that directory
+    """
+
+    files = [os.path.join(dir, f) for f in os.listdir(dir) if os.path.isfile(os.path.join(dir, f))
+             and ('_hframe.pb' not in f) and ('_frame.pb' not in f) and ('_auth.pb' not in f)]
+
+    return files
+
+
+def detect_local_fs_path(series):
+    """
+    Given a series, check whether all entries appear to be real paths and:
+    1.) get their absolute paths
+    2.) pre-pend file:///
+
+    Args:
+        series:
+
+    Returns:
+        series: Same series but absolute otherwise None
+
+    """
+    output = []
+    for s in series:
+        if not isinstance(s, str) and not isinstance(s, unicode):
+            return None
+        if os.path.isfile(s):
+            output.append("file://{}".format(os.path.abspath(s)))
+        elif os.path.isdir(s):
+            """ Find files one-level down """
+            output.extend(["file://{}".format(os.path.join(s, f)) for f in get_files_in_dir(s)])
+        else:
+            del output
+            return None
+    return np.array(output)
+
+
+def strip_file_prefix(series):
+    """
+    Given a series of local fs file links, strip the "file://" from each.
+
+    Note: In-place modification
+
+    Args:
+        series: Strings with "file://" prefix
+
+    Returns:
+        None: Modifies input array to point to stripped strings.
+
+    """
+    for i in range(len(series)):
+        assert series[i].startswith("file://")
+        series[i] = series[i][7:]
 
 
 class PBObject(object):
@@ -549,6 +653,10 @@ class PBObject(object):
 
         You set the state on your in-memory copy when you write to the db.
         You set the state on your in-memory copy when you read from the cb.
+
+        We use sqlite at the moment, so
+        https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html
+        See ON CONFLICT support for constraints
 
         Args:
             state (enum): invalid, valid, pending, deleted
@@ -893,7 +1001,7 @@ class HyperFrameRecord(PBObject):
         :return: Table
         """
         hframes = Table(HyperFrameRecord.table_name, metadata,
-                        Column('uuid', String(50), primary_key=True),
+                        Column('uuid', String(50), primary_key=True),# sqlite_on_conflict_primary_key=UPSERT_POLICY),
                         Column('owner', String),
                         Column('human_name', String),
                         Column('processing_name', String),
@@ -907,7 +1015,7 @@ class HyperFrameRecord(PBObject):
                      Column('uuid', String(50)),
                      Column('value', String),
                      # explicit/composite unique constraint.  'name' is optional.
-                     UniqueConstraint('key', 'uuid', name='uix_1')
+                     UniqueConstraint('key', 'uuid', name='uix_1')#, sqlite_on_conflict=UPSERT_POLICY)
                      )
 
         return {HyperFrameRecord.table_name: hframes,
@@ -1049,8 +1157,6 @@ class HyperFrameRecord(PBObject):
         """
         Add tags to the hyperframe.
 
-        Note: This resets by default
-
         Args:
             tags (:dict: (string, string)): dictionary of tags to add
 
@@ -1175,7 +1281,7 @@ class LineageRecord(PBObject):
         :return: Table
         """
         lineage = Table(LineageRecord.table_name, metadata,
-                         Column('hframe_uuid', String(50), primary_key=True),
+                         Column('hframe_uuid', String(50), primary_key=True),# sqlite_on_conflict_primary_key=UPSERT_POLICY),
                          Column('hframe_name', String),
                          Column('code_repo', String),
                          Column('code_hash', String(50)),
@@ -1226,26 +1332,6 @@ class LineageRecord(PBObject):
         """
         return "{}_lineage.pb".format(self.pb.uuid)
 
-    def make_lineage_record(hframe_name, hfid, depends_on=None):
-        """
-
-        Args:
-            hframe_name:
-            hfid:
-            depends_on:
-
-        Returns:
-            (`LineageRecord`)
-
-        """
-
-        lr = LineageRecord(hframe_name=hframe_name, hframe_uuid=hfid,
-                           code_repo='bigdipper', code_name='unknown',
-                           code_semver='0.1.0', code_hash='5cd60d3',
-                           code_branch='develop', depends_on=depends_on)
-
-        return lr
-
 
 class FrameRecord(PBObject):
 
@@ -1266,9 +1352,10 @@ class FrameRecord(PBObject):
 
         super(FrameRecord, self).__init__()
 
-        assert( ((data is not None) and (hframes is None) and (links is None)) or
-                ((data is None) and (hframes is not None) and (links is None)) or
-                ((data is None) and (hframes is None) and (links is not None)) )
+        if not ((data is None) and (hframes is None) and (links is None)):
+            assert( ((data is not None) and (hframes is None) and (links is None)) or
+                    ((data is None) and (hframes is not None) and (links is None)) or
+                    ((data is None) and (hframes is None) and (links is not None)) )
 
         # TODO: REMOVE this dependency.   Means we have to be very careful about FR copies
         self.hframe_uuid = hframe_uuid
@@ -1278,8 +1365,8 @@ class FrameRecord(PBObject):
         self.pb.name = name
         self.pb.type = hyperframe_pb2.Type.Value(type)
 
-        assert(shape is not None)
-        self.pb.shape.extend(shape)
+        if shape is not None:
+            self.pb.shape.extend(shape)
 
         if hframes is not None:
             self.pb.hframes.extend([HyperFrameRecord.copy_from_pb(hfrcd.pb).pb for hfrcd in hframes])
@@ -1315,7 +1402,7 @@ class FrameRecord(PBObject):
         """
 
         frame_tbl = Table(FrameRecord.table_name, metadata,
-                          Column('uuid', String(50), primary_key=True),
+                          Column('uuid', String(50), primary_key=True),# sqlite_on_conflict_primary_key=UPSERT_POLICY),
                           Column('hframe_uuid', String(50)),
                           Column('name', String),
                           Column('state', Enum(RecordState)),
@@ -1349,6 +1436,15 @@ class FrameRecord(PBObject):
                 'state': self.state,
                 'pb': self.pb.SerializeToString()}
 
+    def get_uuid(self):
+        """
+        Return the uuid for this frame.
+
+        Returns:
+            uuid (str)
+        """
+        return self.pb.uuid
+
     def get_hframes(self):
         """
         NOTE: This is returning copies!
@@ -1371,6 +1467,16 @@ class FrameRecord(PBObject):
         assert self.pb.type == hyperframe_pb2.LINK
         return [LinkBase.find_url(link) for link in self.pb.links]
 
+    def get_links(self):
+        """
+        Assuming a link FrameRecord, return all the links
+
+        Returns:
+            (:list:str):  An ordered set of link URLs
+
+        """
+        return self.pb.links
+
     @staticmethod
     def make_filename(uuid):
         return "{}_frame.pb".format(uuid)
@@ -1384,6 +1490,27 @@ class FrameRecord(PBObject):
         """
         return FrameRecord.make_filename(self.pb.uuid)
 
+    def add_links(self, links):
+        """
+        Add links to this frame.
+
+        Returns:
+            (`hyperframe.FrameRecord`)
+
+        """
+        assert(self.is_link_frame())
+        assert(len(self.pb.links) == 0)
+
+        self.pb.links.extend([LinkBase.copy_from_pb(lrcd.pb).pb for lrcd in links])
+
+        self.pb.shape.extend((len(links),))
+
+        self.pb.ClearField('hash')
+
+        self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
+
+        return self
+
     def mod_hfr_uuid(self, new_hfr_uuid):
         """
         Modify this frame.  Replace the hfr uuid.  Also replace the current uuid of this frame.
@@ -1392,7 +1519,7 @@ class FrameRecord(PBObject):
             new_hfr_uuid:
 
         Returns:
-
+            (`hyperframe.FrameRecord`)
         """
         self.hframe_uuid = new_hfr_uuid
 
@@ -1417,7 +1544,7 @@ class FrameRecord(PBObject):
             (bool): Whether the series | ndarray appears to be a link column
         """
 
-        # You want Python? I'll give you Python. Get the first element of
+        # Welcome to duck typing.   Get the first element of
         # the series and check to see if it is some kind of recognizable
         # file element. If we get a TypeError (does not implement
         # __getitem__) or an attribute error (not a string) then we
@@ -1426,11 +1553,12 @@ class FrameRecord(PBObject):
             tester = series_like[0]
             if isinstance(tester, luigi.Target):
                 return True
-            elif (
-                tester.startswith('file:///') or
-                tester.startswith('s3://') or
-                tester.startswith('vertica:///')
-            ):
+            elif isinstance(tester, DBTarget):
+                return True
+            elif (tester.startswith('file:///') or
+                  tester.startswith('s3://') or
+                  tester.startswith('db://')
+                  ):
                 return True
             else:
                 return False
@@ -1438,8 +1566,6 @@ class FrameRecord(PBObject):
             return False
         except TypeError:
             return False
-
-        return False
 
     def is_link_frame(self):
         """
@@ -1751,13 +1877,13 @@ class FrameRecord(PBObject):
         return frame
 
     @staticmethod
-    def make_link_frame(hfid, name, file_paths):
-        """ Create link frame from file paths (file, s3, or vertica) or luigi.Target objects.
+    def make_link_frame(hfid, name, file_paths, managed_path):
+        """ Create link frame from file paths (file, s3, or db) or luigi.Target objects.
 
-        Assumes file_paths are 'file:///' or 's3://' or 'vertica:///'
+        Assumes file_paths are 'file:///' or 's3://' or 'db://'
         Assumes that the files are already copied into the bundle directory.
 
-        Note: This will only store the *relative* path of the link object (except for vertica)
+        Note: This will only store the *relative* path of the link object (except for db)
 
         Note: No LinkAuth yet.
 
@@ -1765,35 +1891,57 @@ class FrameRecord(PBObject):
             hfid: hyperframe id
             name: column name
             file_paths (:list:str): array of paths or luigi.Target objects
+            managed_path (str): The current directory structure
 
         Returns:
             (FrameRecord)
         """
 
-        if isinstance(file_paths[0], luigi.Target):
+        if isinstance(file_paths[0], luigi.LocalTarget):
             file_paths = ['file://{}'.format(lt.path) if lt.path.startswith('/') else lt.path for lt in file_paths]
 
-        if file_paths[0].startswith('file:///'):
+        if isinstance(file_paths[0], DBTarget):
+            link_type = DatabaseLinkRecord
+        elif file_paths[0].startswith('file:///'):
             link_type = FileLinkRecord
         elif file_paths[0].startswith('s3://'):
             link_type = S3LinkRecord
-        elif file_paths[0].startswith('vertica:///'):
-            link_type = DatabaseLinkRecord
+        elif file_paths[0].startswith('db://'):
+            _logger.error("Found string-based database reference[{}], use DBTarget object instead.".format(file_paths[0]))
+            raise Exception("hyperframe:make_link_frame: error trying to copy in string-based database reference.")
         else:
             raise ValueError("Bad file paths -- cannot determine link type: example path {}".format(file_paths[0]))
 
-        if link_type is FileLinkRecord or link_type is S3LinkRecord:
-            file_paths = [common.BUNDLE_URI_SCHEME + os.path.basename(fn) for fn in file_paths]
-        else:
-            _logger.warn("make_link_frame: unimplemented: relative vertica table paths.")
+        if link_type is FileLinkRecord:
+            to_remove = "file:///" + managed_path
+        elif link_type is S3LinkRecord:
+            to_remove = "s3://" + managed_path
 
-        links = [link_type(hfid, None, fn) for fn in file_paths]
         frame = FrameRecord(name=name,
                             hframe_uuid=hfid,
-                            type='LINK',
-                            shape=(len(links),),
-                            links=links)
-        return frame
+                            type='LINK')
+
+        frame_uuid = frame.get_uuid()
+
+        if link_type is DatabaseLinkRecord:
+            # What the user sees in a db link URL
+            # db://<database>.<schema>.<disdat>_<context>_<virt_name>_<uuid prefix>@servername
+            links = [link_type(frame_uuid,  # hframe_uuid
+                               None,  # linkauth_uuid
+                               db_tgt.url(), # url
+                               db_tgt.servername, # servername
+                               db_tgt.database,   # database
+                               db_tgt.schema,     # schema
+                               db_tgt.tn, # table name, i.e, no schema, disdat_prefix, context, or uuid
+                               None, # columns
+                               db_tgt.port, # port
+                               db_tgt.dsn # data source name
+                               ) for db_tgt in file_paths]
+        else:
+            file_paths = [common.BUNDLE_URI_SCHEME + fn[len(to_remove):] for fn in file_paths]
+            links = [link_type(frame_uuid, None, fn) for fn in file_paths]
+
+        return frame.add_links(links)
 
 """
 Tables
@@ -1840,7 +1988,7 @@ class LinkAuthBase(PBObject):
         :return: Table
         """
         linkauth = Table(LinkAuthBase.table_name, metadata,
-                         Column('uuid', String(50), primary_key=True),
+                         Column('uuid', String(50), primary_key=True),# sqlite_on_conflict_primary_key=UPSERT_POLICY),
                          Column('profile', String),
                          Column('state', Enum(RecordState)),
                          Column('pb', BLOB)
@@ -2027,7 +2175,8 @@ class LinkBase(PBObject):
 
     def _write_row(self):
         """
-        :return: dictionary of key columns (from _create_table) and values.
+        Returns:
+             (dict): Dictionary of key columns (from _create_table) and values.
         """
         assert (self.pb is not None)
 
@@ -2064,10 +2213,13 @@ class LinkBase(PBObject):
 class FileLinkRecord(LinkBase):
     def __init__(self, hframe_uuid, linkauth_uuid, path):
         """
-        :param path:  local path to file
+
+        Args:
+            hframe_uuid (str):
+            linkauth_uuid (str):
+            path (str):  Local path to file
         """
         super(FileLinkRecord, self).__init__(hframe_uuid, linkauth_uuid)
-        #assert (path.startswith('file:///'))
         assert (path.startswith(common.BUNDLE_URI_SCHEME))
         self.pb.local.path = path
 
@@ -2080,11 +2232,13 @@ class FileLinkRecord(LinkBase):
 class S3LinkRecord(LinkBase):
     def __init__(self, hframe_uuid, linkauth_uuid, url):
         """
-        :param linkauth_uuid:
-        :param url:
+
+        Args:
+            hframe_uuid:
+            linkauth_uuid:
+            url:
         """
         super(S3LinkRecord, self).__init__(hframe_uuid, linkauth_uuid)
-        #assert (url.startswith('s3://'))
         assert (url.startswith(common.BUNDLE_URI_SCHEME))
         self.pb.s3.url = url
 
@@ -2095,30 +2249,39 @@ class S3LinkRecord(LinkBase):
 
 
 class DatabaseLinkRecord(LinkBase):
-    def __init__(self, hframe_uuid, linkauth_uuid, url, schema, table, columns):
+    def __init__(self, hframe_uuid, linkauth_uuid, url, servername, database, schema, table, columns, port, dsn):
         """
-        :param url:  needed?
-        :param schema:  name representing set of tables
-        :param table:  table
-        :param columns:  array of column names
+
+        At this time we store the DSN in the database_link.   This is to avoid users placing userids and passwords
+        in code to create DBTargets.  Only committed bundles can be shared, so only the user creating the bundle
+        should be able to commit it.
+
+        Args:
+            hframe_uuid (str):  The UUID of the hyperframe
+            linkauth_uuid (str): The UUID of the linkauth.  Currently unused.
+            url (str): The string passed to the user representing this resource: "db://<virt-table>".  Note that we transform
+            this into the presented name in the bundle based on the context, uuid, and whether this bundle is committed.
+            servername (str):  DNS name for the database in question
+            database (str):    The name of the database containing the schema
+            schema (str):      The schema name
+            table (str):       The virtual table name
+            columns (list:str): A list of strings of column names.  Currently unused.
+            port (int):  The port at which the server is listening
+            dsn (str): data source name
         """
         super(DatabaseLinkRecord, self).__init__(hframe_uuid, linkauth_uuid)
-        assert (url.startswith('vertica:///'))
+        assert (url.startswith('db://'))
         self.pb.database.url = url
+        self.pb.database.servername = servername
+        self.pb.database.database = database
         self.pb.database.schema = schema
         self.pb.database.table = table
         self.pb.database.columns.extend(columns)
+        self.pb.database.port = port
+        self.pb.database.dsn = dsn
 
         self.pb.ClearField('hash')
         self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
         assert (self.pb.IsInitialized())
-
-
-
-
-
-
-
-
 
 

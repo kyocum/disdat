@@ -53,8 +53,7 @@ Table Of Contents
 
     `Disdat Re-execution <#disdat-re-execution>`__ 13
 
-**`Dockerizor: The Disdat Container
-Compiler <#dockerizor-the-disdat-container-compiler>`__** **13**
+**`Dockerizer: The Disdat Container Compiler <#dockerizer-the-disdat-container-compiler>`__** **13**
 
     `Container Calling Convention <#container-calling-convention>`__ 13
 
@@ -557,5 +556,3 @@ elements such as local files, database tables, or even other bundles.
 Here we describe how Disdat uses hyperframes to implement bundles by
 encapsulating workflow outputs (production) and presenting bundles to
 user pipeline tasks through hyperframe interpretation.
-
-

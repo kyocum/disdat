@@ -15,8 +15,8 @@ from disdat.data_context import DataContext
 from disdat.hyperframe import LineageRecord, HyperFrameRecord, FrameRecord
 
 import disdat.common as common
-import sys
 import os
+import shutil
 import logging
 import luigi
 import getpass
@@ -43,8 +43,11 @@ def _run_git_cmd(git_dir, git_cmd, get_output=False):
     :param get_output: If :code:`True`, return the command standard output
         as a string; default is to return the command exit code.
     '''
+
+    verbose = False
+
     cmd = ['git', '-C', git_dir] + git_cmd.split()
-    _logger.debug('Running git command {}'.format(cmd))
+    if verbose: _logger.debug('Running git command {}'.format(cmd))
     if get_output:
         try:
             with open(os.devnull, 'w') as null_file:
@@ -59,12 +62,14 @@ def _run_git_cmd(git_dir, git_cmd, get_output=False):
 
 
 def get_pipe_version(pipe_instance):
-    '''Get a pipe version record.
+    """Get a pipe version record.
 
-    :param pipe_instance: An instance of a pipe class.
-    :return: a version record
-    :rtype: a code:`CodeVersion` named tuple
-    '''
+    Args:
+        pipe_instance: An instance of a pipe class.
+
+    Returns:
+        rtype: a code:`CodeVersion` named tuple
+    """
     source_file = inspect.getsourcefile(pipe_instance.__class__)
     git_dir = os.path.dirname(source_file)
 
@@ -193,8 +198,9 @@ class PipeBase(object):
 
         return hframe
 
-    def make_hframe(self, output_frames, output_bundle_uuid, depends_on,
-                    human_name=None, processing_name=None, tags=None, presentation=hyperframe_pb2.DEFAULT):
+    @staticmethod
+    def make_hframe(output_frames, output_bundle_uuid, depends_on,
+                    human_name, processing_name, class_to_version, tags=None, presentation=hyperframe_pb2.DEFAULT):
         """
         Create HyperFrameRecord or HFR
         HFR contains a LineageRecord
@@ -211,6 +217,7 @@ class PipeBase(object):
             depends_on (:list:tuple):  must be the processing_name, uuid of the upstream pipes / base bundles
             human_name:
             processing_name:
+            class_to_version: A python class whose file is under git control
             tags:
             presentation (enum):  how to present this hframe when we use it as input to a function -- default None
 
@@ -220,21 +227,10 @@ class PipeBase(object):
             `HyperFrameRecord`
         """
 
-        # Set up the bundle name and the processing_name.  These default bundle "tags" identify bundles
-        if human_name is None:
-            output_bundle_name = self.pipeline_id()
-        else:
-            output_bundle_name = human_name
-
-        if processing_name is None:
-            output_processing_name = self.pipe_id()
-        else:
-            output_processing_name = processing_name
-
         # Grab code version and path cache entry -- only called if we ran
-        cv = get_pipe_version(self)
+        cv = get_pipe_version(class_to_version)
 
-        lr = LineageRecord(hframe_name=output_processing_name,
+        lr = LineageRecord(hframe_name=processing_name,
                            hframe_uuid=output_bundle_uuid,
                            code_repo=cv.url,
                            code_name='unknown',
@@ -244,8 +240,8 @@ class PipeBase(object):
                            depends_on=depends_on)
 
         hfr = HyperFrameRecord(owner=getpass.getuser(),
-                               human_name=output_bundle_name,
-                               processing_name=output_processing_name,
+                               human_name=human_name,
+                               processing_name=processing_name,
                                uuid=output_bundle_uuid,
                                frames=output_frames,
                                lin_obj=lr,
@@ -293,77 +289,114 @@ class PipeBase(object):
 
         return luigi_outputs
 
-    def make_luigi_targets_from_basename(self, output_value):
+    @staticmethod
+    def filename_to_luigi_targets(output_dir, output_value):
         """
-        Determine the output paths AND create the Luigi objects
+        Create Luigi file objects from a file name, dictionary of file names, or list of file names.
 
-        This is called from the output of the pipe.   Thus need to determine where this file
-        should exist.  Before we ran, we determined whether or not we should make a new
-        bundle or we should re-use an old one.  This *matters* because the bundle determines
-        the location of the file.  And if the file already exists, then we don't need to run.
+        Return the same object type as output_value, but with Luigi.Targets instead.
 
-        The DisdatFS contains the Path Cache.   The path cache is a dictionary from pipe.unique_id()
-        to a path_cache_entry, which contains the fields: instance uuid path rerun
+        Args:
+            output_dir (str): Managed output path.
+            output_value (str, dict, list): A basename, dictionary of basenames, or list of basenames.
 
-        NOTE: We also attach the run index to the output name.
-
-        Given [], return [] of Luigi targets.
-        If len([]) == 1, return without []
+        Return:
+            (`luigi.LocalTarget`, `luigi.S3Target`): Singleton, list, or dictionary of Luigi Target objects.
         """
-
-        # Find the path cache entry for this pipe to find its output path
-        pce = self.pfs.get_path_cache(self)
-        assert(pce is not None)
 
         if isinstance(output_value, list) or isinstance(output_value, tuple):
             luigi_outputs = []
             for i in output_value:
-                full_path = os.path.join(pce.path, i)
-                luigi_outputs.append(self._interpret_scheme(full_path))
+                full_path = os.path.join(output_dir, i)
+                luigi_outputs.append(PipeBase._interpret_scheme(full_path))
             if len(luigi_outputs) == 1:
                 luigi_outputs = luigi_outputs[0]
         elif isinstance(output_value, dict):
             luigi_outputs = {}
             for k, v in output_value.iteritems():
-                full_path = os.path.join(pce.path, v)
-                luigi_outputs[k] = self._interpret_scheme(full_path)
+                full_path = os.path.join(output_dir, v)
+                luigi_outputs[k] = PipeBase._interpret_scheme(full_path)
         else:
-            full_path = os.path.join(pce.path, output_value)
-            luigi_outputs = self._interpret_scheme(full_path)
+            full_path = os.path.join(output_dir, output_value)
+            luigi_outputs = PipeBase._interpret_scheme(full_path)
 
         return luigi_outputs
 
-    def parse_pipe_return_val(self, hfid, val, human_name=None):
+    def make_luigi_targets_from_basename(self, output_value):
         """
+        Determine the output paths AND create the Luigi objects.
 
-        Interpret the return values and create an HFrame to wrap them.
-        This means setting the correct presentation bit in the HFrame so that
-        we call downstream tasks with parameters as the author intended.
+        Return the same object type as output_value, but with Luigi.Targets instead.
 
-        POLICY / NOTE:  An non-HF output is a Presentable.
-        NOTE: For now, a task output is *always* presentable.
-        NOTE: No other code should set presentation in a HyperFrame.
-
-        The mirror to this function (that unpacks a presentable is disdat.fs.present_hfr()
+        Note that we get the path from the DisdatFS Path Cache.   The path cache is a dictionary from
+        pipe.unique_id() to a path_cache_entry, which contains the fields: instance uuid path rerun
 
         Args:
-            hfid:
-            val:
+            output_value (str, dict, list): A basename, dictionary of basenames, or list of basenames.
+
+        Return:
+            (`luigi.LocalTarget`, `luigi.S3Target`): Singleton, list, or dictionary of Luigi Target objects.
+        """
+
+        # Find the path cache entry for this pipe to find its output path
+        pce = self.pfs.get_path_cache(self)
+
+        assert(pce is not None)
+
+        return self.filename_to_luigi_targets(pce.path, output_value)
+
+    @staticmethod
+    def rm_bundle_dir(output_path, uuid, db_targets):
+        """
+        We created a directory (managed path) to hold the bundle and any files.   The files have been
+        copied in.   Removing the directory removes any created files.  However we also need to
+        clean up any temporary tables as well.
+
+        TODO: Integrate with data_context bundle remove.   That deals with information already
+        stored in the local DB.
+
+        ASSUMES:  That we haven't actually updated the local DB with information on this bundle.
 
         Returns:
-            Frames, Presentation
+            None
+        """
+        try:
+            shutil.rmtree(output_path)
+
+            # if people create s3 files, s3 file targets, inside of an s3 context,
+            # then we will have to clean those up as well.
+
+            for t in db_targets:
+                t.drop_table()
+
+        except IOError as why:
+            _logger.error("Removal of hyperframe directory {} failed with error {}. Continuing removal...".format(
+                uuid, why))
+
+    @staticmethod
+    def parse_return_val(hfid, val, data_context):
+        """
+
+        Args:
+            hfid (str): UUID
+            val (object): A scalar, dict, tuple, list, dataframe
+            data_context (DataContext): The data context into which to place this value
+
+        Returns:
+            (presentation, frames[])
 
         """
+
         frames = []
 
-        managed_path = os.path.join(self.pfs.get_curr_context().get_object_dir(), hfid)
+        managed_path = os.path.join(data_context.get_object_dir(), hfid)
 
         if val is None:
             presentation = hyperframe_pb2.HF
 
         elif isinstance(val, HyperFrameRecord):
             presentation = hyperframe_pb2.HF
-            frames.append(FrameRecord.make_hframe_frame(hfid, self.pipeline_id(), [val]))
+            frames.append(FrameRecord.make_hframe_frame(hfid, pipe.pipeline_id(), [val]))
 
         elif isinstance(val, np.ndarray) or isinstance(val, list):
             presentation = hyperframe_pb2.TENSOR
@@ -379,8 +412,11 @@ class PipeBase(object):
         elif isinstance(val, dict):
             presentation = hyperframe_pb2.ROW
             for k, v in val.iteritems():
-                assert isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray))
-                frames.append(DataContext.convert_serieslike2frame(hfid, k, v, managed_path))
+                if not isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, collections.Sequence)):
+                    frames.append(DataContext.convert_scalar2frame(hfid, k, v, managed_path))
+                else:
+                    assert isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, collections.Sequence))
+                    frames.append(DataContext.convert_serieslike2frame(hfid, k, v, managed_path))
 
         elif isinstance(val, pd.DataFrame):
             presentation = hyperframe_pb2.DF
@@ -389,45 +425,37 @@ class PipeBase(object):
         else:
             presentation = hyperframe_pb2.SCALAR
             frames.append(DataContext.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
-            #frames.append(DataContext.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
 
-        hfr = self.make_hframe(frames, hfid, self.bundle_inputs(),
-                               human_name=human_name,
-                               tags={"presentable": "True"},
-                               presentation=presentation)
-
-        return hfr
+        return presentation, frames
 
     @staticmethod
-    def parse_pipe_outputs(func, t_outputs):
-        """
-        Pipe output is always a dictionary of [column_name, value] or None
-
-        Apply func to the items in the dictionary
-
-        Used by PipeTask.output() and DriverTask.run()
-
-        Removing support for sub-bundles. We used to allow names ':subbundle':[outputs].  Revisit in another version.
-
-        :param func:
-        :param t_outputs:
-        :return:
+    def parse_pipe_return_val(hfid, val, data_context, pipe):
         """
 
-        if t_outputs is None:
-            return
+        Interpret the return values and create an HFrame to wrap them.
+        This means setting the correct presentation bit in the HFrame so that
+        we call downstream tasks with parameters as the author intended.
 
-        if not isinstance(t_outputs, dict):
-            raise Exception("parse_pipe_outputs given outputs that is not in a dictionary")
+        POLICY / NOTE:  An non-HF output is a Presentable.
+        NOTE: For now, a task output is *always* presentable.
+        NOTE: No other code should set presentation in a HyperFrame.
 
-        luigi_outputs_dict = {}
+        The mirror to this function (that unpacks a presentable is disdat.fs.present_hfr()
 
-        for k, v in t_outputs.iteritems():
-            if isinstance(v, list) or isinstance(v, tuple) or isinstance(v, dict):
-                raise Exception("Bad type in pipe_output specification {}".format(type(v)))
+        Args:
+            hfid: UUID
+            val: Value to parse
+            data_context (`data_context.DataContext`):
+            pipe: The disdat pipe producing these values, has human_name, bundle_inputs, and pipe_id()
 
-            assert(k not in luigi_outputs_dict)
-            luigi_outputs_dict[k] = func(k, v)
-            _logger.debug("Adding element of type {}".format(type(luigi_outputs_dict[k])))
+        Returns:
+            HyperFrameRecord
 
-        return luigi_outputs_dict
+        """
+
+        presentation, frames = PipeBase.parse_return_val(hfid, val, data_context)
+
+        return PipeBase.make_hframe(frames, hfid, pipe.bundle_inputs(),
+                                    pipe.pipeline_id(), pipe.pipe_id(), pipe,
+                                    tags={"presentable": "True"},
+                                    presentation=presentation)
