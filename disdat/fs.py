@@ -509,7 +509,7 @@ class DisdatFS(object):
         else:
             return None
 
-    def ls(self, search_name, print_tags, print_intermediates, print_long, committed=None, maxbydate=False, tags=None, data_context=None):
+    def ls(self, search_name, print_tags, print_intermediates, print_long, print_args, committed=None, maxbydate=False, tags=None, data_context=None):
         """
         Enumerate bundles (hyperframes) in this context.
 
@@ -517,6 +517,7 @@ class DisdatFS(object):
             search_name: May be None.  Interpret as a simple regex (one kleene star)
             print_tags (bool): Whether to print the bundle tags
             print_intermediates (bool): Whether to show intermediate bundles
+            print_args (bool): Whether to print the arguments used to produce this bundle
             committed (bool): If True, just committed, if False, just uncommitted, if None then ignore.
             maxbydate (bool): return the latest by date
             tags: Optional. A dictionary of tags to search for.
@@ -553,7 +554,7 @@ class DisdatFS(object):
                         continue
 
             if print_long:
-                output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags))
+                output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags, print_args=print_args))
             else:
                 if r.pb.human_name not in output_strings:
                     output_strings.append(r.pb.human_name)
@@ -565,7 +566,7 @@ class DisdatFS(object):
         return header
 
     @staticmethod
-    def _pretty_print_hframe(hfr, print_tags=False):
+    def _pretty_print_hframe(hfr, print_tags=False, print_args=False):
 
         if 'committed' in hfr.tag_dict:
             committed = 'True'
@@ -579,8 +580,14 @@ class DisdatFS(object):
                                                                    committed,
                                                                    hfr.pb.uuid)
         if print_tags:
-            tags = ["[{}]:[{}]".format(k, v) for k, v in hfr.tag_dict.iteritems() if k != 'committed']
+            tags = ["[{}]:[{}]".format(k, v) for k, v in hfr.tag_dict.iteritems() if k != 'committed' and common.BUNDLE_TAG_PARAMS_PREFIX not in k]
             output_string += ' '.join(tags)
+
+        if print_args:
+            tags = ["[{}]:[{}]".format(k.strip(common.BUNDLE_TAG_PARAMS_PREFIX), v)
+                    for k, v in hfr.tag_dict.iteritems() if common.BUNDLE_TAG_PARAMS_PREFIX in k]
+            if len(tags) > 0:
+                output_string += '\n\t ARGS: ' + ' '.join(tags)
 
         return output_string
 
@@ -693,13 +700,14 @@ class DisdatFS(object):
     def branch(self, fq_context_name):
         """
 
-        Create a new branch from <repo>/<context_name> or <context_name>
+        Create a new context from <remote_context>/<context_name> or <context_name>
         Create a new local directory with this local context name.
 
         Args:
             fq_context_name:  The unique string for a context
 
         Returns:
+            (int): 0 if context does not exist, 1 if context already exists
 
         """
 
@@ -712,9 +720,9 @@ class DisdatFS(object):
                     cprint("\t[{}@{}]".format(ctxt.remote_ctxt, self._curr_context.get_remote_object_dir()))
                 else:
                     print("\t{}\t[{}@{}]".format(ctxt.local_ctxt, ctxt.remote_ctxt, ctxt.get_remote_object_dir()))
-            return
+            return 0
 
-        repo, local_context = DisdatFS._parse_fq_context_name(fq_context_name)
+        remote_context, local_context = DisdatFS._parse_fq_context_name(fq_context_name)
 
         context_dir = DisdatConfig.instance().get_context_dir()
 
@@ -723,12 +731,12 @@ class DisdatFS(object):
         if local_context in self._all_contexts:
             assert(os.path.exists(ctxt_dir))
             _logger.info("The context '{}' already exists.".format(local_context))
-            return
+            return 1
 
         DataContext.create_branch(context_dir, local_context)
 
         context = DataContext(context_dir,
-                              remote_ctxt=repo,
+                              remote_ctxt=remote_context,
                               local_ctxt=local_context,
                               remote_ctxt_url=None)
 
@@ -736,9 +744,10 @@ class DisdatFS(object):
 
         self._all_contexts[local_context] = context
 
-        _logger.info("Disdat checked out repo {} into local data context {} at object dir {}.".format(repo,
-                                                                                                      local_context,
-                                                                                                      context.get_object_dir()))
+        _logger.info("Disdat created data context {}/{} at object dir {}.".format(remote_context,
+                                                                                  local_context,
+                                                                                  context.get_object_dir()))
+        return 0
 
     def delete_branch(self, fq_context_name, remote, force):
         """
@@ -1354,9 +1363,10 @@ class DisdatFS(object):
             obj_suffix = s3_obj.key.replace(remote_obj_dir,'')
             obj_suffix_dir = os.path.dirname(obj_suffix).strip('/')  # remote_obj_dir won't have a trailing slash
             local_uuid_dir = os.path.join(data_context.get_object_dir(), obj_suffix_dir)
-            multiple_results.append(pool.apply_async(aws_s3.get_s3_key,
-                                                     (s3_bucket,s3_obj.key,os.path.join(local_uuid_dir, obj_basename))))
-
+            local_object_path = os.path.join(local_uuid_dir, obj_basename)
+            if not os.path.exists(local_object_path):
+                multiple_results.append(pool.apply_async(aws_s3.get_s3_key,
+                                                         (s3_bucket,s3_obj.key,local_object_path)))
         pool.close()
 
         results = [res.get(timeout=MAX_WAIT) for res in multiple_results]
@@ -1593,6 +1603,7 @@ def _ls(fs, args):
                    args.print_tags,
                    args.intermediates,
                    args.verbose,
+                   args.print_args,
                    committed=committed,
                    maxbydate=args.latest_by_date,
                    tags=common.parse_args_tags(args.tag)):
@@ -1681,6 +1692,7 @@ def init_fs_cl(subparsers):
     # ls
     ls_p = subparsers.add_parser('ls')
     ls_p.add_argument('bundle', nargs='*', type=str, help="Show all bundles 'dsdt ls' or explicit bundle 'dsdt ls <somebundle>' in current context")
+    ls_p.add_argument('-a', '--print-args', action='store_true', help="Print the arguments (if any) used to create the bundle.")
     ls_p.add_argument('-p', '--print-tags', action='store_true', help="Print each bundle's tags.")
     ls_p.add_argument('-i', '--intermediates', action='store_true',
                       help="List all bundles, including intermediate outputs.")

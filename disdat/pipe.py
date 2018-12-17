@@ -36,7 +36,7 @@ from disdat.pipe_base import PipeBase
 from disdat.db_target import DBTarget
 from disdat.driver import DriverTask
 from disdat.fs import DisdatFS
-from disdat.common import BUNDLE_TAG_TRANSIENT
+from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PARAMS_PREFIX
 import luigi
 import logging
 import os
@@ -306,6 +306,9 @@ class PipeTask(luigi.Task, PipeBase):
         try:
             hfr = PipeBase.parse_pipe_return_val(pce.uuid, user_rtn_val, self.data_context, self)
 
+            # Add Luigi Task parameters -- Only add the class parameters.  These are Disdat special params.
+            self.user_tags.update(self._get_subcls_params(self))
+
             if self.output_tags:
                 self.user_tags.update(self.output_tags)
 
@@ -331,6 +334,46 @@ class PipeTask(luigi.Task, PipeBase):
             raise
 
         return hfr
+
+    @classmethod
+    def _get_subcls_params(cls, self):
+        """ Given the child class, extract user defined Luigi parameters
+
+        The right way to do this is to use vars(cls) and filter by Luigi Parameter
+        types.  Luigi get_params() gives us all parameters in the full class hierarchy.
+        It would give us the parameters in this class as well.  And then we'd have to do set difference.
+        See luigi.Task.get_params()
+
+        NOTE: We do NOT keep the parameter order maintained by Luigi.  That's critical for Luigi creating the task_id.
+        However, we can implicitly re-use that ordering if we re-instantiate the Luigi class.
+
+        Args:
+            cls: The subclass with defined parameters.  To tell which variables are Luigi Parameters
+            self: The instance of the subclass.  To get the normalized values for the Luigi Parameters
+        Returns:
+            dict: (BUNDLE_TAG_PARAM_PREFIX.<name>:'string value',...)
+        """
+
+        params = []
+        subcls_params = vars(cls) # vars on a class, not dir
+        for p in subcls_params:
+            param_obj = getattr(cls, p)
+            if not isinstance(param_obj, luigi.Parameter):
+                continue
+            ser_val = param_obj.serialize(getattr(self, p))  # serialize the param_obj.normalize(x)
+            params.append(("{}{}".format(BUNDLE_TAG_PARAMS_PREFIX, p), ser_val))
+
+        return dict(params)
+
+        # If we put the code in self.__init__() luigi hasn't created instance variables yet.
+        # This was code to do that.
+        # only_pipe_params = PipeTask.get_params()
+        # all_params = self.get_params()
+        # only_subcls_params = tuple(set(all_params) - set(only_pipe_params))
+        # This is pretty gross.  Get the params that are unique to this pipe
+        # Pull them out of kwargs (that's how we build this task! we don't use args!)
+        # filtered_kwargs = {k: kwargs[k] for k, v in only_subcls_params if k in kwargs}  # @UnusedVariable
+        # self.only_subcls_param_values = self.get_param_values(only_subcls_params, [], filtered_kwargs)
 
     def prepare_pipe_kwargs(self, for_run=False):
         """ Each upstream task produces a bundle.  Prepare that bundle as input

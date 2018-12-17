@@ -54,7 +54,7 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
     Args:
         input_bundle:  The bundle with the data to be processed
         output_bundle: The new bundle to be created
-        pipe_params: Dict of zero or more bundles to be handed to each instance of the task
+        pipe_params (str):   Luigi Task parameters string
         pipe_cls:      String <module.ClassName>
         force:         force recomputation of dependencies
         input_tags (dict):  Tags used to find the input bundle

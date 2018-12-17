@@ -422,7 +422,7 @@ class DataContext(object):
                                                                                               o.scheme))
         return True
 
-    def rebuild_db(self):
+    def rebuild_db(self, ignore_existing=True):
         """
 
         For this context, read in all pb's and rebuild tables.
@@ -435,6 +435,9 @@ class DataContext(object):
             C.) If not consistent and in db as 'valid', mark db entry as 'invalid'
 
         dbck does the opposite process.  It will read the DB and see
+
+        Args:
+            ignore_existing (bool): If True, we ignore existing records (do not update). Else UPSERT on existing.
 
         Returns:
             num errors (int):
@@ -463,15 +466,20 @@ class DataContext(object):
         for hfr in hframes.itervalues():
             if DataContext._validate_hframe(hfr, frames, auths):
                 # looks like a good hyperframe
-                # print "Writing out HFR {} {}".format(hfr.pb.human_name, hfr.pb.uuid)
-                hyperframe.w_pb_db(hfr, self.local_engine)
-                for str_tuple in hfr.pb.frames:
-                    fr_uuid = str_tuple.v
-                    # The frame pb doesn't store the hfr_uuid, but the db
-                    # does.  Since we are reading from disk, we need to
-                    # set it back into the FrameRecord.
-                    frames[fr_uuid].hframe_uuid = hfr.pb.uuid
-                    hyperframe.w_pb_db(frames[fr_uuid], self.local_engine)
+                # see if it exists, if it does do not write hframe and assume frames are also present
+                # if ignore_existing==False, then we will try to insert into DB anyhow.
+                hfr_from_db_list = hyperframe.select_hfr_db(self.local_engine, uuid=hfr.pb.uuid)
+                if not ignore_existing or len(hfr_from_db_list) == 0:
+                    hyperframe.w_pb_db(hfr, self.local_engine)
+                    for str_tuple in hfr.pb.frames:
+                        fr_uuid = str_tuple.v
+                        hfr_from_db_list = hyperframe.select_hfr_db(self.local_engine, uuid=fr_uuid)
+                        if not ignore_existing or len(hfr_from_db_list) == 0:
+                            # The frame pb doesn't store the hfr_uuid, but the db
+                            # does.  Since we are reading from disk, we need to
+                            # set it back into the FrameRecord.
+                            frames[fr_uuid].hframe_uuid = hfr.pb.uuid
+                            hyperframe.w_pb_db(frames[fr_uuid], self.local_engine)
             else:
                 # invalid hyperframe, if present in db as valid, mark invalid
                 # Try to read it in

@@ -46,8 +46,10 @@ DEFAULT_FRAME_NAME = 'unnamed'
 BUNDLE_URI_SCHEME = 'bundle://'
 
 # Some tags in bundles are special.  They are prefixed with '__'
-BUNDLE_TAG_PARAMS_PREFIX = '__param_'
+BUNDLE_TAG_PARAMS_PREFIX = '__param.'
 BUNDLE_TAG_TRANSIENT = '__transient'
+
+LOCAL_EXECUTION = 'LOCAL_EXECUTION'  # Docker endpoint env variable if we're running a container locally
 
 
 class ApplyException(Exception):
@@ -304,10 +306,10 @@ def make_run_command(
         output_bundle,
         output_bundle_uuid,
         remote,
-        local_ctxt,
+        context,
         input_tags,
         output_tags,
-        fetch_list,
+        force,
         no_pull,
         no_push,
         no_push_int,
@@ -317,7 +319,7 @@ def make_run_command(
     args = [
         '--output-bundle-uuid ', output_bundle_uuid,
         '--remote', remote,
-        '--branch', local_ctxt,
+        '--branch', context,
         '--workers', unicode(workers)
     ]
     if no_pull:
@@ -326,15 +328,14 @@ def make_run_command(
         args += ['--no-push']
     if no_push_int:
         args += ['--no-push-intermediates']
+    if force:
+        args += ['--force']
     if len(input_tags) > 0:
         for next_tag in input_tags:
             args += ['--input-tag', next_tag]
     if len(output_tags) > 0:
         for next_tag in output_tags:
             args += ['--output-tag', next_tag]
-    if len(fetch_list) > 0:
-        for next_bundle in fetch_list:
-            args += ['--fetch', next_bundle]
 
     args += [input_bundle, output_bundle]
     return [x.strip() for x in args + pipeline_params]
