@@ -23,11 +23,11 @@ cp dist/disdat-*.tar.gz disdat/infrastructure/dockerizer/context.template/.
 python setup.py sdist
 
 # publish to test pypi
-if false; then
+if true; then
     echo "Uploading to PYPI test and real"
-    #twine upload --repository-url https://test.pypi.org/legacy/ dist/disdat-0.7.2rc0.tar.gz
+    #twine upload --repository-url https://test.pypi.org/legacy/ dist/disdat-*.tar.gz
     # now do it for real
-    #twine upload dist/disdat-0.7.2rc0.tar.gz
+    #twine upload dist/disdat-*.tar.gz
 fi
 
 echo "Finished"
