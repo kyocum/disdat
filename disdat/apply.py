@@ -87,7 +87,7 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
         _logger.warn("incremental_push {}".format(incremental_push))
 
     if incremental_pull:
-        _logger.warn("incremental_pull {}".format(incremental_push))
+        _logger.warn("incremental_pull {}".format(incremental_pull))
 
     pfs = fs.DisdatFS()
 
