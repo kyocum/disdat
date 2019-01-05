@@ -4,6 +4,7 @@ import os
 from disdat.common import DisdatConfig, PROJECT_CONFIG_NAME, META_DIR
 from disdat.init import init
 
+
 # Test DisdatConfig can be created
 def test_successful_config_init(tmpdir):
     test_dir = tmpdir / 'sub'
@@ -29,6 +30,7 @@ def test_successful_config_init(tmpdir):
     # Assert that the Meta directory is present and there is only one
     assert META_DIR in [x.basename for x in meta_dir.listdir()]
     assert len(meta_dir.listdir()) == 1
+
 
 # Test that project needs to have config in the path in order for the config to work
 def test_failed_config_init(tmpdir):

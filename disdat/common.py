@@ -21,9 +21,6 @@ import logging
 import os
 import sys
 import ConfigParser
-import shutil
-from disdat import resource
-import disdat.config
 import luigi
 
 from urlparse import urlparse
@@ -154,6 +151,7 @@ class DisdatConfig(object):
         # Find configuration directory
         # config_dir = os.path.expanduser(SYSTEM_CONFIG_DIR)
         config_dir = find_config_directory()
+
         if not config_dir:
             error(
                 'Did not find configuration. '
