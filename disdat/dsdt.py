@@ -32,6 +32,7 @@ from disdat import dockerize
 from disdat import run
 from disdat.fs import init_fs_cl
 from disdat.common import DisdatConfig
+from disdat.init import init
 
 _logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ def main():
     subparsers = parser.add_subparsers()
 
     ls_p = subparsers.add_parser('init')
-    ls_p.set_defaults(func=lambda args: DisdatConfig.init())
+    ls_p.set_defaults(func=lambda args: init())
 
     # dockerize
     subparsers = dockerize.add_arg_parser(subparsers)

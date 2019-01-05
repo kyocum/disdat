@@ -37,6 +37,7 @@ _logging_default_level = logging.WARN
 
 SYSTEM_CONFIG_DIR = '~/.config/disdat'
 PACKAGE_CONFIG_DIR = 'disdat'
+PROJECT_CONFIG_NAME = 'disdat_config'
 LOGGING_FILE = 'logging.conf'
 LUIGI_FILE = 'luigi.cfg'
 CFG_FILE = 'disdat.cfg'
@@ -118,6 +119,25 @@ class MySingleton(object):
     __metaclass__ = SingletonType
 
 
+def find_config_directory(directory=None):
+
+    # Use current directory if nothing is passed in
+    if not directory:
+        directory = os.getcwd()
+
+    # Return the path to the config directory if it is found
+    if PROJECT_CONFIG_NAME in os.listdir(directory):
+        return os.path.join(directory, PROJECT_CONFIG_NAME)
+
+    # If root was the last directory checked, return None
+    if os.path.dirname(directory) == directory:
+        return None
+
+    # Recurse on next directory up
+    start, _ = os.path.split(directory)
+    return find_config_directory(start)
+
+
 class DisdatConfig(object):
     """
     Configure Disdat.  Configure logging.
@@ -126,14 +146,15 @@ class DisdatConfig(object):
 
     _instance = None
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, meta_dir_root=None):
 
         # Set up default logging to begin with. Can later be updated.
         setup_default_logging()
 
         # Find configuration directory
-        config_dir = os.path.expanduser(SYSTEM_CONFIG_DIR)
-        if not os.path.exists(config_dir):
+        # config_dir = os.path.expanduser(SYSTEM_CONFIG_DIR)
+        config_dir = find_config_directory()
+        if not config_dir:
             error(
                 'Did not find configuration. '
                 'Call "dsdt init" to initialize context.'
@@ -143,26 +164,31 @@ class DisdatConfig(object):
         disdat_cfg = os.path.join(config_dir, CFG_FILE)
         luigi_cfg = os.path.join(config_dir, LUIGI_FILE)
 
-        """ If running through pyinstaller, then use the current pythonpath to find the apply transforms"""
-        if getattr(sys, 'frozen', False):
-            # we are running in a bundle
-            bundle_dir = sys._MEIPASS
-            sys.path.extend(os.environ.get('PYTHONPATH', '').split(':'))
-        else:
-            # we are running in a normal Python environment
-            bundle_dir = os.path.dirname(os.path.abspath(__file__))
+        # """ If running through pyinstaller, then use the current pythonpath to find the apply transforms"""
+        # if getattr(sys, 'frozen', False):
+        #     # we are running in a bundle
+        #     bundle_dir = sys._MEIPASS
+        #     sys.path.extend(os.environ.get('PYTHONPATH', '').split(':'))
+        # else:
+        #     # we are running in a normal Python environment
+        #     bundle_dir = os.path.dirname(os.path.abspath(__file__))
+        #
 
-        self.meta_dir_root = '~/'
+        if meta_dir_root:
+            self.meta_dir_root = meta_dir_root
+        else:
+            self.meta_dir_root = os.path.expanduser('~')
+
         self.logging_config = None
         self.parser = self._read_configuration_file(disdat_cfg, luigi_cfg)
 
     @staticmethod
-    def instance(*args, **kwargs):
+    def instance():
         """
         Singleton getter
         """
         if DisdatConfig._instance is None:
-            DisdatConfig._instance = DisdatConfig(*args, **kwargs)
+            DisdatConfig._instance = DisdatConfig()
         return DisdatConfig._instance
 
     @staticmethod
@@ -212,40 +238,6 @@ class DisdatConfig(object):
 
     def get_context_dir(self):
         return os.path.join(self.get_meta_dir(), DISDAT_CONTEXT_DIR)
-
-    @staticmethod
-    def init():
-        """
-        Create a default configuration in the config directory. This makes a
-        disdat folder which contains all configuration files.
-        """
-        directory = os.path.expanduser(SYSTEM_CONFIG_DIR)
-
-        # Make sure disdat has not already been initialized
-        if os.path.exists(directory):
-            error(
-                'DisDat already initialized in {}.'.format(directory)
-            )
-
-        # Create outer folder if the system does not have it yet
-        path = os.path.dirname(directory)
-        if not os.path.exists(path):
-            os.mkdir(path)
-
-        # Copy over default configurations
-        src = resource.filename(disdat.config, PACKAGE_CONFIG_DIR)
-        dst = directory
-        shutil.copytree(src, dst)
-
-        # Make sure paths are absolute in luigi config
-        luigi_dir = os.path.join(directory, LUIGI_FILE)
-        config = ConfigParser.ConfigParser()
-        config.read(luigi_dir)
-        value = config.get('core', 'logging_conf_file')
-        config.set('core', 'logging_conf_file', os.path.expanduser(value))
-        with open(luigi_dir, 'wb') as handle:
-            config.write(handle)
-
 
 #
 # Make Docker images names from pipeline class names
