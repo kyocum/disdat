@@ -149,7 +149,6 @@ class DisdatConfig(object):
         setup_default_logging()
 
         # Find configuration directory
-        # config_dir = os.path.expanduser(SYSTEM_CONFIG_DIR)
         config_dir = find_config_directory()
 
         if not config_dir:
