@@ -33,6 +33,7 @@ import os
 import json
 import uuid
 import time
+from datetime import datetime
 from enum import Enum
 import shutil
 import collections
@@ -509,7 +510,8 @@ class DisdatFS(object):
         else:
             return None
 
-    def ls(self, search_name, print_tags, print_intermediates, print_long, print_args, committed=None, maxbydate=False, tags=None, data_context=None):
+    def ls(self, search_name, print_tags, print_intermediates, print_long, print_args,
+           before=None, after=None, maxbydate=False, committed=None, tags=None, data_context=None):
         """
         Enumerate bundles (hyperframes) in this context.
 
@@ -518,6 +520,8 @@ class DisdatFS(object):
             print_tags (bool): Whether to print the bundle tags
             print_intermediates (bool): Whether to show intermediate bundles
             print_args (bool): Whether to print the arguments used to produce this bundle
+            before (date.datetime): '01-03-19 02:40:37' or date '01-03-19' inclusive range
+            after (date.datetime): '01-03-19 02:40:37' or date '01-03-19' inclusive range
             committed (bool): If True, just committed, if False, just uncommitted, if None then ignore.
             maxbydate (bool): return the latest by date
             tags: Optional. A dictionary of tags to search for.
@@ -544,7 +548,8 @@ class DisdatFS(object):
         if print_long:
             output_strings.append(DisdatFS._pretty_print_header())
 
-        for i, r in enumerate(data_context.get_hframes(human_name=search_name, tags=tags, maxbydate=maxbydate)):
+        for i, r in enumerate(data_context.get_hframes(human_name=search_name, tags=tags,
+                                                       maxbydate=maxbydate, before=before, after=after)):
             if committed is not None:
                 if committed:
                     if not r.get_tag('committed'):
@@ -576,7 +581,7 @@ class DisdatFS(object):
         output_string = "{:20}\t{:20}\t{:8}\t{:18}\t{:8}\t{:40}".format(hfr.pb.human_name,
                                                                    hfr.pb.processing_name[:],
                                                                    hfr.pb.owner,
-                                                                   time.strftime("%m-%d-%y %H:%M:%S ",time.gmtime(hfr.pb.lineage.creation_date)),
+                                                                   time.strftime("%m-%d-%y %H:%M:%S ",time.localtime(hfr.pb.lineage.creation_date)),
                                                                    committed,
                                                                    hfr.pb.uuid)
         if print_tags:
@@ -1583,21 +1588,58 @@ def _rm(fs, args):
         print f
 
 
+def _parse_date(date_string, throw=False):
+    """
+
+    NOTE: Also used in api.py
+
+    Args:
+        date_string (str): String we want to parse into a datetime object
+        throw (bool): Raise exception instead of returning None on error
+
+    Returns:
+        datetime.datetime
+    """
+    try:
+        if len(date_string.split(' ')) > 1:
+            date = datetime.strptime(date_string, "%m-%d-%Y %X")
+        else:
+            date = datetime.strptime(date_string, "%m-%d-%Y")
+    except ValueError as ve:
+        print "Unable to parse date, must be like '12-1-2008' or '\"12-1-2008 13:12:05\"'"
+        if not throw:
+            return None
+        else:
+            raise
+    return date
+
+
 def _ls(fs, args):
     if len(args.bundle) > 1:
         print "dsdt ls takes zero or one bundle as arguments."
         return
+
+    arg = None
     if len(args.bundle) == 1:
         arg = args.bundle[0]
-    else:
-        arg = None
 
+    committed = None
     if args.committed:
         committed = True
     elif args.uncommitted:
         committed = False
-    else:
-        committed = None
+
+    after = None
+    if args.after:
+        after = _parse_date(args.after)
+        if after is None:
+            return
+
+    before = None
+    if args.before:
+        before = _parse_date(args.before)
+        if before is None:
+            return
 
     for f in fs.ls(arg,
                    args.print_tags,
@@ -1605,6 +1647,8 @@ def _ls(fs, args):
                    args.verbose,
                    args.print_args,
                    committed=committed,
+                   before=before,
+                   after=after,
                    maxbydate=args.latest_by_date,
                    tags=common.parse_args_tags(args.tag)):
         print f
@@ -1702,6 +1746,10 @@ def init_fs_cl(subparsers):
                       help="List only uncommitted bundles.")
     ls_p.add_argument('-l', '--latest-by-date', action='store_true',
                       help="Return the most recent bundle for any name.")
+    ls_p.add_argument('-A', '--after',  type=str,
+                      help="List bundles created on or after date or datetime: '--after 12-10-2008 13:40:30'")
+    ls_p.add_argument('-B', '--before', type=str,
+                      help="List bundles created on or before date or datetime: '--before 12-10-2008 13:40:30'")
     ls_p.add_argument('-v', '--verbose', action='store_true',
                       help="Print bundles with more information.")
     ls_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',

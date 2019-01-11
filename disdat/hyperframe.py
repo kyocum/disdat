@@ -236,7 +236,9 @@ def _translate(s):
     return s
 
 
-def _where_clause(uuid=None, owner=None, human_name=None, processing_name=None, state=None):
+def _where_clause(uuid=None, owner=None, human_name=None,
+                  processing_name=None, state=None,
+                  before=None, after=None):
     """
     Build the where clause.  Note, if any string contains '.*' (zero or many of any ) or . (one of any).
     Translate that to '%' and '_' respectively.
@@ -251,6 +253,8 @@ def _where_clause(uuid=None, owner=None, human_name=None, processing_name=None, 
         human_name (str):
         processing_name (str):
         state (`RecordState`):
+        before (datetime): inclusive before datetime
+        after (datetime): inclusive after datetime
 
     Returns:
 
@@ -273,6 +277,12 @@ def _where_clause(uuid=None, owner=None, human_name=None, processing_name=None, 
 
     if state is not None:
         clauses.append('state = "{}"'.format(state.name))
+
+    if before is not None:
+        clauses.append('creation_date <= "{}"'.format(before.strftime("%Y-%m-%d %X")))
+
+    if after is not None:
+        clauses.append('creation_date >= "{}"'.format(after.strftime("%Y-%m-%d %X")))
 
     if len(clauses) > 0:
         where = 'WHERE ' + ' AND '.join(clauses)
@@ -311,8 +321,10 @@ def _tag_query(tags):
     return s
 
 
-def select_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_name=None, tags=None, state=None,
-                  orderby=False, groupby=False, maxbydate=False):
+def select_hfr_db(engine_g, uuid=None, owner=None, human_name=None,
+                  processing_name=None, tags=None, state=None,
+                  orderby=False, groupby=False, maxbydate=False,
+                  before=None, after=None):
     """
     Create an HFrame Record from a row in our DB.
     Where uuid= && owner= && human_name= && processing_name=
@@ -328,6 +340,8 @@ def select_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_n
         orderby (bool): enable order by creation_date timestamp
         groupby (bool): enable grouping
         maxbydate (bool): Return the latest bundle matched by human_name
+        before (datetime.datetime): records on or before this datetime
+        after (datetime.datetime): records on or after this datetime
 
     Returns:
         results (list): a list of xxxRecord objects
@@ -336,7 +350,7 @@ def select_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_n
 
     pb_cls = HyperFrameRecord
 
-    where = _where_clause(uuid, owner, human_name, processing_name, state)
+    where = _where_clause(uuid, owner, human_name, processing_name, state, before, after)
 
     if tags is not None and tags:  # bool(l={}) = False
         if where == '':
@@ -901,7 +915,7 @@ class HyperFrameRecord(PBObject):
         self.pb.ClearField('tags')
         self.add_tags(new_tags)
 
-        return self._mod_finish()
+        return self._mod_finish(new_time=False)
 
     def mod_tags(self, new_tags):
         """
