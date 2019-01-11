@@ -607,7 +607,9 @@ def remote(local_context, remote_context, remote_url, force=False):
     data_context.bind_remote_ctxt(remote_context, remote_url, force=force)
 
 
-def search(local_context, search_name=None, search_tags=None, is_committed=None, find_intermediates=False, find_roots=False):
+def search(local_context, search_name=None, search_tags=None,
+           is_committed=None, find_intermediates=False, find_roots=False,
+           before=None, after=None):
     """ Search for bundle in a context.
     Allow for searching by human name, is_committed, is intermediate or is root task output, and tags.
 
@@ -622,6 +624,8 @@ def search(local_context, search_name=None, search_tags=None, is_committed=None,
         is_committed (bool): If None (default): ignore committed, If True return committed, If False return uncommitted
         find_intermediates (bool):  Results must be intermediates
         find_roots (bool): Results must be final outputs
+        before (str): bundles <= "12-1-2009" or "12-1-2009 12:13:42"
+        after (str): bundles >= "12-1-2009" or "12-1-2009 12:13:42"
 
     Returns:
         [](Bundle): List of API bundle objects
@@ -637,7 +641,13 @@ def search(local_context, search_name=None, search_tags=None, is_committed=None,
     if find_roots:
         search_tags.update({'root_task': True})
 
-    for i, r in enumerate(data_context.get_hframes(human_name=search_name, tags=search_tags)):
+    if before is not None:
+        before = disdat.fs._parse_date(before, throw=True)
+
+    if after is not None:
+        after = disdat.fs._parse_date(after, throw=True)
+
+    for i, r in enumerate(data_context.get_hframes(human_name=search_name, tags=search_tags, before=before, after=after)):
 
         if find_intermediates:
             if r.get_tag('root_task') is not None:
