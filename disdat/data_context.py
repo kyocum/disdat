@@ -614,12 +614,11 @@ class DataContext(object):
 
             return False
 
-    def get_hframes(self, human_name=None, processing_name=None, uuid=None, tags=None, state=None, groupby=False, maxbydate=False):
+    def get_hframes(self, human_name=None, processing_name=None,
+                    uuid=None, tags=None, state=None, groupby=False,
+                    before=None, after=None, maxbydate=False):
         """
         Find all hframes with the given bundle_name
-
-        NOTE: Potentially expensive if the PB bytes are also in the db and no filtering.
-        TODO: Return list of records without PB.
 
         Args:
             human_name (str): Given name
@@ -628,7 +627,9 @@ class DataContext(object):
             tags (dict):
             state:
             groupby (bool): group by search
-            maxbydate (bool): Return latest if we have groupby enabled
+            before (datetime.datetime): Return records on or before datetime
+            after (datetime.datetime): Return records on or after datetime
+            maxbydate (bool): Return the most recent by name
 
         Returns:
             (list:`disdat.hyperframe.HyperFrameRecord'): list of HyperFrameRecords (or rows if groupby=True) ordered youngest to oldest
@@ -642,6 +643,9 @@ class DataContext(object):
                                          state=state,
                                          orderby=True,
                                          groupby=groupby,
+                                         maxbydate=maxbydate,
+                                         before=before,
+                                         after=after
                                          )
 
         return found
