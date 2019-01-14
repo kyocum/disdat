@@ -67,7 +67,7 @@ class B(PipeTask):
     uuid          = luigi.Parameter(default='None')
 
     def pipe_requires(self, pipeline_input=None):
-        self.mark_force()
+        #self.mark_force()
         for i in range(1):
             self.add_dependency("task_{}".format(i), C, {'task_label': str(i) + str(self.task_label), 'uuid': 0xdeadbeef})
 

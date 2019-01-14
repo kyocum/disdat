@@ -61,7 +61,7 @@ class Average(PipeTask):
 
     def pipe_requires(self, pipeline_input=None):
         """ Depend on GenData """
-        self.mark_force()
+        #self.mark_force()
         self.add_dependency('my_input_data', GenData, {})
 
     def pipe_run(self, pipeline_input=None, my_input_data=None):
