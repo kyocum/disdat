@@ -269,6 +269,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
 
     """
 
+    # These are constants
     verbose = False
     use_bundle = True
     regen_bundle = False
@@ -276,6 +277,13 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
     # 1.) Get output bundle for pipe_id (the specific pipeline/transform/param hash).
 
     if verbose: print "resolve_bundle: looking up bundle {}".format(pipe.pipe_id())
+
+    if pipe._mark_force:
+        # Forcing recomputation through a manual annotation in the pipe.pipe_requires() itself
+        _logger.debug("resolve_bundle: pipe.mark_force forcing a new output bundle.")
+        if verbose: print "resolve_bundle: pipe.mark_force forcing a new output bundle.\n"
+        pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
+        return regen_bundle
 
     if pipe.force:
         # Forcing recomputation through a manual --force directive
