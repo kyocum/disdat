@@ -278,8 +278,9 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
 
     if verbose: print "resolve_bundle: looking up bundle {}".format(pipe.pipe_id())
 
-    if pipe._mark_force:
+    if pipe._mark_force and not worker._is_external(pipe):
         # Forcing recomputation through a manual annotation in the pipe.pipe_requires() itself
+        # If it is external, we don't recompute in any case.
         _logger.debug("resolve_bundle: pipe.mark_force forcing a new output bundle.")
         if verbose: print "resolve_bundle: pipe.mark_force forcing a new output bundle.\n"
         pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)

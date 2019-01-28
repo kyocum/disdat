@@ -1254,7 +1254,7 @@ class LineageRecord(PBObject):
     def __init__(self, hframe_name=None, hframe_uuid=None,
                  code_repo=None, code_name=None, code_semver=None,
                  code_hash=None, code_branch=None,
-                 creation_date=time.time(), depends_on=None):
+                 creation_date=None, depends_on=None):
         """
         LineageRecord -- a collection of information about how this bundle was created.
 
@@ -1282,7 +1282,12 @@ class LineageRecord(PBObject):
         self.pb.code_semver = code_semver
         self.pb.code_hash = code_hash
         self.pb.code_branch = code_branch
+
+        if creation_date is None:
+            creation_date = time.time()
+
         self.pb.creation_date = creation_date
+
         # Note: depends_on tuple hframe_name is the processing name, very confusing! -- Todo: change in pb spec
         if depends_on is not None:
             _ = [self.pb.depends_on.add(hframe_name = tup[0], hframe_uuid = tup[1]) for tup in depends_on]
