@@ -121,7 +121,8 @@ setup(
             'mock',
             'nose',
             'pylint',
-            'coverage'
+            'coverage',
+            'tox'
         ],
         'rel': [
             'wheel',
