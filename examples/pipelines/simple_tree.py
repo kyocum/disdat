@@ -88,4 +88,4 @@ class SimpleTree(PipeTask):
 
 
 if __name__ == "__main__":
-    api.apply('examples', '-', 'SimpleTree.example.output', 'SimpleTree')
+    api.apply('examples2', '-', 'SimpleTree.example.output', 'SimpleTree')

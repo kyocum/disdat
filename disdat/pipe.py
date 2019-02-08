@@ -110,6 +110,7 @@ class PipeTask(luigi.Task, PipeBase):
         self.user_tags = {}
         self.add_deps  = {}
         self.db_targets = []
+        self._mark_force = False
 
     def bundle_outputs(self):
         """
@@ -629,6 +630,20 @@ class PipeTask(luigi.Task, PipeBase):
         """
         assert (isinstance(tags, dict))
         self.user_tags.update(tags)
+
+    def mark_force(self):
+        """
+        Disdat Pipe API Function
+
+        Mark pipe to force recompution of this particular task.   This means that Disdat/Luigi will
+        always re-run this particular pipe / task.
+
+        We mark the pipe with a particular flag so that apply.resolve_bundle()
+
+        Returns:
+            None
+        """
+        self._mark_force = True
 
     def mark_transient(self):
         """

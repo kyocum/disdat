@@ -47,6 +47,7 @@ class GenData(PipeTask):
     """
 
     def pipe_requires(self, pipeline_input=None):
+        #self.mark_force()
         self.set_bundle_name("GenData")
 
     def pipe_run(self, pipeline_input=None):
@@ -60,6 +61,7 @@ class Average(PipeTask):
 
     def pipe_requires(self, pipeline_input=None):
         """ Depend on GenData """
+        #self.mark_force()
         self.add_dependency('my_input_data', GenData, {})
 
     def pipe_run(self, pipeline_input=None, my_input_data=None):
@@ -68,4 +70,4 @@ class Average(PipeTask):
 
 
 if __name__ == "__main__":
-    api.apply('examples', '-', '-', 'Average', params={})
+    api.apply('examples2', '-', '-', 'Average', params={})
