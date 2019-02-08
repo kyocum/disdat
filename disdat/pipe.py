@@ -40,37 +40,24 @@ from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PARAMS_PREFIX
 import luigi
 import logging
 import os
+import json
 
-
-CLOSURE_PIPE_INPUT = 'pipeline_input'
 
 _logger = logging.getLogger(__name__)
 
 
 class PipeTask(luigi.Task, PipeBase):
     """
-    Every pipe is given:
-    inputs -- 0 or more json records we convert into an input_df.  This is the input closure.
-
-    Every pipe emits files to a directory:
-    outpath -- the directory to which outputs will be sent
-
-    NOTE:  We pass in closure_bundle_proc_name and closure_bundle_uuid because a.) they are the params
-      for this invocation, and it allows us to return them as dependencies in bundle_inputs().  We don't
-      use these to resolve the json inputs because that's the driver's job (apply only passes single row).
+    user_arg_name:
+    calling_task:
+    driver_output_bundle:
+    force:
+    output_tags:
+    incremental_push:
+    incremental_pull:
     """
     user_arg_name = luigi.Parameter(default=None, significant=False)  # what the outputs are referred to by downstreams
     calling_task   = luigi.Parameter(default=None, significant=False)
-    closure_hframe = luigi.Parameter(default=None, significant=False)
-
-    # Driver and PipeTask always set these
-    closure_bundle_proc_name = luigi.Parameter(default='None', significant=False)
-    closure_bundle_uuid = luigi.Parameter(default='None', significant=False)
-
-    # Driver is the only one who sets these (thus only on the first task)
-    # They are only used to drive re-running -- to make unique task_id
-    closure_bundle_proc_name_root = luigi.Parameter(default='None', significant=True)
-    closure_bundle_uuid_root = luigi.Parameter(default='None', significant=True)
 
     # This is used for re-running in apply:resolve_bundle to manually see if
     # we need to re-run the root task.
@@ -100,12 +87,6 @@ class PipeTask(luigi.Task, PipeBase):
 
         super(PipeTask, self).__init__(*args, **kwargs)
 
-        # Get the presentable input params from the closure_hframe
-        if self.closure_hframe is not None:
-            assert self.closure_hframe.is_presentable()
-            self.presentable_inputs = self.data_context.present_hfr(self.closure_hframe)
-        else:
-            self.presentable_inputs = None
         self.user_set_human_name = None
         self.user_tags = {}
         self.add_deps  = {}
@@ -138,15 +119,6 @@ class PipeTask(luigi.Task, PipeBase):
 
         input_tasks = self.deps()
         input_bundles = [(task.pipe_id(), self.pfs.get_path_cache(task).uuid) for task in input_tasks]
-
-        # The lineage does *not* drive re-running.  So we can safely say this pipe depends on
-        # the input bundle, because it did.   Note that the re-run logic does depend on the task_id() and
-        # that is a hash of all the args.  And the first (bottom / root) task of a transform has a
-        # closure_bundle and closure_uuid.   If either change, then we re-run.
-        if self.closure_bundle_proc_name is not None:
-            # if we had a closure object -- a pipeline input bundle -- then record it.
-            input_bundles.append((self.closure_bundle_proc_name, self.closure_bundle_uuid))
-
         return input_bundles
 
     def pipe_id(self):
@@ -163,10 +135,9 @@ class PipeTask(luigi.Task, PipeBase):
 
     def pipeline_id(self):
         """
-        This is a "less unique" id than the unique id.  It is supposed to be the "human readable" name of the stage
-        this pipe occupies in the pipesline.
+        This is the "human readable" name;  a "less unique" id than the unique id.
 
-        The pipeline_id is well-defined for the output task -- it is output bundle name.   For intermediate outputs
+        The pipeline_id is well-defined for the output task -- it is the output bundle name.   For intermediate outputs
         the pipeline_id defaults to the pipe_id().   Else, it may be set by the task author.
 
         Note: Should we provide an identify for which version of this pipe is running at which stage in the pipeline?
@@ -237,7 +208,7 @@ class PipeTask(luigi.Task, PipeBase):
 
         tasks = []
 
-        for user_arg_name, cls_and_params in rslt.iteritems():
+        for user_arg_name, cls_and_params in rslt.items():
             pipe_class, params = cls_and_params[0], cls_and_params[1]
 
             if isinstance(pipe_class, str) or isinstance(pipe_class, unicode):
@@ -250,11 +221,6 @@ class PipeTask(luigi.Task, PipeBase):
             params.update({
                 'user_arg_name': user_arg_name,
                 'calling_task': self,
-                'closure_hframe': self.closure_hframe,
-                'closure_bundle_proc_name': self.closure_bundle_proc_name,
-                'closure_bundle_uuid': self.closure_bundle_uuid,
-                'closure_bundle_proc_name_root': self.closure_bundle_proc_name,
-                'closure_bundle_uuid_root': self.closure_bundle_uuid,
                 'driver_output_bundle': None,  # allow intermediate tasks pipe_id to be independent of root task.
                 'force': self.force,
                 'output_tags': dict({}),  # do not pass output_tags up beyond root task
@@ -354,14 +320,17 @@ class PipeTask(luigi.Task, PipeBase):
         Returns:
             dict: (BUNDLE_TAG_PARAM_PREFIX.<name>:'string value',...)
         """
-
         params = []
         subcls_params = vars(cls) # vars on a class, not dir
         for p in subcls_params:
             param_obj = getattr(cls, p)
             if not isinstance(param_obj, luigi.Parameter):
                 continue
-            ser_val = param_obj.serialize(getattr(self, p))  # serialize the param_obj.normalize(x)
+            val = getattr(self,p)
+            if type(val) is str or type(val) is unicode:
+                ser_val = json.dumps(val)
+            else:
+                ser_val = param_obj.serialize(getattr(self, p))  # serialize the param_obj.normalize(x)
             params.append(("{}{}".format(BUNDLE_TAG_PARAMS_PREFIX, p), ser_val))
 
         return dict(params)
@@ -389,9 +358,6 @@ class PipeTask(luigi.Task, PipeBase):
         """
 
         kwargs = dict()
-
-        # 1.) Place input hyperframe presentable into the users's run / requires function
-        kwargs[CLOSURE_PIPE_INPUT] = self.presentable_inputs
 
         # Place upstream task outputs into the kwargs.  Thus the user does not call
         # self.inputs().  If they did, they would get a list of output targets for the bundle

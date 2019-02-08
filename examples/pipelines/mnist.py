@@ -156,11 +156,11 @@ class GetDataGz(PipeTask):
     """ Pipe Task 1
     Get the data for MNIST as raw gz files
     """
-    def pipe_requires(self, pipeline_input):
+    def pipe_requires(self):
         """ Simply name the output of this PipeTask """
         self.set_bundle_name("MNIST.data.gz")
 
-    def pipe_run(self, pipeline_input):
+    def pipe_run(self):
         """
         Returns:
             (dict): Dictionary of name, path pairs
@@ -176,12 +176,12 @@ class Train(PipeTask):
         (dict): all the model files in 'save_files' and the name of the dir in 'save_dir'
     """
 
-    def pipe_requires(self, pipeline_input=None):
+    def pipe_requires(self):
         """ Depend on the gzip files being downloaded  """
         self.add_dependency("input_gzs", GetDataGz, {})
         self.set_bundle_name("MNIST.trained")
 
-    def pipe_run(self, pipeline_input=None, input_gzs=None):
+    def pipe_run(self, input_gzs=None):
         """        """
 
         print "Beginning training . . . "
@@ -219,13 +219,13 @@ class Evaluate(PipeTask):
     """ Pipe Task 2
     Evaluate model from Train
     """
-    def pipe_requires(self, pipeline_input=None):
+    def pipe_requires(self):
         """ """
         self.add_dependency("model", Train, {})
         self.add_dependency("input_gzs", GetDataGz, {})
         self.set_bundle_name("MNIST.eval")
 
-    def pipe_run(self, pipeline_input=None, model=None, input_gzs=None):
+    def pipe_run(self, model=None, input_gzs=None):
         """
         Args:
             pipeline_input:
@@ -235,7 +235,7 @@ class Evaluate(PipeTask):
 
         """
 
-        print "Begin evaluation . . . "
+        print ("Begin evaluation . . . ")
 
         mnist = convert_to_data_sets(input_gzs, one_hot=True)
 
@@ -251,10 +251,10 @@ class Evaluate(PipeTask):
             report = accuracy.eval(feed_dict={x: mnist.test.images, y_: mnist.test.labels})
             print(report)
 
-        print "End evaluation."
+        print ("End evaluation.")
 
         return report
 
 if __name__ == "__main__":
-    print "Using Disdat API to run the pipeline"
-    api.apply('examples', '-', '-', 'Evaluate')
+    print ("Using Disdat API to run the pipeline")
+    api.apply('examples', '-', 'Evaluate')

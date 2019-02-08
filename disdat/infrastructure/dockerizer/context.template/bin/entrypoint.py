@@ -224,7 +224,6 @@ def run_disdat_container(args):
 
     try:
         result = disdat.api.apply(args.branch,
-                                  args.input_bundle,
                                   args.output_bundle,
                                   args.pipeline,
                                   input_tags=input_tags,
@@ -360,11 +359,6 @@ def main(input_args):
         '--force',
         action='store_true',
         help='Force recomputation of all pipe dependencies (default is to recompute dependencies with changed inputs or code)',
-    )
-    pipeline_parser.add_argument(
-        'input_bundle',
-        type=str,
-        help='Name of the input bundle',
     )
     pipeline_parser.add_argument(
         'output_bundle',

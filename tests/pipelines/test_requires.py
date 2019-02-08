@@ -24,19 +24,19 @@ still need to get the input in the downstream task.  See git issue
 
 class Bizarre(PipeTask):
 
-    def pipe_requires(self, pipeline_input=None):
+    def pipe_requires(self):
         return
 
-    def pipe_run(self, pipeline_input=None, **kwargs):
+    def pipe_run(self):
         return
 
 
 class a(Bizarre):
-    def pipe_requires(self, pipeline_input=None):
+    def pipe_requires(self):
         return
 
 
 class b(Bizarre):
-    def pipe_requires(self, pipeline_input=None):
+    def pipe_requires(self):
         self.add_dependency('something',a,{})
 

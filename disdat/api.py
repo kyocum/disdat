@@ -812,7 +812,7 @@ def pull(local_context, bundle_name=None, uuid=None, localize=False):
     fs.pull(human_name=bundle_name, uuid=uuid, localize=localize, data_context=data_context)
 
 
-def apply(local_context, input_bundle, output_bundle, transform,
+def apply(local_context, output_bundle, transform,
           input_tags=None, output_tags=None, force=False, params=None,
           output_bundle_uuid=None, central_scheduler=False, workers=1,
           incremental_push=False, incremental_pull=False):
@@ -852,7 +852,7 @@ def apply(local_context, input_bundle, output_bundle, transform,
     # IF apply raises, let it go up.
     # If API, caller can catch.
     # If CLI, python will exit 1
-    result = disdat.apply.apply(input_bundle, output_bundle, task_params, transform,
+    result = disdat.apply.apply(output_bundle, task_params, transform,
                                 input_tags, output_tags, force,
                                 output_bundle_uuid=output_bundle_uuid,
                                 central_scheduler=central_scheduler,
@@ -916,10 +916,6 @@ def run(local_context,
 
     """
 
-
-
-    # Args are string: python object. The run CLI puts the parameters into an array of strings.  Replicate.
-
     pipeline_arg_list = []
     if pipeline_args is not None:
         for k,v in pipeline_args.iteritems():
@@ -928,8 +924,7 @@ def run(local_context,
 
     context = "{}/{}".format(remote_context, local_context) # remote_name/local_name
 
-    retval = run_entry(input_bundle='-',
-                       output_bundle=output_bundle,
+    retval = run_entry(output_bundle=output_bundle,
                        pipeline_args=pipeline_arg_list,
                        pipe_cls=pipe_cls,
                        backend=backend,

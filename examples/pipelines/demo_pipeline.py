@@ -46,11 +46,10 @@ class GenData(PipeTask):
     Generate a small data set of possible basketball scores
     """
 
-    def pipe_requires(self, pipeline_input=None):
-        #self.mark_force()
+    def pipe_requires(self):
         self.set_bundle_name("GenData")
 
-    def pipe_run(self, pipeline_input=None):
+    def pipe_run(self):
         return np.array([77, 100, 88])
 
 
@@ -59,15 +58,14 @@ class Average(PipeTask):
     Average scores of an upstream task
     """
 
-    def pipe_requires(self, pipeline_input=None):
+    def pipe_requires(self):
         """ Depend on GenData """
-        #self.mark_force()
         self.add_dependency('my_input_data', GenData, {})
 
-    def pipe_run(self, pipeline_input=None, my_input_data=None):
+    def pipe_run(self, my_input_data=None):
         """ Compute average and return as a dictionary """
         return {'average': [np.average(my_input_data)]}
 
 
 if __name__ == "__main__":
-    api.apply('examples2', '-', '-', 'Average', params={})
+    api.apply('examples', '-', 'Average', params={})
