@@ -97,7 +97,6 @@ def main():
                          help="Input bundle tags: '-it authoritative:True -it version:0.7.1'")
     apply_p.add_argument('-ot', '--output-tag', nargs=1, type=str, action='append',
                          help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'")
-    apply_p.add_argument("input_bundle", type=str, help="Name of source data bundle.  '-' means no input bundle.")
     apply_p.add_argument("output_bundle", type=str, help="Name of destination bundle.  '-' means default output bundle.")
     apply_p.add_argument("pipe_cls", type=str, help="User-defined transform, e.g., module.PipeClass")
     apply_p.add_argument("--local", action='store_true', help="Run the class locally (even if dockered)")

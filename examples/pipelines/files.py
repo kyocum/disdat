@@ -61,15 +61,11 @@ class CreateFiles(PipeTask):
     num_luigi_files  = luigi.IntParameter(default=2)
     num_dir_files    = luigi.IntParameter(default=2)
 
-    def pipe_run(self, pipeline_input=None):
+    def pipe_run(self):
         """ Create num_files output files.
-
-        Args:
-            pipeline_input: Input bundle data
 
         Returns:
             (dict):  dictionary of files
-
         """
 
         # Track the locations of your output files
@@ -102,31 +98,31 @@ class ReadFiles(PipeTask):
     num_luigi_files  = luigi.IntParameter(default=2)
     num_dir_files    = luigi.IntParameter(default=2)
 
-    def pipe_requires(self, pipeline_input=None):
+    def pipe_requires(self):
         """ No new tasks
         Returns:
             None
         """
-        self.add_dependency("input_files", CreateFiles, {'num_luigi_files':self.num_luigi_files,
-                                                         'num_dir_files':self.num_dir_files})
+        self.add_dependency("input_files", CreateFiles, {'num_luigi_files': self.num_luigi_files,
+                                                         'num_dir_files': self.num_dir_files})
         return None
 
-    def pipe_run(self, pipeline_input=None, input_files=None):
+    def pipe_run(self, input_files=None):
         """ For each file, print out its name and contents.
         """
         max_len = 0
         nfiles = 0
-        for k, v in input_files.iteritems():
+        for k, v in input_files.items():
             for f in v:
                 with open(f,'r') as of:
                     s = of.read()
                     if len(s) > max_len:
                         max_len = len(s)
-                    print "Reading file: {} length:{}".format(f, len(s))
+                    print ("Reading file: {} length:{}".format(f, len(s)))
                     nfiles += 1
 
         return {'num categories': [len(input_files)], 'num files': [nfiles], 'max string': [max_len]}
 
 
 if __name__ == "__main__":
-    api.apply('examples', '-', '-', 'ReadFiles', params={'num_luigi_files':5})
+    api.apply('examples', '-', 'ReadFiles', params={'num_luigi_files':5})

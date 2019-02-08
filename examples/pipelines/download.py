@@ -99,17 +99,17 @@ class Download(pipe.PipeTask):
                 raise RuntimeError('Unable to find source file {}'.format(url.path))
             shutil.copyfile(url.path, target.path)
 
-    def pipe_run(self, pipeline_input=None):
+    def pipe_run(self):
         """Download data from a source blob URL.
 
         Args:
             pipeline_input (`pandas.DataFrame`): A single-row, single-column dataframe with a remote URL
         """
-        source_url = self._validate_and_get_input_url(df=pipeline_input)
+        source_url = self._validate_and_get_input_url()
         target = self.create_output_file(os.path.basename(source_url))
         Download._download_blob(target, source_url)
         return {self.OUTPUT_FILE_KEY: [target.path]}
 
 
 if __name__ == "__main__":
-    api.apply('examples', '-', 'Download.example.output', 'Download', params={'input_url': './download.py'})
+    api.apply('examples', '-', 'Download', params={'input_url': './download.py'})

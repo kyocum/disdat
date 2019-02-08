@@ -40,6 +40,7 @@ from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PARAMS_PREFIX
 import luigi
 import logging
 import os
+import json
 
 
 _logger = logging.getLogger(__name__)
@@ -319,14 +320,17 @@ class PipeTask(luigi.Task, PipeBase):
         Returns:
             dict: (BUNDLE_TAG_PARAM_PREFIX.<name>:'string value',...)
         """
-
         params = []
         subcls_params = vars(cls) # vars on a class, not dir
         for p in subcls_params:
             param_obj = getattr(cls, p)
             if not isinstance(param_obj, luigi.Parameter):
                 continue
-            ser_val = param_obj.serialize(getattr(self, p))  # serialize the param_obj.normalize(x)
+            val = getattr(self,p)
+            if type(val) is str or type(val) is unicode:
+                ser_val = json.dumps(val)
+            else:
+                ser_val = param_obj.serialize(getattr(self, p))  # serialize the param_obj.normalize(x)
             params.append(("{}{}".format(BUNDLE_TAG_PARAMS_PREFIX, p), ser_val))
 
         return dict(params)

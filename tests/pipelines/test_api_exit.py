@@ -65,7 +65,7 @@ def test():
 
     result = None
     try:
-        result = api.apply(TEST_CONTEXT, '-', 'test_api_exit', 'Root', params={}, force=True, workers=2)
+        result = api.apply(TEST_CONTEXT, 'test_api_exit', 'Root', params={}, force=True, workers=2)
     except Exception as e:
         print ("Got exception {} result {} ".format(e, e.result))
         assert(e.result['did_work'])
@@ -80,10 +80,10 @@ class FailBate(PipeTask):
     """
     unique = luigi.Parameter()
 
-    def pipe_requires(self, pipeline_input=None):
+    def pipe_requires(self):
         self.set_bundle_name("GenData")
 
-    def pipe_run(self, pipeline_input=None):
+    def pipe_run(self):
 
         if self.unique == 1:
             print("Task about to fail . . . ")
@@ -99,12 +99,12 @@ class Root(PipeTask):
     Average scores of an upstream task
     """
 
-    def pipe_requires(self, pipeline_input=None):
+    def pipe_requires(self):
         """ Depend on GenData """
         self.add_dependency('task_succeeds', FailBate, {'unique': 0})
         self.add_dependency('task_fails', FailBate, {'unique': 1})
 
-    def pipe_run(self, pipeline_input=None, **kwargs):
+    def pipe_run(self, **kwargs):
         """ Compute average and return as a dictionary """
         return True
 

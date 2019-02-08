@@ -106,14 +106,6 @@ def test():
                      no_submit=True)
     print ("--4C: RETVAL {}".format(retval))
 
-
-    #api.apply(TEST_CONTEXT, '-', '-', 'Root'
-    # )
-
-    #b = api.get(TEST_CONTEXT, 'PreMaker_auf_root')
-
-    #assert(b is not None)
-
     api.delete_context(TEST_CONTEXT)
 
 
