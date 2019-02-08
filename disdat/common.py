@@ -53,7 +53,12 @@ LOCAL_EXECUTION = 'LOCAL_EXECUTION'  # Docker endpoint env variable if we're run
 
 
 class ApplyException(Exception):
-    pass
+    def __init__(self, message, apply_result):
+        super(ApplyException, self).__init__(message)
+        self.apply_result = apply_result
+    @property
+    def result(self):
+        return self.apply_result
 
 
 def error(msg, *args, **kwargs):
@@ -82,7 +87,7 @@ def apply_handle_result(apply_result, raise_not_exit=False):
     else:
         error_str = "Disdat Apply ran, but one or more tasks failed."
         if raise_not_exit:
-            raise ApplyException(error_str)
+            raise ApplyException(error_str, apply_result)
         else:
             sys.exit(error_str)
 

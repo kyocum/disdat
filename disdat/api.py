@@ -174,6 +174,13 @@ class Bundle(HyperFrameRecord):
     def tags(self):
         return self.tag_dict
 
+    @property
+    def params(self):
+        """ Return the tags that were parameters """
+        return {k.strip(common.BUNDLE_TAG_PARAMS_PREFIX):json.loads(v)
+                 for k,v in self.tag_dict.iteritems()
+                 if common.BUNDLE_TAG_PARAMS_PREFIX in k}
+
     """ Alternative construction post allocation """
 
     def fill_from_hfr(self, hfr):
