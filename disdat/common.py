@@ -307,7 +307,6 @@ def get_run_command_parameters(pfs):
 
 
 def make_run_command(
-        input_bundle,
         output_bundle,
         output_bundle_uuid,
         remote,
@@ -342,7 +341,7 @@ def make_run_command(
         for next_tag in output_tags:
             args += ['--output-tag', next_tag]
 
-    args += [input_bundle, output_bundle]
+    args += [output_bundle]
     return [x.strip() for x in args + pipeline_params]
 
 

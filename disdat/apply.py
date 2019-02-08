@@ -19,7 +19,7 @@ apply
 
 API for executing a pipe
 
-pipes apply input_bundle output_bundle pipes_cls
+pipes apply output_bundle pipes_cls
 
 author: Kenneth Yocum
 """
@@ -42,7 +42,7 @@ META_DIR = '.pipes'
 META_FILE = 'info.json'
 
 
-def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
+def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
           output_bundle_uuid=None, central_scheduler=False, workers=1, data_context=None,
           incremental_push=False, incremental_pull=False):
     """
@@ -52,7 +52,6 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
     This is why we make a single uuid for the output bundle of apply (for the driver).
 
     Args:
-        input_bundle:  The bundle with the data to be processed
         output_bundle: The new bundle to be created
         pipe_params (str):   Luigi Task parameters string
         pipe_cls:      String <module.ClassName>
@@ -100,7 +99,7 @@ def apply(input_bundle, output_bundle, pipe_params, pipe_cls, input_tags, output
     # Re-execute logic -- make copy of task DAG
     # Creates a cache of {pipe:path_cache_entry} in the pipesFS object.
     # This "task_path_cache" is used throughout execution to find output bundles.
-    reexecute_dag = driver.DriverTask(input_bundle, output_bundle, pipe_params,
+    reexecute_dag = driver.DriverTask(output_bundle, pipe_params,
                                       pipe_cls, input_tags, output_tags, force,
                                       data_context, incremental_push, incremental_pull)
 
