@@ -41,7 +41,6 @@ _logger = logging.getLogger(__name__)
 class DriverTask(luigi.WrapperTask, PipeBase):
     """
     Properties:
-         input_bundle:  The data set to be processed
          output_bundle: The name of the collection of resulting data items
          param_bundles: A dictionary of arguments to the first underlying Luigi Task
          pipe_cls:      The name of pipe.  It is string: <module>.<class>
@@ -49,7 +48,6 @@ class DriverTask(luigi.WrapperTask, PipeBase):
          output_tags:
          force:         Force recompute of dependencies (requires)
     """
-    input_bundle = luigi.Parameter(default=None)
     output_bundle = luigi.Parameter(default=None)
     pipe_params = luigi.Parameter(default=None)
     pipe_cls = luigi.Parameter(default=None)
@@ -61,23 +59,7 @@ class DriverTask(luigi.WrapperTask, PipeBase):
     incremental_pull = luigi.BoolParameter(default=False, significant=False)
 
     def __init__(self, *args, **kwargs):
-        """
-        Initialize some variables we'll use to track state.
-        Before we run anything, we need to get the latest input_bundle.
-        It could theoretically be updated while we run, meaning that calls to
-        requires and bundle_inputs get different bundle objects.  That is *not* kosher.
-
-        Returns:
-        """
         super(DriverTask, self).__init__(*args, **kwargs)
-
-        if self.input_bundle != '-':  # '-' means no input bundle
-            self.input_bundle_obj = self.pfs.get_latest_hframe(self.input_bundle, tags=self.input_tags,
-                                                               data_context=self.data_context)
-            if self.input_bundle_obj is None:
-                raise Exception("Driver unable to find input bundle {}".format(self.input_bundle))
-        else:
-            self.input_bundle_obj = None
 
     def bundle_outputs(self):
         """
@@ -113,8 +95,6 @@ class DriverTask(luigi.WrapperTask, PipeBase):
         we note that this is a *pipeline* bundle and that it depends on the pipeline's input bundle and the inputs of
         the left-edge tasks.   BUT this means that we will disconnect nodes in the lineage graph.
 
-        We have the "closure" or "parameter" input bundle from the apply command.
-
         The driver represents the entire pipeline.  In a sense the input bundles from the "left edge" of the pipesline
         are also "inputs."  However, this function returns the bundle_inputs used to fill lineage "depends_upon."
         And that is used to determine what to check to see if we need to re-run.
@@ -122,17 +102,8 @@ class DriverTask(luigi.WrapperTask, PipeBase):
         Returns: [(bundle_name, uuid), ... ]
         """
 
-        # LEFT-EDGE POLICY We don't want the left edge output bundles, we want their REQUIRES externalTask bundles
-        # This is old code.   use the path cache, find all the left-edge-bundles.  But those should be
-        # already found by the tasks at the left edge.   We re-run the driver if the input bundle has changed
-        # OR the pipe above us needed to run.
-        # pc = self.pfs.path_cache()
-        # input_bundles = [ (task, pce.uuid) for task, pce in pc.iteritems() if pce.is_left_edge_task ]
-
         input_tasks = self.deps()
         input_bundles = [(task.pipe_id(), self.pfs.get_path_cache(task).uuid) for task in input_tasks]
-        input_bundles.append((self.input_bundle_obj.pb.processing_name, self.input_bundle_obj.pb.uuid))
-
         return input_bundles
 
     def pipe_id(self):
@@ -222,28 +193,11 @@ class DriverTask(luigi.WrapperTask, PipeBase):
 
         """
 
-        # Get the set of presentables for this hyperframe
-        if self.input_bundle_obj is not None:
-            presentables = self.get_presentables(self.input_bundle_obj, level=0)
-            assert (len(presentables) == 1)
-            presentable_hfr = presentables[0]
-            closure_bundle_proc_name = self.input_bundle_obj.pb.processing_name
-            closure_bundle_uuid = self.input_bundle_obj.pb.uuid
-        else:
-            presentable_hfr = None
-            closure_bundle_proc_name = None
-            closure_bundle_uuid = None
-
         # Force root task to take an explicit bundle name?
         if self.output_bundle == '-':
             self.output_bundle = None
 
-        task_params = {'closure_hframe': presentable_hfr,
-                       'calling_task':  self,
-                       'closure_bundle_proc_name': closure_bundle_proc_name,
-                       'closure_bundle_uuid': closure_bundle_uuid,
-                       'closure_bundle_proc_name_root': closure_bundle_proc_name,
-                       'closure_bundle_uuid_root': closure_bundle_uuid,
+        task_params = {'calling_task':  self,
                        'driver_output_bundle': self.output_bundle,
                        'force': self.force,
                        'output_tags': json.dumps(dict(self.output_tags)), # Ugly re-stringifying dict
