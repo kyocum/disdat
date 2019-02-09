@@ -607,7 +607,7 @@ def remote(local_context, remote_context, remote_url, force=False):
                                                                                     local_context))
 
     # Be generous and fix up S3 URLs to end on a directory.
-    remote_url = '{}/'.format(remote_url.rstrip('/'))
+    sub_url = '{}/'.format(remote_url.rstrip('/'))
 
     data_context = _get_context(local_context)
 

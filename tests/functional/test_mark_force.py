@@ -30,7 +30,7 @@ def test():
     """
 
     def run_and_get(name, do_ext=False):
-        api.apply(TEST_CONTEXT, '-', 'A', params={'set_ext_dep': do_ext})
+        api.apply(TEST_CONTEXT, '-', 'A_2', params={'set_ext_dep': do_ext})
         b = api.get(TEST_CONTEXT, 'B')
         print ("Run {}: b.creation_date {} b.uuid {}".format(name, b.creation_date, b.uuid))
         return b
@@ -51,7 +51,7 @@ def test():
     api.delete_context(TEST_CONTEXT)
 
 
-class B(PipeTask):
+class B_2(PipeTask):
 
     def pipe_requires(self):
         self.set_bundle_name("B")
@@ -64,14 +64,14 @@ class B(PipeTask):
         return True
 
 
-class A(PipeTask):
+class A_2(PipeTask):
     set_ext_dep = luigi.BoolParameter(default=False)
 
     def pipe_requires(self):
         if self.set_ext_dep:
-            self.add_external_dependency('B', B, params={})
+            self.add_external_dependency('B', B_2, params={})
         else:
-            self.add_dependency('B', B, {})
+            self.add_dependency('B', B_2, {})
 
     def pipe_run(self, B=None):
         print ("Task A finished.")
