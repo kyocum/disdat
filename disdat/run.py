@@ -388,6 +388,7 @@ def _run_aws_sagemaker(arglist, job_name, pipeline_class_name):
     _logger.info("Disdat SageMaker create_training_job response {}".format(response))
     return response['TrainingJobArn']
 
+
 def _run(
         output_bundle = '-',
         pipeline_args ='',
@@ -450,7 +451,8 @@ def _run(
         return
 
     arglist = common.make_run_command(output_bundle, output_bundle_uuid, remote, context,
-                                      input_tags, output_tags, force, no_pull, no_push, no_push_int, workers, pipeline_args)
+                                      input_tags, output_tags, force, no_pull, no_push,
+                                      no_push_int, workers, pipeline_args)
 
     if backend == Backend.AWSBatch or backend == Backend.SageMaker:
 

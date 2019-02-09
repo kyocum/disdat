@@ -24,8 +24,8 @@ _PIPELINE_CLASS_ENVVAR = 'PIPELINE_CLASS'
 
 _HELP = """ Run a Disdat pipeline. This script wraps up several of the
 steps required to run a pipeline, including: creating a working context, 
-applying a pipeline class to an input bundle to
-generate an output bundle, and pushing an output bundle to a Disdat remote.
+running a pipeline class to generate an output bundle, and pushing an 
+output bundle to a Disdat remote.
 """
 
 _logger = logging.getLogger(__name__)
