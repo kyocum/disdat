@@ -49,7 +49,7 @@ def test():
 
     b.rm()
 
-    api.apply(TEST_CONTEXT, '-', 'Root')
+    api.apply(TEST_CONTEXT, '-', 'Root_1')
 
     b = api.get(TEST_CONTEXT, 'PreMaker_auf_root')
 
@@ -89,7 +89,7 @@ class PreMaker(PipeTask):
         return pd.DataFrame({'fark':np.random.randint(100, size=10), 'bark':np.random.randint(10, size=10)})
 
 
-class Root(PipeTask):
+class Root_1(PipeTask):
 
     def pipe_requires(self):
         self.add_dependency('premaker', PreMaker, {'printme': "auf_root"})

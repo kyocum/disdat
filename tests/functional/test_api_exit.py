@@ -65,7 +65,7 @@ def test():
 
     result = None
     try:
-        result = api.apply(TEST_CONTEXT, 'test_api_exit', 'Root', params={}, force=True, workers=2)
+        result = api.apply(TEST_CONTEXT, 'test_api_exit', 'Root2', params={}, force=True, workers=2)
     except Exception as e:
         print ("Got exception {} result {} ".format(e, e.result))
         assert(e.result['did_work'])
@@ -94,7 +94,7 @@ class FailBate(PipeTask):
         return
 
 
-class Root(PipeTask):
+class Root2(PipeTask):
     """
     Average scores of an upstream task
     """
