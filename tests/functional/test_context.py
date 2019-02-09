@@ -37,3 +37,4 @@ def test_independent_context():
 
     assert context_1_name not in api.ls_contexts(), 'Contexts should be removed'
     assert context_2_name not in api.ls_contexts(), 'Contexts should be removed'
+
