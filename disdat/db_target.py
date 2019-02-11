@@ -13,7 +13,6 @@
 #
 
 from luigi.target import Target
-import pyodbc
 import logging
 import contextlib
 import pandas as pd
@@ -30,6 +29,7 @@ ENABLE_DISDAT_SCHEMAS = False
 
 @contextlib.contextmanager
 def get_connection(dsn):
+    import pyodbc
     conn = pyodbc.connect(dsn=dsn)
     yield conn
     conn.close()
@@ -37,6 +37,7 @@ def get_connection(dsn):
 
 @contextlib.contextmanager
 def get_cursor(dsn):
+    import pyodbc
     conn = pyodbc.connect(dsn=dsn)
     cursor = conn.cursor()
     yield cursor
@@ -269,6 +270,8 @@ class DBTarget(Target):
             context (`disdat.data_context.DataContext`): Optional, only used if pipe argument is None.
             uuid (unicode): Optional, only used if pipe argument is None.
         """
+        import pyodbc
+
         global ENABLE_DISDAT_SCHEMAS
 
         if schema_name is not None:
