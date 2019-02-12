@@ -23,6 +23,8 @@ pipe_base, so we're not repeating that code inside fs.py.
 
 author: Kenneth Yocum
 """
+from __future__ import print_function
+
 from disdat.pipe_base import PipeBase
 import disdat.constants as constants
 from disdat.hyperframe import FrameRecord
@@ -32,7 +34,7 @@ import luigi
 import pandas as pd
 import logging
 import os
-import urlparse
+from six.moves import urllib
 
 _logger = logging.getLogger(__name__)
 
@@ -136,7 +138,7 @@ class AddTask(luigi.Task, PipeBase):
         if os.path.isdir(self.input_path):
             """ With a directory, add all files under one special frame """
             abs_input_path = os.path.abspath(self.input_path)
-            files = [urlparse.urljoin('file:', os.path.join(abs_input_path, f)) for f in os.listdir(abs_input_path)]
+            files = [urllib.parse.urljoin('file:', os.path.join(abs_input_path, f)) for f in os.listdir(abs_input_path)]
             file_set = DataContext.copy_in_files(files, managed_path)
             frames = [FrameRecord.make_link_frame(add_hf_uuid, constants.FILE, file_set, managed_path), ]
             presentation = hyperframe_pb2.TENSOR
@@ -148,7 +150,7 @@ class AddTask(luigi.Task, PipeBase):
             else:
                 """ Other kinds of file """
                 abs_input_path = os.path.abspath(self.input_path)
-                files = [urlparse.urljoin('file:', abs_input_path)]
+                files = [urllib.parse.urljoin('file:', abs_input_path)]
                 file_set = DataContext.copy_in_files(files, managed_path)
                 frames = [FrameRecord.make_link_frame(add_hf_uuid, constants.FILE, file_set, managed_path), ]
                 presentation = hyperframe_pb2.TENSOR
@@ -158,7 +160,7 @@ class AddTask(luigi.Task, PipeBase):
         """ Make a single HyperFrame output for an add """
 
         if 'taskname' in self.tags or 'presentable' in self.tags:
-            print "Unable to add bundle {}: tags contain reserved keys 'taskname' or 'presentable'".format(self.output_bundle)
+            print("Unable to add bundle {}: tags contain reserved keys 'taskname' or 'presentable'".format(self.output_bundle))
             # Todo: Delete temporary bundle here
             return
 

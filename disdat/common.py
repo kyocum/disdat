@@ -20,13 +20,13 @@ Configuration
 import logging
 import os
 import sys
-import ConfigParser
 import shutil
 from disdat import resource
 import disdat.config
 import luigi
 
-from urlparse import urlparse
+from six.moves import urllib
+from six.moves import configparser
 
 _logger = logging.getLogger(__name__)
 
@@ -183,7 +183,7 @@ class DisdatConfig(object):
         Next, see if there is a disdat.cfg in cwd.  Then configure disdat and (re)configure logging.
         """
         # _logger.debug("Loading config file [{}]".format(disdat_config_file))
-        config = ConfigParser.SafeConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
+        config = configparser.SafeConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
         config.read(disdat_config_file)
         self.meta_dir_root = os.path.expanduser(config.get('core', 'meta_dir_root'))
         self.meta_dir_root = DisdatConfig._fix_relative_path(disdat_config_file, self.meta_dir_root)
@@ -193,7 +193,7 @@ class DisdatConfig(object):
             self.logging_config = os.path.expanduser(config.get('core', 'logging_conf_file'))
             self.logging_config = DisdatConfig._fix_relative_path(disdat_config_file, self.logging_config)
             logging.config.fileConfig(self.logging_config, disable_existing_loggers=False)
-        except ConfigParser.NoOptionError:
+        except configparser.NoOptionError:
             pass
 
         # Set up luigi configuration
@@ -244,7 +244,7 @@ class DisdatConfig(object):
 
         # Make sure paths are absolute in luigi config
         luigi_dir = os.path.join(directory, LUIGI_FILE)
-        config = ConfigParser.ConfigParser()
+        config = configparser.ConfigParser()
         config.read(luigi_dir)
         value = config.get('core', 'logging_conf_file')
         config.set('core', 'logging_conf_file', os.path.expanduser(value))
@@ -324,7 +324,7 @@ def make_run_command(
         '--output-bundle-uuid ', output_bundle_uuid,
         '--remote', remote,
         '--branch', context,
-        '--workers', unicode(workers)
+        '--workers', str(workers)
     ]
     if no_pull:
         args += ['--no-pull']
@@ -395,7 +395,7 @@ def get_local_file_path(url):
     Raises:
         TypeError if the URL is not a file URL
     """
-    parsed_url = urlparse(url)
+    parsed_url = urllib.parse.urlparse(url)
     if parsed_url.scheme != 'file' and parsed_url.scheme != '':
         raise TypeError('Expected file scheme in URL, got {}'.format(parsed_url.scheme))
     return parsed_url.path

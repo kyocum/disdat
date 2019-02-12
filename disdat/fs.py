@@ -20,7 +20,7 @@ This is the object used to access information about disdat bundles
 from a variety of backend resources.
 
 """
-
+from __future__ import print_function
 
 import disdat.hyperframe as hyperframe
 import disdat.common as common
@@ -200,7 +200,7 @@ class DisdatFS(object):
                 try:
                     self.__curr_context = self._all_contexts[self._mangled_curr_context_name]
                 except KeyError as ke:
-                    print "No current local context, please change context with 'dsdt switch'"
+                    print("No current local context, please change context with 'dsdt switch'")
             self.save()
         return self.__curr_context
 
@@ -231,7 +231,7 @@ class DisdatFS(object):
         else:
             with open(meta_file, 'r') as json_file:
                 state_dict = json.loads(json_file.readline())
-            for k, v in state_dict.iteritems():
+            for k, v in state_dict.items():
                 self.__dict__[k] = v
 
     def save(self):
@@ -585,12 +585,12 @@ class DisdatFS(object):
                                                                    committed,
                                                                    hfr.pb.uuid)
         if print_tags:
-            tags = ["[{}]:[{}]".format(k, v) for k, v in hfr.tag_dict.iteritems() if k != 'committed' and common.BUNDLE_TAG_PARAMS_PREFIX not in k]
+            tags = ["[{}]:[{}]".format(k, v) for k, v in hfr.tag_dict.items() if k != 'committed' and common.BUNDLE_TAG_PARAMS_PREFIX not in k]
             output_string += ' '.join(tags)
 
         if print_args:
             tags = ["[{}]:[{}]".format(k.strip(common.BUNDLE_TAG_PARAMS_PREFIX), v)
-                    for k, v in hfr.tag_dict.iteritems() if common.BUNDLE_TAG_PARAMS_PREFIX in k]
+                    for k, v in hfr.tag_dict.items() if common.BUNDLE_TAG_PARAMS_PREFIX in k]
             if len(tags) > 0:
                 output_string += '\n\t ARGS: ' + ' '.join(tags)
 
@@ -626,7 +626,7 @@ class DisdatFS(object):
             other = data_context.present_hfr(hfr)
             if file is not None:
                 df    = data_context.convert_hfr2df(hfr)
-                print "Saving to file {}".format(file)
+                print("Saving to file {}".format(file))
                 df.to_csv(file, sep=',', index=False)
             return other
         else:
@@ -718,7 +718,7 @@ class DisdatFS(object):
 
         if fq_context_name is None:
             from termcolor import cprint
-            for ctxt_name, ctxt in self._all_contexts.iteritems():
+            for ctxt_name, ctxt in self._all_contexts.items():
                 if self._curr_context is not None and self._curr_context is ctxt:
                     cprint("*", "white", end='')
                     cprint("\t{}".format(ctxt_name), "green", end='')
@@ -839,9 +839,9 @@ class DisdatFS(object):
         if new_context is not None:
             self._curr_context_name = local_context
             self._curr_context = new_context
-            print "Switched to context {}".format(self._curr_context_name)
+            print("Switched to context {}".format(self._curr_context_name))
         else:
-            print "In context {}".format(self._curr_context_name)
+            print("In context {}".format(self._curr_context_name))
 
         if save:
             self.save()
@@ -882,16 +882,16 @@ class DisdatFS(object):
                                          tags=input_tags if len(input_tags) > 0 else None,
                                          data_context=data_context)
         else:
-            print "Push requires either a human name or a uuid to identify the hyperframe."
+            print("Push requires either a human name or a uuid to identify the hyperframe.")
             return None
 
         if hfr is None:
-            print "No bundle with human name [{}] or uuid [{}] found.".format(bundle_name, uuid)
+            print("No bundle with human name [{}] or uuid [{}] found.".format(bundle_name, uuid))
             return
 
         commit_tag = hfr.get_tag('committed')
         if commit_tag is not None and commit_tag == 'True':
-            print "Bundle human name [{}] uuid [{}] already committed.".format(hfr.pb.human_name, hfr.pb.uuid)
+            print("Bundle human name [{}] uuid [{}] already committed.".format(hfr.pb.human_name, hfr.pb.uuid))
             return
 
         tags = {'committed': 'True'}
@@ -1268,8 +1268,8 @@ class DisdatFS(object):
             data_context = self.get_curr_context()
 
         if data_context.remote_ctxt_url is None:
-            print "Push cannot execute.  Local context {} on remote {} not bound.".format(data_context.local_ctxt,
-                                                                                          data_context.remote_ctxt)
+            print("Push cannot execute.  Local context {} on remote {} not bound.".format(data_context.local_ctxt,
+                                                                                          data_context.remote_ctxt))
             return None
 
         if tags is None:
@@ -1286,11 +1286,11 @@ class DisdatFS(object):
                                          tags=tags,
                                          data_context=data_context)
         else:
-            print "Push requires either a human name or a uuid to identify the hyperframe."
+            print("Push requires either a human name or a uuid to identify the hyperframe.")
             return None
 
         if hfr is None:
-            print "Push unable to find committed bundle name [{}] uuid [{}]".format(human_name, uuid)
+            print("Push unable to find committed bundle name [{}] uuid [{}]".format(human_name, uuid))
             return None
 
         # All bundles contain relative paths.  Copying is a simple
@@ -1298,11 +1298,11 @@ class DisdatFS(object):
         try:
             self._copy_hfr_to_branch(hfr, data_context, to_remote=True)
         except Exception as e:
-            print "Push unable to copy bundle to branch: {}".format(e)
+            print("Push unable to copy bundle to branch: {}".format(e))
             return None
 
-        print "Pushed committed bundle {} uuid {} to remote {}".format(human_name, hfr.pb.uuid,
-                                                                       data_context.remote_ctxt_url)
+        print("Pushed committed bundle {} uuid {} to remote {}".format(human_name, hfr.pb.uuid,
+                                                                       data_context.remote_ctxt_url))
 
         return hfr
 
@@ -1408,7 +1408,7 @@ class DisdatFS(object):
             data_context = self.get_curr_context()
 
         if data_context.remote_ctxt_url is None:
-            print "Pull cannot execute.  Local context {} on remote {} not bound.".format(data_context.local_ctxt, data_context.remote_ctxt)
+            print("Pull cannot execute.  Local context {} on remote {} not bound.".format(data_context.local_ctxt, data_context.remote_ctxt))
             raise UserWarning("Local context {} has no remote".format(data_context.local_ctxt))
 
         if human_name is None and uuid is None:
@@ -1433,12 +1433,12 @@ class DisdatFS(object):
                 if s3_uuid != uuid:
                     continue
                 else:
-                    print "Found remote bundle with UUID {}, checking local context for duplicates ...".format(uuid)
+                    print("Found remote bundle with UUID {}, checking local context for duplicates ...".format(uuid))
 
             local_hfr = self.get_hframe_by_uuid(s3_uuid, data_context=data_context)
             if local_hfr is not None:
                 if not localize:
-                    print "Found HyperFrame UUID {} present in local context, skipping . . .".format(s3_uuid)
+                    print("Found HyperFrame UUID {} present in local context, skipping . . .".format(s3_uuid))
                 else:
                     # Are we trying to localize a particular HyperFrame?  match name and uuid. 
 
@@ -1448,8 +1448,8 @@ class DisdatFS(object):
                         if human_name != hfr_test.pb.human_name:
                             continue
                         else:
-                            print "Found remote bundle with human name {}, uuid {} localizing ...".format(hfr_test.pb.human_name,
-                                                                                                          hfr_test.pb.uuid)
+                            print("Found remote bundle with human name {}, uuid {} localizing ...".format(hfr_test.pb.human_name,
+                                                                                                          hfr_test.pb.uuid))
 
                     # grab files for this hyperframe -- read the local HFR frames
                     DisdatFS._localize_hfr(local_hfr, s3_uuid, data_context)
@@ -1461,15 +1461,15 @@ class DisdatFS(object):
                     if human_name != hfr_test.pb.human_name:
                         continue
                     else:
-                        print "Found remote bundle with human name {}, uuid {} ...".format(hfr_test.pb.human_name,
-                                                                                           hfr_test.pb.uuid)
+                        print("Found remote bundle with human name {}, uuid {} ...".format(hfr_test.pb.human_name,
+                                                                                           hfr_test.pb.uuid))
 
                 _logger.info("Adding HyperFrame UUID {} to local context . . .".format(s3_uuid))
 
                 local_uuid_dir = os.path.join(data_context.get_object_dir(), s3_uuid)
                 local_hfr_path = os.path.join(local_uuid_dir, hfr_basename)
                 if os.path.exists(local_uuid_dir):
-                    print "Pull found existing data in local disdat db at UUID {}, overwriting . . .".format(s3_uuid)
+                    print("Pull found existing data in local disdat db at UUID {}, overwriting . . .".format(s3_uuid))
                     shutil.rmtree(local_uuid_dir)
 
                 os.makedirs(local_uuid_dir)
@@ -1585,7 +1585,7 @@ def _pull(fs, args):
 
 def _rm(fs, args):
     for f in fs.rm(args.bundle, rm_all=args.all, rm_old_only=args.old, tags=common.parse_args_tags(args.tag), uuid=args.uuid, force=args.force):
-        print f
+        print(f)
 
 
 def _parse_date(date_string, throw=False):
@@ -1606,7 +1606,7 @@ def _parse_date(date_string, throw=False):
         else:
             date = datetime.strptime(date_string, "%m-%d-%Y")
     except ValueError as ve:
-        print "Unable to parse date, must be like '12-1-2008' or '\"12-1-2008 13:12:05\"'"
+        print("Unable to parse date, must be like '12-1-2008' or '\"12-1-2008 13:12:05\"'")
         if not throw:
             return None
         else:
@@ -1616,7 +1616,7 @@ def _parse_date(date_string, throw=False):
 
 def _ls(fs, args):
     if len(args.bundle) > 1:
-        print "dsdt ls takes zero or one bundle as arguments."
+        print("dsdt ls takes zero or one bundle as arguments.")
         return
 
     arg = None
@@ -1651,7 +1651,7 @@ def _ls(fs, args):
                    after=after,
                    maxbydate=args.latest_by_date,
                    tags=common.parse_args_tags(args.tag)):
-        print f
+        print(f)
 
 
 def _cat(fs, args):
@@ -1659,20 +1659,20 @@ def _cat(fs, args):
     result = fs.cat(args.bundle, uuid=args.uuid, tags=common.parse_args_tags(args.tag), file=args.file)
 
     if result is None:
-        print "dsdt cat found no bundle with name {}".format(args.bundle)
+        print("dsdt cat found no bundle with name {}".format(args.bundle))
     else:
 
         if isinstance(result, pd.DataFrame):
             # If df, make sure we print out all columns
             pd.set_option('display.max_colwidth', -1)
-            print result.to_string()
+            print(result.to_string())
         else:
             # else default print the object
-            print result
+            print(result)
 
 def _status(fs, args):
     for f in fs.status(args.bundle):
-        print f
+        print(f)
 
 
 def init_fs_cl(subparsers):

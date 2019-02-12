@@ -34,7 +34,7 @@ from sqlalchemy import create_engine
 import pandas as pd
 import numpy as np
 import luigi
-from urlparse import urlparse, urljoin
+from six.moves import urllib
 
 _logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ class DataContext(object):
 
         """
         if self.unpushed_data() and not force:
-            print("Disdat found un-pushed data in context {}, use -f to delete".format(self.local_ctxt))
+            print(("Disdat found un-pushed data in context {}, use -f to delete".format(self.local_ctxt)))
             return
 
         self.local_engine.dispose()
@@ -141,11 +141,11 @@ class DataContext(object):
             None
 
         """
-        assert (urlparse(s3_url).scheme == 's3')
+        assert (urllib.parse.urlparse(s3_url).scheme == 's3')
 
         if self.remote_ctxt_url is not None and self.remote_ctxt == remote_context and \
                         os.path.normpath(os.path.dirname(self.remote_ctxt_url)) == os.path.normpath(s3_url):
-            print "Context already bound to remote at {}".format(s3_url)
+            print("Context already bound to remote at {}".format(s3_url))
             return
 
         if self.remote_ctxt != remote_context:
@@ -165,9 +165,9 @@ class DataContext(object):
             _logger.debug("Binding local branch {} context {} to URL {}".format(self.local_ctxt, self.remote_ctxt, s3_url))
         else:
             if not force:
-                print "You are re-binding this branch to a different remote context.  You might have un-localized"
-                print "files in pulled bundles.  First, issue 'dsdt pull --localize' to make data local. "
-                print " Then run: `dsdt remote --force {}' to force re-binding the remote.".format(s3_url)
+                print("You are re-binding this branch to a different remote context.  You might have un-localized")
+                print("files in pulled bundles.  First, issue 'dsdt pull --localize' to make data local. ")
+                print(" Then run: `dsdt remote --force {}' to force re-binding the remote.".format(s3_url))
                 return
 
             _logger.debug("Un-binding local branch {} context {} current URL {}".format(self.local_ctxt,
@@ -404,7 +404,7 @@ class DataContext(object):
                                                                                                  l.uuid))
                         return False
                 url = hyperframe.LinkBase.find_url(l)
-                o = urlparse(url)
+                o = urllib.parse.urlparse(url)
                 if o.scheme == 's3':
                     _logger.warn("Disdat FS TODO check on s3 for file {}".format(url))
                 elif o.scheme == 'db':
@@ -463,7 +463,7 @@ class DataContext(object):
                     rcd = hyperframe.r_pb_fs(f, rcd_type)
                     store[rcd.pb.uuid] = rcd
 
-        for hfr in hframes.itervalues():
+        for hfr in hframes.values():
             if DataContext._validate_hframe(hfr, frames, auths):
                 # looks like a good hyperframe
                 # see if it exists, if it does do not write hframe and assume frames are also present
@@ -772,7 +772,7 @@ class DataContext(object):
                         else:
                             if dry_run:
                                 print ("Data Context: Attempting to remove a committed bundle, but we found")
-                                print ("            : that table {} is backing the current view {}.".format(dbt.phys_name, dbt.virt_name))
+                                print(("            : that table {} is backing the current view {}.".format(dbt.phys_name, dbt.virt_name)))
                                 return False
                             else:
                                 dbt.rm(drop_view=True)
@@ -1105,18 +1105,18 @@ class DataContext(object):
         file_set = []
         return_one_file = False
 
-        if isinstance(src_files, basestring) or isinstance(src_files, luigi.LocalTarget) or isinstance(src_files, DBTarget):
+        if isinstance(src_files, str) or isinstance(src_files, luigi.LocalTarget) or isinstance(src_files, DBTarget):
             return_one_file = True
             src_files = [src_files]
 
-        dst_scheme = urlparse(dst_dir).scheme
+        dst_scheme = urllib.parse.urlparse(dst_dir).scheme
 
         for src_path in src_files:
             try:
                 # If this is a luigi LocalTarget and it's in a managed path
                 # space, convert the target to a path name but no copy.
                 if src_path.path.startswith(dst_dir):
-                    file_set.append(urljoin('file:', src_path.path))
+                    file_set.append(urllib.parse.urljoin('file:', src_path.path))
                     continue
                 else:
                     src_path = src_path.path
@@ -1129,7 +1129,7 @@ class DataContext(object):
                 continue
 
             # Detect manual db:// paths and error out.
-            if urlparse(src_path).scheme == 'db':
+            if urllib.parse.urlparse(src_path).scheme == 'db':
                 """ At this time we don't support user-supplied db link paths
                 Instead we assume these are managed.   Which means the db table already exists
                 and doesn't need to be 'copied-in'.   """
@@ -1142,7 +1142,7 @@ class DataContext(object):
             dst_file = os.path.join(dst_dir, sub_dir, os.path.basename(src_path))
 
             if dst_scheme != 's3' and dst_scheme != 'db':
-                file_set.append(urljoin('file:', dst_file))
+                file_set.append(urllib.parse.urljoin('file:', dst_file))
             else:
                 file_set.append(dst_file)
 
@@ -1152,8 +1152,8 @@ class DataContext(object):
                 file_set[-1] = src_path
                 _logger.debug("DataContext: copy_in_files found src {} == dst {}".format(src_path, file_set[-1]))
                 # but it can also happen if you re-bind and push.  So check that file is present!
-                if urlparse(src_path).scheme == 's3' and not aws_s3.s3_path_exists(src_path):
-                    print ("DataContext: copy_in_files found s3 link {} not present!".format(src_path))
+                if urllib.parse.urlparse(src_path).scheme == 's3' and not aws_s3.s3_path_exists(src_path):
+                    print(("DataContext: copy_in_files found s3 link {} not present!".format(src_path)))
                     print ("It is likely that this bundle existed on another remote branch and ")
                     print ("was not localized before changing remotes.")
                     raise Exception("copy_in_files: bad localized bundle push.")
@@ -1161,7 +1161,7 @@ class DataContext(object):
 
             try:
                 if not os.path.isdir(src_path):
-                    o = urlparse(src_path)
+                    o = urllib.parse.urlparse(src_path)
 
                     if o.scheme == 's3':
                         # s3 to s3
@@ -1229,7 +1229,7 @@ class DataContext(object):
             return file_set
         else:
             """ Must be s3 or local file links.  All the files in the link must be present """
-            assert urlparse(urls[0]).scheme == common.BUNDLE_URI_SCHEME.replace('://', '')
+            assert urllib.parse.urlparse(urls[0]).scheme == common.BUNDLE_URI_SCHEME.replace('://', '')
             local_dir = self.get_object_dir()
             local_file_set = [os.path.join(local_dir, fr.hframe_uuid, f.replace(common.BUNDLE_URI_SCHEME, '')) for f in
                               urls]

@@ -211,7 +211,7 @@ class PipeTask(luigi.Task, PipeBase):
         for user_arg_name, cls_and_params in rslt.items():
             pipe_class, params = cls_and_params[0], cls_and_params[1]
 
-            if isinstance(pipe_class, str) or isinstance(pipe_class, unicode):
+            if isinstance(pipe_class, str):
                 """ if it is a string, find the Python task class """
                 pipe_class = DriverTask.get_task_cls(pipe_class)
 
@@ -327,7 +327,7 @@ class PipeTask(luigi.Task, PipeBase):
             if not isinstance(param_obj, luigi.Parameter):
                 continue
             val = getattr(self,p)
-            if type(val) is str or type(val) is unicode:
+            if type(val) is str:
                 ser_val = json.dumps(val)
             else:
                 ser_val = param_obj.serialize(getattr(self, p))  # serialize the param_obj.normalize(x)
