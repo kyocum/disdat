@@ -3,7 +3,7 @@ import moto
 
 from disdat.pipe import PipeTask
 import disdat.api as api
-from tests.functional.common import run_test, TEST_CONTEXT
+from tests.functional.common import TEST_CONTEXT
 
 TEST_REMOTE = '__test_remote_context__'
 TEST_BUCKET = 'test-bucket'
@@ -20,6 +20,8 @@ class RemoteTest(PipeTask):
 
 @moto.mock_s3
 def test_push():
+    api.context(context_name=TEST_CONTEXT)
+
     s3_client = boto3.client('s3')
     s3_resource = boto3.resource('s3')
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
@@ -45,6 +47,48 @@ def test_push():
 
     bucket.objects.all().delete()
     bucket.delete()
+    api.delete_context(context_name=TEST_CONTEXT)
+
+
+@moto.mock_s3
+def test_pull():
+    api.context(context_name=TEST_CONTEXT)
+
+    s3_client = boto3.client('s3')
+    s3_resource = boto3.resource('s3')
+    s3_resource.create_bucket(Bucket=TEST_BUCKET)
+    bucket = s3_resource.Bucket(TEST_BUCKET)
+
+    objects = s3_client.list_objects(Bucket=TEST_BUCKET)
+    assert 'Contents' not in objects, 'Bucket should be empty'
+
+    assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
+    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL, force=True)
+
+    api.apply(TEST_CONTEXT, '-', 'RemoteTest')
+    bundle = api.get(TEST_CONTEXT, 'remote_test')
+
+    assert bundle.data == 'Hello'
+
+    bundle.commit()
+    bundle.push()
+
+    objects = s3_client.list_objects(Bucket=TEST_BUCKET)
+    assert 'Contents' in objects, 'Bucket should not be empty'
+    assert len(objects['Contents']) > 0, 'Bucket should not be empty'
+
+    api.delete_context(context_name=TEST_CONTEXT)
+    api.context(context_name=TEST_CONTEXT)
+    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL, force=True)
+    api.pull(TEST_CONTEXT)
+
+    pulled_bundles = api.search(TEST_CONTEXT)
+    assert len(pulled_bundles) > 0, 'Pulled bundles down'
+    assert pulled_bundles[0].data == 'Hello', 'Bundle contains correct data'
+
+    bucket.objects.all().delete()
+    bucket.delete()
+    api.delete_context(context_name=TEST_CONTEXT)
 
 if __name__ == '__main__':
-    test_push()
+    test_pull()
