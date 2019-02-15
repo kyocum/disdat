@@ -408,7 +408,8 @@ class DataContext(object):
                 if o.scheme == 's3':
                     _logger.warn("Disdat FS TODO check on s3 for file {}".format(url))
                 elif o.scheme == 'db':
-                    _logger.warn("Disdat FS TODO support db tables in link columns")
+                    pass
+                    #_logger.warn("Disdat FS TODO support db tables in link columns")
                 elif o.scheme == 'bundle':
                     # this is OK.  file links are bundle urls.
                     _logger.debug("Disdat FS TODO check on bundle links for {}".format(url))
