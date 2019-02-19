@@ -143,5 +143,5 @@ Authors
 -------
 
 Disdat could not have come to be without the support of `Human Longevity, Inc. <https://www.humanlongevity.com>`_  It
-has benefited from numerous discussions, code contributions, and emotional support from Jonathon Lunt, Ted Wong,
+has benefited from numerous discussions, code contributions, and emotional support from Sean Rowan, Ted Wong, Jonathon Lunt, 
 Jason Knight, Axel Bernel, and `Intuit, Inc. <https://www.intuit.com>`_.
