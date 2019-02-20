@@ -1763,9 +1763,9 @@ class FrameRecord(PBObject):
         elif self.pb.type == hyperframe_pb2.STRING:
             if len(self.pb.strings) > 0:
                 if isinstance(self.pb.strings[0], six.binary_type):
-                    nda = np.array(self.pb.strings, dtype=np.string_)
+                    nda = np.array(self.pb.strings, dtype=six.binary_type)
                 elif isinstance(self.pb.strings[0], six.text_type):
-                    nda = np.array(self.pb.strings, dtype=np.unicode_)
+                    nda = np.array(self.pb.strings, dtype=six.text_type)
                 else:
                     raise Exception(
                         "Unable to convert pb strings to suitable type for ndarray {}".format(type(self.pb.strings[0])))
@@ -1826,11 +1826,11 @@ class FrameRecord(PBObject):
 
         if nda.dtype.type == np.object_:
             # NOTE: EXPENSIVE TESTS for STRINGS that come from ndarrays inside of Pandas series
-            if all(isinstance(x, str) for x in nda):
-                frame_type = FrameRecord.get_proto_type(str)
+            if all(isinstance(x, six.binary_type) for x in nda):
+                frame_type = FrameRecord.get_proto_type(six.binary_type)
                 series_data = nda
-            elif all(isinstance(x, str) for x in nda):
-                frame_type = FrameRecord.get_proto_type(str)
+            elif all(isinstance(x, six.text_type) for x in nda):
+                frame_type = FrameRecord.get_proto_type(six.text_type)
                 series_data = nda
             else:
                 # ESCAPE HATCH -- Made from duct tape and JSON
