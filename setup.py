@@ -107,7 +107,8 @@ setup(
                       'numpy<=1.14.5',  # just for pandas 0.23.4 so it doesn't use 1.15.0 and spill warnings.
                       'enum34>=',
                       'sqlalchemy>=',
-                      'protobuf>=3.3.0' # 3.6.0
+                      'protobuf>=3.3.0',  # 3.6.0
+                      'six',
                       ],
 
     # List additional groups of dependencies here (e.g. development
