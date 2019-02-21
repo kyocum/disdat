@@ -32,6 +32,7 @@ available before I run.
 author: Kenneth Yocum
 """
 
+import six
 from disdat.pipe_base import PipeBase
 from disdat.db_target import DBTarget
 from disdat.driver import DriverTask
