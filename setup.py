@@ -51,6 +51,7 @@ setup(
         # Specify the Python versions you support here. In particular, ensure
         # that you indicate whether you support Python 2, Python 3 or both.
         'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3.6',
         'Operating System :: OS Independent',
         'Natural Language :: English',
     ],
@@ -107,7 +108,8 @@ setup(
                       'numpy<=1.14.5',  # just for pandas 0.23.4 so it doesn't use 1.15.0 and spill warnings.
                       'enum34>=',
                       'sqlalchemy>=',
-                      'protobuf>=3.3.0' # 3.6.0
+                      'protobuf>=3.3.0', # 3.6.0
+                      'six'
                       ],
 
     # List additional groups of dependencies here (e.g. development

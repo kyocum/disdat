@@ -5,13 +5,13 @@ Test for hyperframe implementations.
 
 from sqlalchemy import create_engine
 import disdat.hyperframe as hyperframe
+from disdat.common import BUNDLE_URI_SCHEME
 from disdat.hyperframe import r_pb_db, r_pb_fs, w_pb_db, w_pb_fs
 import os
 import shutil
 import hashlib
 import tempfile
 import uuid
-import pandas as pd
 import numpy as np
 
 
@@ -43,10 +43,18 @@ def _make_link_records():
     fake_hfid = str(uuid.uuid1())
     fake_laid = str(uuid.uuid1())
 
-    file_link = hyperframe.FileLinkRecord(fake_hfid, fake_laid, "file:///Users/kyocum/Code/science-didact")
-    s3_link = hyperframe.S3LinkRecord(fake_hfid, fake_laid, "s3://ds-bucket/keyone/keytwo/target.sql")
-    db_link = hyperframe.DatabaseLinkRecord(fake_hfid, fake_laid, "vertica:///some.database.ep", "sharkbait", "datatable",
-                                            ['col1', 'col2', 'col3'])
+    file_link = hyperframe.FileLinkRecord(fake_hfid, fake_laid, BUNDLE_URI_SCHEME+"Users/someuser/somefile.txt")
+    s3_link = hyperframe.S3LinkRecord(fake_hfid, fake_laid, BUNDLE_URI_SCHEME+"ds-bucket/keyone/keytwo/target.sql")
+    db_link = hyperframe.DatabaseLinkRecord(fake_hfid,
+                                            fake_laid,
+                                            "db:///some.database.ep",
+                                            "server_sharkbait",
+                                            "db_somedb",
+                                            "schema_some",
+                                            "table_datatable",
+                                            ['col1', 'col2', 'col3'],
+                                            9999,
+                                            "dsn_default")
 
     return file_link, s3_link, db_link
 
@@ -117,13 +125,13 @@ def _make_hframe_record(name, tags=None, hframes=None):
 
     # This code tests our ability to turn ndarrays into pb messages and back
     if True:
-        for test_name, nda in test_data.iteritems():
+        for test_name, nda in test_data.items():
             frames.append(hyperframe.FrameRecord.from_ndarray(hfid, test_name, nda))
             if 'int' in test_name or 'float' in test_name:
                 test_series = nda.byteswap().newbyteorder()
                 frames.append(hyperframe.FrameRecord.from_ndarray(hfid, test_name+"_swapped", test_series))
 
-    file_link = hyperframe.FileLinkRecord(hfid, None, 'file:///Users/kyocum/Code/science-didact')
+    file_link = hyperframe.FileLinkRecord(hfid, None, BUNDLE_URI_SCHEME+'Users/someuser/somefile.txt')
 
     frames.append(hyperframe.FrameRecord(name='links', hframe_uuid=hfid,
                                          type='LINK',
@@ -158,32 +166,32 @@ def validate_hframe_record(hfr):
     for fr in hfr.get_frames(None, testing_dir=testdir):
         if 'bytes_data' in fr.pb.name:
             if bytes_data != fr.pb.data:
-                print "Frame {} busted".format(fr.pb.name)
-                print "original: {}".format(bytes_data)
-                print "found:    {}".format(fr.pb.data)
+                print("Frame {} busted".format(fr.pb.name))
+                print("original: {}".format(bytes_data))
+                print("found:    {}".format(fr.pb.data))
             else:
-                print "Verified Frame\t{}\t\tdtype {}.".format(fr.pb.name, None)
+                print("Verified Frame\t{}\t\tdtype {}.".format(fr.pb.name, None))
 
         elif fr.pb.name.endswith('_swapped'):
             # a byte-swapped, byte-order swapped array, test against original values
             original_nda = test_data[ fr.pb.name.replace('_swapped','') ]
             found_nda = fr.to_ndarray()
             if not np.array_equal(original_nda, found_nda):
-                print "Frame {} failed validation step:".format(fr.pb.name)
-                print "original: {}".format(original_nda)
-                print "found:    {}".format(found_nda)
+                print("Frame {} failed validation step:".format(fr.pb.name))
+                print("original: {}".format(original_nda))
+                print("found:    {}".format(found_nda))
             else:
-                print "Verified Frame\t{}\t\tdtype {}\t{}.".format(fr.pb.name, found_nda.dtype, found_nda.dtype.type)
+                print("Verified Frame\t{}\t\tdtype {}\t{}.".format(fr.pb.name, found_nda.dtype, found_nda.dtype.type))
 
         elif fr.pb.name in test_data:
             original_nda = test_data[fr.pb.name]
             found_nda = fr.to_ndarray()
             if not np.array_equal(original_nda, found_nda):
-                print "Frame {} failed validation step:".format(fr.pb.name)
-                print "original: {}".format(original_nda)
-                print "found:    {}".format(found_nda)
+                print("Frame {} failed validation step:".format(fr.pb.name))
+                print("original: {}".format(original_nda))
+                print("found:    {}".format(found_nda))
             else:
-                print "Verified Frame\t{}\t\tdtype {}\t{}".format(fr.pb.name, found_nda.dtype, found_nda.dtype.type)
+                print("Verified Frame\t{}\t\tdtype {}\t{}".format(fr.pb.name, found_nda.dtype, found_nda.dtype.type))
 
 
 ##########################################

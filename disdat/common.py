@@ -131,17 +131,27 @@ class DisdatConfig(object):
 
     _instance = None
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, meta_dir_root=None, config_dir=None):
+        """
+
+        Args:
+            meta_dir_root (str): Optional place to store disdat contexts. Default `~/`
+            config_dir (str): Optional directory from which to get disdat.cfg and luigi.cfg.  Default SYSTEM_CONFIG_DIR
+        """
 
         # Set up default logging to begin with. Can later be updated.
         setup_default_logging()
 
         # Find configuration directory
-        config_dir = os.path.expanduser(SYSTEM_CONFIG_DIR)
+        if config_dir:
+            config_dir = config_dir
+        else:
+            config_dir = os.path.expanduser(SYSTEM_CONFIG_DIR)
+
         if not os.path.exists(config_dir):
             error(
-                'Did not find configuration. '
-                'Call "dsdt init" to initialize context.'
+                'Did not find Disdat configuration. '
+                'Call "dsdt init" to initialize Disdat.'
             )
 
         # Extract individual configuration files
@@ -157,17 +167,24 @@ class DisdatConfig(object):
             # we are running in a normal Python environment
             bundle_dir = os.path.dirname(os.path.abspath(__file__))
 
-        self.meta_dir_root = '~/'
+        if meta_dir_root:
+            self.meta_dir_root = meta_dir_root
+        else:
+            self.meta_dir_root = '~/'
         self.logging_config = None
         self.parser = self._read_configuration_file(disdat_cfg, luigi_cfg)
 
     @staticmethod
-    def instance(*args, **kwargs):
+    def instance(meta_dir_root=None, config_dir=None):
         """
         Singleton getter
+
+        Args:
+            meta_dir_root (str): Optional place to store disdat contexts. Default `~/`
+            config_dir (str): Optional directory from which to get disdat.cfg and luigi.cfg.  Default SYSTEM_CONFIG_DIR
         """
         if DisdatConfig._instance is None:
-            DisdatConfig._instance = DisdatConfig(*args, **kwargs)
+            DisdatConfig._instance = DisdatConfig(meta_dir_root=meta_dir_root, config_dir=config_dir)
         return DisdatConfig._instance
 
     @staticmethod

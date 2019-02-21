@@ -528,7 +528,7 @@ def detect_local_fs_path(series):
     """
     output = []
     for s in series:
-        if not isinstance(s, str) and not isinstance(s, str):
+        if not isinstance(s, six.string_types):
             return None
         if os.path.isfile(s):
             output.append("file://{}".format(os.path.abspath(s)))
@@ -1170,7 +1170,7 @@ class HyperFrameRecord(PBObject):
             (:obj:list (str,str))
         """
         if names is None:
-            names = [n for n in list(self.frame_dict.keys())]
+            names = list(self.frame_dict.keys())
 
         return [(name, self.frame_dict[name]) for name in names]
 
