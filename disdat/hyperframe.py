@@ -38,6 +38,7 @@ It may be stored in an HFrame table as a byte blob and re-inflated without worry
  excessively large.
 
 """
+from __future__ import print_function
 
 import disdat.common as common
 from disdat.db_target import DBTarget
@@ -50,13 +51,14 @@ from datetime import datetime
 import uuid
 from sqlalchemy import Table, Column, String, MetaData, BLOB, Text, TIMESTAMP, Enum, UniqueConstraint, DateTime
 from sqlalchemy.sql import text
-import hyperframe_pb2
+from disdat import hyperframe_pb2
 import enum
 import numpy as np
 import pandas as pd
 import sys
 import luigi
 import logging
+import six
 
 _logger = logging.getLogger(__name__)
 
@@ -310,7 +312,7 @@ def _tag_query(tags):
         return None
 
     if tags is not None:
-        for k, v in tags.iteritems():
+        for k, v in tags.items():
             # SQLITE: critical to have single quotes around strings in sub-select query
             tag_clauses.append("(key = '{}' AND value = '{}')".format(k, v))
 
@@ -526,7 +528,7 @@ def detect_local_fs_path(series):
     """
     output = []
     for s in series:
-        if not isinstance(s, str) and not isinstance(s, unicode):
+        if not isinstance(s, six.string_types):
             return None
         if os.path.isfile(s):
             output.append("file://{}".format(os.path.abspath(s)))
@@ -690,7 +692,7 @@ class PBObject(object):
             if type(pb_tbls) is dict:
                 assert (isinstance(pb_rows, dict) or isinstance(pb_rows, defaultdict))
                 results = []
-                for k, tbl in pb_tbls.iteritems(): # dict of tables
+                for k, tbl in pb_tbls.items(): # dict of tables
                     for r in pb_rows[k]:           # dict of list of rows
                         ins = tbl.insert()
                         results.append(db_conn.execute(ins, r))
@@ -716,6 +718,8 @@ class PBObject(object):
             object
         """
         pb = cls._pb_type()
+        if isinstance(pb_str_bytes, six.string_types):
+            pb_str_bytes = six.b(pb_str_bytes)
         pb.ParseFromString(pb_str_bytes)
         obj = cls.__new__(cls)
         setattr(obj, 'pb', pb)
@@ -765,7 +769,10 @@ class PBObject(object):
         objs = []
         for row in sa_result:
             if 'pb' in row:
-                obj = cls.from_str_bytes(str(row['pb']))
+                pb = row['pb']
+                if isinstance(pb, six.string_types):
+                    pb = pb.encode('utf8')
+                obj = cls.from_str_bytes(pb)
                 obj.state = row['state']
             else:
                 obj = row
@@ -1093,7 +1100,7 @@ class HyperFrameRecord(PBObject):
                 v = f.pb.uuid
                 self.frame_cache[f.pb.name] = f
             else:
-                print "Unable to add frame with type {}: Data {}".format(type(f), f)
+                print("Unable to add frame with type {}: Data {}".format(type(f), f))
                 assert False
 
             st = self.pb.frames.add()
@@ -1146,7 +1153,7 @@ class HyperFrameRecord(PBObject):
                 return fr
 
         if names is None:
-            name_uuids = [(k, v) for k, v in self.frame_dict.iteritems()]
+            name_uuids = [(k, v) for k, v in self.frame_dict.items()]
         else:
             name_uuids = [(k, self.frame_dict[k]) for k in names]
 
@@ -1163,7 +1170,7 @@ class HyperFrameRecord(PBObject):
             (:obj:list (str,str))
         """
         if names is None:
-            names = [n for n in self.frame_dict.keys()]
+            names = list(self.frame_dict.keys())
 
         return [(name, self.frame_dict[name]) for name in names]
 
@@ -1178,7 +1185,7 @@ class HyperFrameRecord(PBObject):
             Nothing
         """
 
-        for k, v in tags.iteritems():
+        for k, v in tags.items():
             t = self.pb.tags.add()
             t.k = k
             t.v = v
@@ -1324,7 +1331,7 @@ class LineageRecord(PBObject):
         """
         assert(self.pb is not None)
 
-        print "Lineage Writing row with TS {}".format(time.ctime(self.pb.lineage.creation_date))
+        print("Lineage Writing row with TS {}".format(time.ctime(self.pb.lineage.creation_date)))
 
         return {'hframe_uuid': self.pb.hframe_uuid,
                 'hframe_name': self.pb.hframe_name,
@@ -1723,8 +1730,8 @@ class FrameRecord(PBObject):
             np.float16: 'FLOAT16',
             np.float32: 'FLOAT32',
             np.float64: 'FLOAT64',
-            str:        'STRING',
-            unicode:    'STRING',
+            six.binary_type: 'STRING',
+            six.text_type:   'STRING',
             np.unicode_: 'STRING',
             np.string_: 'STRING',
             np.object_: 'OBJECT'
@@ -1755,10 +1762,10 @@ class FrameRecord(PBObject):
 
         elif self.pb.type == hyperframe_pb2.STRING:
             if len(self.pb.strings) > 0:
-                if isinstance(self.pb.strings[0], str):
-                    nda = np.array(self.pb.strings, dtype=np.string_)
-                elif isinstance(self.pb.strings[0], unicode):
-                    nda = np.array(self.pb.strings, dtype=np.unicode_)
+                if isinstance(self.pb.strings[0], six.binary_type):
+                    nda = np.array(self.pb.strings, dtype=six.binary_type)
+                elif isinstance(self.pb.strings[0], six.text_type):
+                    nda = np.array(self.pb.strings, dtype=six.text_type)
                 else:
                     raise Exception(
                         "Unable to convert pb strings to suitable type for ndarray {}".format(type(self.pb.strings[0])))
@@ -1819,11 +1826,11 @@ class FrameRecord(PBObject):
 
         if nda.dtype.type == np.object_:
             # NOTE: EXPENSIVE TESTS for STRINGS that come from ndarrays inside of Pandas series
-            if all(isinstance(x, str) for x in nda):
-                frame_type = FrameRecord.get_proto_type(str)
+            if all(isinstance(x, six.binary_type) for x in nda):
+                frame_type = FrameRecord.get_proto_type(six.binary_type)
                 series_data = nda
-            elif all(isinstance(x, unicode) for x in nda):
-                frame_type = FrameRecord.get_proto_type(unicode)
+            elif all(isinstance(x, six.text_type) for x in nda):
+                frame_type = FrameRecord.get_proto_type(six.text_type)
                 series_data = nda
             else:
                 # ESCAPE HATCH -- Made from duct tape and JSON
@@ -2038,14 +2045,14 @@ class LinkAuthBase(PBObject):
         If it exists, update the profile in profile with the information here.
         :return:
         """
-        import ConfigParser
+        from six.moves import configparser
 
-        config = ConfigParser.RawConfigParser()
+        config = configparser.RawConfigParser()
         if os.path.exists(ini_file):
             config.read(ini_file)
 
         config.add_section(self.pb.profile)
-        for k,v in self.__dict__.iteritems():
+        for k,v in self.__dict__.items():
             if v is not None:
                 config.set(self.pb.profile, k, v)
 

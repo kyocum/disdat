@@ -32,7 +32,7 @@ import os
 import pkg_resources
 
 from botocore.exceptions import ClientError
-from urlparse import urlparse
+from six.moves import urllib
 from getpass import getuser
 
 
@@ -501,7 +501,7 @@ def split_s3_url(s3_url):
 
     """
     s3_schemes = ["s3n", "s3"]
-    url = urlparse(s3_url)
+    url = urllib.parse.urlparse(s3_url)
     if url.scheme not in s3_schemes:
         raise ValueError('Got an invalid URL scheme: Expected {}, got "{}" from "{}"'.format(' or '.join(s3_schemes), url.scheme, url.geturl()))
     bucket = url.hostname

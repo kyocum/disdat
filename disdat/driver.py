@@ -27,7 +27,7 @@ Depending on the kind of pipe given, change our behavior between 1:1,
 author: Kenneth Yocum
 """
 from disdat.fs import PipeCacheEntry, DisdatFS
-from pipe_base import PipeBase
+from .pipe_base import PipeBase
 
 from luigi.task_register import load_task
 from collections import defaultdict, deque
@@ -267,7 +267,7 @@ class DriverTask(luigi.WrapperTask, PipeBase):
 
         pcache = DisdatFS.path_cache()
 
-        for p_name, p_entry in pcache.iteritems():  # @UnusedVariable
+        for p_name, p_entry in pcache.items():  # @UnusedVariable
             all_bundles[p_entry.instance.name_output_bundle()] = p_entry
 
         return all_bundles
