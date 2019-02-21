@@ -6,6 +6,7 @@ Entry point for pipelines run within Docker images.
 @copyright: Human Longevity, Inc. 2017
 @license: Apache 2.0
 """
+from __future__ import print_function
 
 import argparse
 import disdat.apply
@@ -130,9 +131,9 @@ def retrieve_secret(secret_name):
         if e.response['Error']['Code'] == 'ResourceNotFoundException':
             print("The requested secret " + secret_name + " was not found")
         elif e.response['Error']['Code'] == 'InvalidRequestException':
-            print("The request was invalid due to:", e)
+            print(("The request was invalid due to:", e))
         elif e.response['Error']['Code'] == 'InvalidParameterException':
-            print("The request had invalid params:", e)
+            print(("The request had invalid params:", e))
     else:
         # Decrypted secret using the associated KMS CMK
         # Depending on whether the secret was a string or binary, one of these fields will be populated
@@ -142,7 +143,7 @@ def retrieve_secret(secret_name):
             binary_secret_data = get_secret_value_response['SecretBinary']
 
         print ("Found the secret string as ")
-        print secret
+        print(secret)
 
 
 def add_argument_help_string(help_string, default=None):
@@ -170,7 +171,7 @@ def run_disdat_container(args):
 
     """
 
-    print "Entrypoint running with args: {}".format(args)
+    print("Entrypoint running with args: {}".format(args))
 
     # By default containerized execution ALWAYS localize's bundles on demand
     incremental_pull = True
