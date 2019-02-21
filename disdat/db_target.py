@@ -11,9 +11,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+from __future__ import print_function
 
 from luigi.target import Target
-import pyodbc
 import logging
 import contextlib
 import pandas as pd
@@ -30,6 +30,7 @@ ENABLE_DISDAT_SCHEMAS = False
 
 @contextlib.contextmanager
 def get_connection(dsn):
+    import pyodbc
     conn = pyodbc.connect(dsn=dsn)
     yield conn
     conn.close()
@@ -37,6 +38,7 @@ def get_connection(dsn):
 
 @contextlib.contextmanager
 def get_cursor(dsn):
+    import pyodbc
     conn = pyodbc.connect(dsn=dsn)
     cursor = conn.cursor()
     yield cursor
@@ -121,7 +123,7 @@ def table_exists_vertica(dsn, schema, table):
         (bool) : True if table is present in the db
     """
 
-    query = u"""
+    query = """
     SELECT DISTINCT table_name, table_type FROM all_tables
     WHERE table_name ILIKE '{}' and
     schema_name ilike '{}';
@@ -148,7 +150,7 @@ def schema_exists_vertica(dsn, schema):
         (bool) : True if schema is present in the db
     """
 
-    query = u"""
+    query = """
     SELECT DISTINCT schema_name FROM schemata
     WHERE schema_name ILIKE '{}'
     """.format(schema)
@@ -174,7 +176,7 @@ def drop_table_vertica(dsn, table, run=True):
         (unicode): The unicode string containing the query
 
     """
-    query = u'DROP TABLE if exists {};'.format(table)
+    query = 'DROP TABLE if exists {};'.format(table)
 
     if run:
         result = single_query(dsn, query)
@@ -196,7 +198,7 @@ def drop_view_vertica(dsn, table, run=True):
         (unicode): The unicode string containing the query
 
     """
-    query = u'DROP VIEW if exists {};'.format(table)
+    query = 'DROP VIEW if exists {};'.format(table)
 
     if run:
         result = single_query(dsn, query)
@@ -217,7 +219,7 @@ def database_name_vertica(dsn):
         (unicode): The name of the database
 
     """
-    query = u'SELECT CURRENT_DATABASE();'
+    query = 'SELECT CURRENT_DATABASE();'
 
     result = single_query(dsn, query)
 
@@ -269,6 +271,8 @@ class DBTarget(Target):
             context (`disdat.data_context.DataContext`): Optional, only used if pipe argument is None.
             uuid (unicode): Optional, only used if pipe argument is None.
         """
+        import pyodbc
+
         global ENABLE_DISDAT_SCHEMAS
 
         if schema_name is not None:
@@ -294,8 +298,8 @@ class DBTarget(Target):
                 _logger.debug("Found database[{}] on server[{}]".format(self.database, self.servername))
             self.connected = True
         except Exception as e:
-            print ("Failed to get connection using dsn[{}] while creating db target:{}".format(self.dsn, e))
-            print ("Using servername[{}] and database[{}].".format(self.servername,self.database))
+            print("Failed to get connection using dsn[{}] while creating db target:{}".format(self.dsn, e))
+            print("Using servername[{}] and database[{}].".format(self.servername,self.database))
             self.connected = False
 
         self.pipe = pipe
@@ -339,22 +343,22 @@ class DBTarget(Target):
             """
             Here the schema contains <disdat_prefix>_<context>
             """
-            self.schema = u"{}_{}".format(DBTarget.disdat_prefix, self.context.get_local_name())
+            self.schema = "{}_{}".format(DBTarget.disdat_prefix, self.context.get_local_name())
 
             if not schema_exists_vertica(self.schema):
-                query = u"""
+                query = """
                 CREATE SCHEMA IF NOT EXISTS {}
                 """.format(self.schema)
                 single_query(self.dsn, query)
 
-            self.phys_name = u"{}.{}_{}".format(self.schema, self.table_name, self.sql_name_uuid)
+            self.phys_name = "{}.{}_{}".format(self.schema, self.table_name, self.sql_name_uuid)
         else:
             """
             Here the name is prefixed by <disdat_prefix>
             We don't prefix with the context because bundles are independent of context
             """
             assert self.schema
-            self.phys_name = u"{}.{}_{}_{}".format(self.schema,
+            self.phys_name = "{}.{}_{}_{}".format(self.schema,
                                                    self.disdat_prefix,
                                                    self.table_name,
                                                    self.sql_name_uuid)
@@ -544,7 +548,7 @@ class DBTarget(Target):
 
         name = '_'.join(name.split('_')[:-1])
 
-        return u"{}.{}".format(schema, name)
+        return "{}.{}".format(schema, name)
 
 
     @staticmethod
@@ -565,7 +569,7 @@ class DBTarget(Target):
         """
         schema, name = phys_name.split('.')
 
-        return unicode(schema)
+        return str(schema)
 
     @staticmethod
     def schema_from_url(url):
@@ -602,7 +606,7 @@ class DBTarget(Target):
 
         """
         servername = url.replace('db://', '').split('@')[-1]
-        return unicode(servername)
+        return str(servername)
 
     @staticmethod
     def database_from_url(url):
@@ -614,14 +618,14 @@ class DBTarget(Target):
 
         """
         database = url.replace('db://', '').split('.')[0]
-        return unicode(database)
+        return str(database)
 
     def exists(self):
         """
         Returns ``True`` if the :py:class:`Target` exists and ``False`` otherwise.
         """
 
-        phys_exists = table_exists_vertica(self.dsn, unicode(self.pn.split('.')[0]), unicode(self.pn.split('.')[1]))
+        phys_exists = table_exists_vertica(self.dsn, str(self.pn.split('.')[0]), str(self.pn.split('.')[1]))
 
         return phys_exists
 

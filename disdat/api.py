@@ -30,7 +30,7 @@ automatically assume the context of the CLI) and perform our operation.
 
 Author: Kenneth Yocum
 """
-
+from __future__ import print_function
 
 import logging
 import os
@@ -178,7 +178,7 @@ class Bundle(HyperFrameRecord):
     def params(self):
         """ Return the tags that were parameters """
         return {k.strip(common.BUNDLE_TAG_PARAMS_PREFIX):json.loads(v)
-                 for k,v in self.tag_dict.iteritems()
+                 for k,v in self.tag_dict.items()
                  if common.BUNDLE_TAG_PARAMS_PREFIX in k}
 
     """ Alternative construction post allocation """
@@ -533,8 +533,8 @@ def current_context():
 
     try:
         return fs.get_curr_context().get_local_name()
-    except StandardError as se:
-        print ("Current context failed due to error: {}".format(se))
+    except Exception as se:
+        print(("Current context failed due to error: {}".format(se)))
         return None
 
 
@@ -546,7 +546,7 @@ def ls_contexts():
 
     """
     # TODO: have the fs object provide a wrapper function
-    return [ctxt for ctxt in fs._all_contexts.keys()]
+    return list(fs._all_contexts.keys())
 
 
 def context(context_name):
@@ -918,7 +918,7 @@ def run(local_context,
 
     pipeline_arg_list = []
     if pipeline_args is not None:
-        for k,v in pipeline_args.iteritems():
+        for k,v in pipeline_args.items():
             pipeline_arg_list.append(k)
             pipeline_arg_list.append(json.dumps(v))
 
