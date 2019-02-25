@@ -918,7 +918,7 @@ class DisdatFS(object):
             outer_hfr:  The hyperframe to look within.
             local_fs_frames:  Return link frames holding local files
             s3_frames:        Return link frames holding s3 files
-            vertica_frames    Return link frames holding vertica tables
+            db_frames    Return link frames holding db tables
 
         Returns:
             [list: tuple: (hyperframe.HyperFrameRecord, hyperframe.FrameRecord)]:  List of tuples containing hyperframe
