@@ -1333,14 +1333,6 @@ class DisdatFS(object):
         First edition, over-write everything.
         Next edition, by smarter.  Basically implement "sync"
 
-
-        for crap/crap/objects/<uuid>
-        to  localcrap/crap/objects
-
-        split for by removing first part.
-
-
-
         Args:
             data_context:
             localize (bool): If True pull all files in each bundle, else just pull *frame.pb
