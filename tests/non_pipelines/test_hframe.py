@@ -20,7 +20,7 @@ def _make_linkauth_records():
     :return: s3 auth record, vertica auth record
     """
     slar = hyperframe.S3LinkAuthRecord('id1234', 'keyabcd', 'tokenX', 'wildprofile')
-    vlar = hyperframe.VerticaLinkAuthRecord("/Library/Vertica/ODBC/lib/libverticaodbc.dylib",
+    vlar = hyperframe.DBLinkAuthRecord("/Library/Vertica/ODBC/lib/libverticaodbc.dylib",
                                             "Intuit Vertica Connection",
                                             "Analytics",
                                             "pprddaavth-vip.ie.intuit.net",
@@ -28,7 +28,7 @@ def _make_linkauth_records():
                                             "something",
                                             "5433",
                                             "require",
-                                            "superprofile")
+                                       "superprofile")
     return slar, vlar
 
 
@@ -245,7 +245,7 @@ def test_linkauth_rw_pb():
     """ Read in protocol buffers """
 
     r_pb_fs(os.path.join(testdir, slar.get_filename()), hyperframe.S3LinkAuthRecord)
-    r_pb_fs(os.path.join(testdir, vlar.get_filename()), hyperframe.VerticaLinkAuthRecord)
+    r_pb_fs(os.path.join(testdir, vlar.get_filename()), hyperframe.DBLinkAuthRecord)
 
 
 def test_link_rw_pb():
@@ -343,7 +343,7 @@ def test_linkauth_rw_db():
     for x in link_auth_results:
         if x.pb.WhichOneof('auth') == 's3_auth':
             slar_hash2 = hashlib.md5(slar.pb.SerializeToString()).hexdigest()
-        if x.pb.WhichOneof('auth') == 'vertica_auth':
+        if x.pb.WhichOneof('auth') == 'db_auth':
             vlar_hash2 = hashlib.md5(vlar.pb.SerializeToString()).hexdigest()
 
     assert (slar_hash == slar_hash2)

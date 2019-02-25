@@ -128,6 +128,8 @@ message Lineage {
         string hframe_uuid = 2;
     }
     repeated Dependency depends_on = 11;
+    double start_time = 12;
+    double stop_time = 13;
 }
 
 
@@ -175,7 +177,7 @@ message LinkAuth {
     string uuid = 2;
     oneof auth {
         S3LinkAuth s3_auth = 3;
-        VerticaLinkAuth vertica_auth = 4;
+        DBLinkAuth db_auth = 4;
     }
     string hash = 5;
 }
@@ -186,7 +188,7 @@ message S3LinkAuth {
     string aws_session_token = 3;
 }
 
-message VerticaLinkAuth {
+message DBLinkAuth {
     string driver = 1;
     string description = 2;
     string database = 3;

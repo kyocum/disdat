@@ -3,7 +3,7 @@
    :alt: Disdat Logo
    :align: center
 
-Disdat is a Python (2.7) package for data versioning and pipeline authoring that allows data scientists to create,
+Disdat is a Python (2.7 / 3.6) package for data versioning and pipeline authoring that allows data scientists to create,
 share, and track data products.  Disdat organizes data into *bundles*, collections of literal values and files --
 bundles are the unit at which data is versioned and shared.   Disdat pipelines automatically create bundles, making
 it easy to produce and then share the latest outputs with other users.  Instead of lengthy email conversations with
@@ -51,21 +51,6 @@ Execute disdat:
 .. code-block:: console
 
     $ dsdt -h
-
-Optional: A standalone `dsdt` binary
----------------
-
-We also provide an optional standlone binary that may be run on Mac OS X.  You will have needed to cloned the repository to build and install the standalone binary.   The deactivate command is optional if you're currently in an existing Python virtual environment.  We assume that you have installed virtualenvwrapper in your base Python environment.  See http://virtualenvwrapper.readthedocs.io/en/latest/install.html for instructions. 
-
-.. code-block:: console
-
-    $ deactivate
-    $ cd disdat
-    $ ./build-dist.sh
-    $ cp dist/dsdt /usr/local/bin/.
-    $ chmod u+x /usr/local/bin/dsdt
-
-You now have a functioning ``dsdt`` excutable that you can use create and pull bundles, as well as run Disdat pipelines.
 
 Tutorial
 --------

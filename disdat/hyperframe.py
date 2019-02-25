@@ -41,7 +41,7 @@ It may be stored in an HFrame table as a byte blob and re-inflated without worry
 from __future__ import print_function
 
 import disdat.common as common
-from disdat.db_target import DBTarget
+from disdat.db_link import DBLink
 from collections import namedtuple, defaultdict
 import hashlib
 import time
@@ -1579,7 +1579,7 @@ class FrameRecord(PBObject):
             tester = series_like[0]
             if isinstance(tester, luigi.Target):
                 return True
-            elif isinstance(tester, DBTarget):
+            elif isinstance(tester, DBLink):
                 return True
             elif (tester.startswith('file:///') or
                   tester.startswith('s3://') or
@@ -1632,7 +1632,7 @@ class FrameRecord(PBObject):
 
     def is_db_link_frame(self):
         """
-        Whether this frame contains vertica links
+        Whether this frame contains db links
 
         Returns:
             (bool):
@@ -1926,14 +1926,14 @@ class FrameRecord(PBObject):
         if isinstance(file_paths[0], luigi.LocalTarget):
             file_paths = ['file://{}'.format(lt.path) if lt.path.startswith('/') else lt.path for lt in file_paths]
 
-        if isinstance(file_paths[0], DBTarget):
+        if isinstance(file_paths[0], DBLink):
             link_type = DatabaseLinkRecord
         elif file_paths[0].startswith('file:///'):
             link_type = FileLinkRecord
         elif file_paths[0].startswith('s3://'):
             link_type = S3LinkRecord
         elif file_paths[0].startswith('db://'):
-            _logger.error("Found string-based database reference[{}], use DBTarget object instead.".format(file_paths[0]))
+            _logger.error("Found string-based database reference[{}], use DBLink object instead.".format(file_paths[0]))
             raise Exception("hyperframe:make_link_frame: error trying to copy in string-based database reference.")
         else:
             raise ValueError("Bad file paths -- cannot determine link type: example path {}".format(file_paths[0]))
@@ -2097,24 +2097,25 @@ class S3LinkAuthRecord(LinkAuthBase):
         self.__deploy_ini("~/.aws/test_credentials")
 
 
-class VerticaLinkAuthRecord(LinkAuthBase):
+class DBLinkAuthRecord(LinkAuthBase):
     """
-    Authentication to Vertica
+    DB Authentication information
+    Note: Does not contain password, instead capture description (DSN)
     """
     def __init__(self, driver, description, database, servername, uid, pwd, port, sslmode, profile=None):
-        super(VerticaLinkAuthRecord, self).__init__()
+        super(DBLinkAuthRecord, self).__init__()
 
         self.pb.profile = 'default-disdat' if profile is None else profile
         self.pb.uuid = str(uuid.uuid1())
 
-        self.pb.vertica_auth.driver = driver
-        self.pb.vertica_auth.description = description
-        self.pb.vertica_auth.database = database
-        self.pb.vertica_auth.servername = servername
-        self.pb.vertica_auth.uid = uid
-        self.pb.vertica_auth.pwd = pwd
-        self.pb.vertica_auth.port= port
-        self.pb.vertica_auth.sslmode = sslmode
+        self.pb.db_auth.driver = driver
+        self.pb.db_auth.description = description
+        self.pb.db_auth.database = database
+        self.pb.db_auth.servername = servername
+        self.pb.db_auth.uid = uid
+        self.pb.db_auth.pwd = pwd
+        self.pb.db_auth.port= port
+        self.pb.db_auth.sslmode = sslmode
 
         self.pb.ClearField('hash')
         self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
@@ -2279,7 +2280,7 @@ class DatabaseLinkRecord(LinkBase):
         """
 
         At this time we store the DSN in the database_link.   This is to avoid users placing userids and passwords
-        in code to create DBTargets.  Only committed bundles can be shared, so only the user creating the bundle
+        in code to create DBLinks.  Only committed bundles can be shared, so only the user creating the bundle
         should be able to commit it.
 
         Args:

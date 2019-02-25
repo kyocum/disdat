@@ -23,7 +23,7 @@ import disdat.hyperframe as hyperframe
 import disdat.common as common
 import disdat.utility.aws_s3 as aws_s3
 from disdat.common import DisdatConfig
-from disdat.db_target import DBTarget
+from disdat.db_link import DBLink
 
 import logging
 import os
@@ -716,31 +716,12 @@ class DataContext(object):
 
     def rm_db_links(self, hfr, dry_run=True):
         """
-        For all the db link frames, delete the tables in the database.
+        For all the db links, let the user code know we wish to delete the relational data.
 
-        Idempotent operation: if we fail to delete all the tables, it may be called again.  If only some tables are removed
-        (computer unplugged during remove), then we will need to clean up the db to remove all non-committed physical
-        tables.
-
-        If HFR is not committed, it is safe to delete the physical tables.  B/c it is not
-        committed, there should not be a view to the virtual table name.
-
-        If HFR is committed, we can safely remove this HFR physical tables (and virtual tables)
-        if there are more recent committed hyperframes.
-
-        Note: We do a fast-check to see if this committed DBTarget's virtual name is a view to this physical table name.
-        If True, then we are the latest committed bundle and we can't remove the table (though the user can remove the
-        bundle meta data -- with 'force')
-        If False, then it is very likely that another more recent commit has taken over that name.  In which case we can
-        delete the underlying physical table.   In the event that we have a race (delete committed bundle during a commit
-        of the same bundle) the db view will break.  Our commit updates the local metadata database last, so we should only
-        see this bundle committed after the DBTarget has been updated.
-
-        Note:  We can have a naming conflict if two bundles want to make the same table (table_name) in the
-        same context.   We are ignoring this condition at our peril here.
+        Note: the dbt.rm() operation should be idempotent.
 
         Args:
-            hfr:
+            hfr (hyperframe.HyperFrameRecord): The HFR we are about to remove.
             dry_run (bool): If True, then we are just testing whether all db links can be safely removed.  If False,
             then remove the tables on the db no matter if they back the view or not.
 
@@ -749,40 +730,16 @@ class DataContext(object):
 
         """
         commit_tag = hfr.get_tag('committed')
-
-        # For each of the tables in the bundle we have to
-        # check the database to see if this table is backing
-        # the current view.  If it is supporting the current view
-        # then there may be another copy of the committed bundle in the universe.
-        # And we don't delete it.
-        # If this committed version is not the version supporting the current
-        # view, then we can safely delete it.
-
-        for fr in hfr.get_frames(self):
-            if fr.is_db_link_frame():
-                for dbt_pb in fr.pb.links:
-                    dbt = DBTarget(None, dbt_pb.database.dsn, dbt_pb.database.table,
-                                   dbt_pb.database.schema, dbt_pb.database.servername,
-                                   dbt_pb.database.database, self, hfr.pb.uuid)
-                    if commit_tag is not None and commit_tag == 'True':
-                        if not dbt.is_latest_committed():
-                            if dry_run:
-                                pass
-                            else:
-                                dbt.rm(drop_view=True)
-                        else:
-                            if dry_run:
-                                print ("Data Context: Attempting to remove a committed bundle, but we found")
-                                print(("            : that table {} is backing the current view {}.".format(dbt.phys_name, dbt.virt_name)))
-                                return False
-                            else:
-                                dbt.rm(drop_view=True)
-                    else:
-                        if dry_run:
-                            pass
-                        else:
-                            dbt.rm()
-        return True
+        success = True
+        if not dry_run:
+            for fr in hfr.get_frames(self):
+                if fr.is_db_link_frame():
+                    for dbt_pb in fr.pb.links:
+                        dbt = DBLink(None, dbt_pb.database.dsn, dbt_pb.database.table,
+                                     dbt_pb.database.schema, dbt_pb.database.servername,
+                                     dbt_pb.database.database, hfr.pb.uuid)
+                        success = dbt.rm(commit_tag=commit_tag)
+        return success
 
     def commit_db_links(self, hfr):
         """
@@ -810,9 +767,9 @@ class DataContext(object):
         for fr in hfr.get_frames(self):
             if fr.is_db_link_frame():
                 for dbt_pb in fr.pb.links:
-                    dbt = DBTarget(None, dbt_pb.database.dsn, dbt_pb.database.table,
-                                   dbt_pb.database.schema, dbt_pb.database.servername,
-                                   dbt_pb.database.database, self, hfr.pb.uuid)
+                    dbt = DBLink(None, dbt_pb.database.dsn, dbt_pb.database.table,
+                                 dbt_pb.database.schema, dbt_pb.database.servername,
+                                 dbt_pb.database.database, self, hfr.pb.uuid)
                     dbt.commit()
 
     def atomic_update_hframe(self, hfr):
@@ -1106,7 +1063,7 @@ class DataContext(object):
         file_set = []
         return_one_file = False
 
-        if isinstance(src_files, str) or isinstance(src_files, luigi.LocalTarget) or isinstance(src_files, DBTarget):
+        if isinstance(src_files, str) or isinstance(src_files, luigi.LocalTarget) or isinstance(src_files, DBLink):
             return_one_file = True
             src_files = [src_files]
 
@@ -1125,7 +1082,7 @@ class DataContext(object):
                 pass
 
             # If DBTarget, just pass it on through.
-            if isinstance(src_path, DBTarget):
+            if isinstance(src_path, DBLink):
                 file_set.append(src_path)
                 continue
 
@@ -1225,8 +1182,8 @@ class DataContext(object):
         if fr.is_db_link_frame():
             """ Add the local context and return """
             local_ctxt = self.get_local_name()
-            file_set = [lf.replace('{}_'.format(DBTarget.disdat_prefix),
-                                   '{}_{}_'.format(DBTarget.disdat_prefix, local_ctxt)) for lf in urls]
+            file_set = [lf.replace('{}_'.format(DBLink.disdat_prefix),
+                                   '{}_{}_'.format(DBLink.disdat_prefix, local_ctxt)) for lf in urls]
             return file_set
         else:
             """ Must be s3 or local file links.  All the files in the link must be present """

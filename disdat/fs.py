@@ -918,7 +918,7 @@ class DisdatFS(object):
             outer_hfr:  The hyperframe to look within.
             local_fs_frames:  Return link frames holding local files
             s3_frames:        Return link frames holding s3 files
-            vertica_frames    Return link frames holding vertica tables
+            db_frames    Return link frames holding db tables
 
         Returns:
             [list: tuple: (hyperframe.HyperFrameRecord, hyperframe.FrameRecord)]:  List of tuples containing hyperframe
@@ -1332,14 +1332,6 @@ class DisdatFS(object):
 
         First edition, over-write everything.
         Next edition, by smarter.  Basically implement "sync"
-
-
-        for crap/crap/objects/<uuid>
-        to  localcrap/crap/objects
-
-        split for by removing first part.
-
-
 
         Args:
             data_context:

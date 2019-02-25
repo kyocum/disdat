@@ -158,15 +158,6 @@ class DisdatConfig(object):
         disdat_cfg = os.path.join(config_dir, CFG_FILE)
         luigi_cfg = os.path.join(config_dir, LUIGI_FILE)
 
-        """ If running through pyinstaller, then use the current pythonpath to find the apply transforms"""
-        if getattr(sys, 'frozen', False):
-            # we are running in a bundle
-            bundle_dir = sys._MEIPASS
-            sys.path.extend(os.environ.get('PYTHONPATH', '').split(':'))
-        else:
-            # we are running in a normal Python environment
-            bundle_dir = os.path.dirname(os.path.abspath(__file__))
-
         if meta_dir_root:
             self.meta_dir_root = meta_dir_root
         else:

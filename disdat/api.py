@@ -43,7 +43,7 @@ import disdat.run
 import disdat.fs
 import disdat.common as common
 from disdat.pipe_base import PipeBase, get_pipe_version
-from disdat.db_target import DBTarget
+from disdat.db_link import DBLink
 from disdat.pipe import PipeTask
 from disdat.hyperframe import HyperFrameRecord, LineageRecord
 from disdat.run import Backend, run_entry
@@ -395,12 +395,12 @@ class Bundle(HyperFrameRecord):
             schema_name (unicode):
 
         Returns:
-            `disdat.db_target.DBTarget`
+            `disdat.db_link.DBLink`
 
         """
         assert (self.open and not self.closed)
 
-        db_target = DBTarget(None, dsn, table_name, schema_name, context=self.data_context)
+        db_target = DBLink(None, dsn, table_name, schema_name, context=self.data_context)
 
         self.db_targets.append(db_target)
 
@@ -982,11 +982,6 @@ def dockerize(setup_dir,
                              sagemaker=sagemaker)
 
     return retval
-
-
-def _no_op():
-    # pyinstaller hack for including api in single-image binary
-    pass
 
 
 if __name__ == '__main__':

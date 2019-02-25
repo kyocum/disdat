@@ -349,13 +349,18 @@ class PipeBase(object):
     def rm_bundle_dir(output_path, uuid, db_targets):
         """
         We created a directory (managed path) to hold the bundle and any files.   The files have been
-        copied in.   Removing the directory removes any created files.  However we also need to
-        clean up any temporary tables as well.
+        copied in.   Removing the directory removes any created files.  If the user has told us about
+        any DBTargets, also call rm() on those.
 
         TODO: Integrate with data_context bundle remove.   That deals with information already
         stored in the local DB.
 
         ASSUMES:  That we haven't actually updated the local DB with information on this bundle.
+
+        Args:
+            output_path (str):
+            uuid (str):
+            db_targets (list(DBTarget)):
 
         Returns:
             None
@@ -367,7 +372,7 @@ class PipeBase(object):
             # then we will have to clean those up as well.
 
             for t in db_targets:
-                t.drop_table()
+                t.rm()
 
         except IOError as why:
             _logger.error("Removal of hyperframe directory {} failed with error {}. Continuing removal...".format(
