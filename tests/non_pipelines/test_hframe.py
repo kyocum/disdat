@@ -343,7 +343,7 @@ def test_linkauth_rw_db():
     for x in link_auth_results:
         if x.pb.WhichOneof('auth') == 's3_auth':
             slar_hash2 = hashlib.md5(slar.pb.SerializeToString()).hexdigest()
-        if x.pb.WhichOneof('auth') == 'vertica_auth':
+        if x.pb.WhichOneof('auth') == 'db_auth':
             vlar_hash2 = hashlib.md5(vlar.pb.SerializeToString()).hexdigest()
 
     assert (slar_hash == slar_hash2)

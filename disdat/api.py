@@ -984,10 +984,5 @@ def dockerize(setup_dir,
     return retval
 
 
-def _no_op():
-    # pyinstaller hack for including api in single-image binary
-    pass
-
-
 if __name__ == '__main__':
     b = get('careops5','tto_model_discovery')

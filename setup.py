@@ -101,10 +101,9 @@ setup(
                       'boto3-session-cache',
                       'termcolor',
                       'docker>=2.5.1', # >=2.5.1 (was up to 3.5.0
-                      'pyodbc>=3.1.1', # >= 3.1.1 was 4..0
                       'python-daemon<=2.1.2', # 2.2.0 breaks on docutils.core
                       'luigi<=2.7.5', # 2.7.6 uses python-daemon 2.2.0 which breaks on docutils.core
-                      'pandas<=0.23.4', # 0.21.0 causes pyinstaller built binary to crap out, 0.20.3 uses numpy 1.7.0
+                      'pandas<=0.23.4', #
                       'numpy<=1.14.5',  # just for pandas 0.23.4 so it doesn't use 1.15.0 and spill warnings.
                       'enum34>=',
                       'sqlalchemy>=',
@@ -129,8 +128,7 @@ setup(
         'rel': [
             'wheel',
             'sphinx',
-            'sphinx_rtd_theme',
-            'pyinstaller'
+            'sphinx_rtd_theme'
         ]
     },
 
