@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+from __future__ import print_function
 
 # Built-in imports
 import inspect
@@ -26,12 +27,13 @@ import shutil
 import disdat.common
 import disdat.resources
 import disdat.utility.aws_s3 as aws
+from disdat.infrastructure import dockerizer
+
 import docker
-import infrastructure.dockerizer
 
 _MODULE_NAME = inspect.getmodulename(__file__)
 
-_DOCKERIZER_ROOT = os.path.dirname(inspect.getsourcefile(infrastructure.dockerizer))
+_DOCKERIZER_ROOT = os.path.dirname(inspect.getsourcefile(dockerizer))
 
 _logger = logging.getLogger(__name__)
 
@@ -122,7 +124,7 @@ def dockerize(pipeline_root,
     if disdat_config.parser.has_option(_MODULE_NAME, 'dot_pip_file'):
         dot_pip_file = os.path.expanduser(disdat_config.parser.get(_MODULE_NAME, 'dot_pip_file'))
         shutil.copy(dot_pip_file, pip_file_path)
-        print ("Copying dot pip file {} into {}".format(dot_pip_file, docker_context))
+        print("Copying dot pip file {} into {}".format(dot_pip_file, docker_context))
     else:
         touch_command = [
             'touch',
@@ -138,7 +140,7 @@ def dockerize(pipeline_root,
     if disdat_config.parser.has_option(_MODULE_NAME, 'dot_odbc_ini_file'):
         dot_odbc_ini_file = os.path.expanduser(disdat_config.parser.get(_MODULE_NAME, 'dot_odbc_ini_file'))
         shutil.copy(dot_odbc_ini_file, odbc_file_path)
-        print ("Copying dot odbc.ini file {} into {}".format(dot_odbc_ini_file, odbc_file_path))
+        print("Copying dot odbc.ini file {} into {}".format(dot_odbc_ini_file, odbc_file_path))
     else:
         touch_command = [
             'touch',
@@ -206,7 +208,7 @@ def dockerize(pipeline_root,
                 else:
                     return 1
             else:
-                if cli: print line
+                if cli: print(line)
 
     return 0
 

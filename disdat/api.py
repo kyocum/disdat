@@ -30,7 +30,7 @@ automatically assume the context of the CLI) and perform our operation.
 
 Author: Kenneth Yocum
 """
-
+from __future__ import print_function
 
 import logging
 import os
@@ -43,7 +43,7 @@ import disdat.run
 import disdat.fs
 import disdat.common as common
 from disdat.pipe_base import PipeBase, get_pipe_version
-from disdat.db_target import DBTarget
+from disdat.db_link import DBLink
 from disdat.pipe import PipeTask
 from disdat.hyperframe import HyperFrameRecord, LineageRecord
 from disdat.run import Backend, run_entry
@@ -173,6 +173,13 @@ class Bundle(HyperFrameRecord):
     @property
     def tags(self):
         return self.tag_dict
+
+    @property
+    def params(self):
+        """ Return the tags that were parameters """
+        return {k.strip(common.BUNDLE_TAG_PARAMS_PREFIX):json.loads(v)
+                 for k,v in self.tag_dict.items()
+                 if common.BUNDLE_TAG_PARAMS_PREFIX in k}
 
     """ Alternative construction post allocation """
 
@@ -388,12 +395,12 @@ class Bundle(HyperFrameRecord):
             schema_name (unicode):
 
         Returns:
-            `disdat.db_target.DBTarget`
+            `disdat.db_link.DBLink`
 
         """
         assert (self.open and not self.closed)
 
-        db_target = DBTarget(None, dsn, table_name, schema_name, context=self.data_context)
+        db_target = DBLink(None, dsn, table_name, schema_name, context=self.data_context)
 
         self.db_targets.append(db_target)
 
@@ -526,8 +533,8 @@ def current_context():
 
     try:
         return fs.get_curr_context().get_local_name()
-    except StandardError as se:
-        print ("Current context failed due to error: {}".format(se))
+    except Exception as se:
+        print(("Current context failed due to error: {}".format(se)))
         return None
 
 
@@ -539,7 +546,7 @@ def ls_contexts():
 
     """
     # TODO: have the fs object provide a wrapper function
-    return [ctxt for ctxt in fs._all_contexts.keys()]
+    return list(fs._all_contexts.keys())
 
 
 def context(context_name):
@@ -805,7 +812,7 @@ def pull(local_context, bundle_name=None, uuid=None, localize=False):
     fs.pull(human_name=bundle_name, uuid=uuid, localize=localize, data_context=data_context)
 
 
-def apply(local_context, input_bundle, output_bundle, transform,
+def apply(local_context, output_bundle, transform,
           input_tags=None, output_tags=None, force=False, params=None,
           output_bundle_uuid=None, central_scheduler=False, workers=1,
           incremental_push=False, incremental_pull=False):
@@ -845,7 +852,7 @@ def apply(local_context, input_bundle, output_bundle, transform,
     # IF apply raises, let it go up.
     # If API, caller can catch.
     # If CLI, python will exit 1
-    result = disdat.apply.apply(input_bundle, output_bundle, task_params, transform,
+    result = disdat.apply.apply(output_bundle, task_params, transform,
                                 input_tags, output_tags, force,
                                 output_bundle_uuid=output_bundle_uuid,
                                 central_scheduler=central_scheduler,
@@ -909,20 +916,15 @@ def run(local_context,
 
     """
 
-
-
-    # Args are string: python object. The run CLI puts the parameters into an array of strings.  Replicate.
-
     pipeline_arg_list = []
     if pipeline_args is not None:
-        for k,v in pipeline_args.iteritems():
+        for k,v in pipeline_args.items():
             pipeline_arg_list.append(k)
             pipeline_arg_list.append(json.dumps(v))
 
     context = "{}/{}".format(remote_context, local_context) # remote_name/local_name
 
-    retval = run_entry(input_bundle='-',
-                       output_bundle=output_bundle,
+    retval = run_entry(output_bundle=output_bundle,
                        pipeline_args=pipeline_arg_list,
                        pipe_cls=pipe_cls,
                        backend=backend,
@@ -980,11 +982,6 @@ def dockerize(setup_dir,
                              sagemaker=sagemaker)
 
     return retval
-
-
-def _no_op():
-    # pyinstaller hack for including api in single-image binary
-    pass
 
 
 if __name__ == '__main__':

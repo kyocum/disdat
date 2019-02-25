@@ -38,9 +38,10 @@ It may be stored in an HFrame table as a byte blob and re-inflated without worry
  excessively large.
 
 """
+from __future__ import print_function
 
 import disdat.common as common
-from disdat.db_target import DBTarget
+from disdat.db_link import DBLink
 from collections import namedtuple, defaultdict
 import hashlib
 import time
@@ -50,13 +51,14 @@ from datetime import datetime
 import uuid
 from sqlalchemy import Table, Column, String, MetaData, BLOB, Text, TIMESTAMP, Enum, UniqueConstraint, DateTime
 from sqlalchemy.sql import text
-import hyperframe_pb2
+from disdat import hyperframe_pb2
 import enum
 import numpy as np
 import pandas as pd
 import sys
 import luigi
 import logging
+import six
 
 _logger = logging.getLogger(__name__)
 
@@ -310,7 +312,7 @@ def _tag_query(tags):
         return None
 
     if tags is not None:
-        for k, v in tags.iteritems():
+        for k, v in tags.items():
             # SQLITE: critical to have single quotes around strings in sub-select query
             tag_clauses.append("(key = '{}' AND value = '{}')".format(k, v))
 
@@ -526,7 +528,7 @@ def detect_local_fs_path(series):
     """
     output = []
     for s in series:
-        if not isinstance(s, str) and not isinstance(s, unicode):
+        if not isinstance(s, six.string_types):
             return None
         if os.path.isfile(s):
             output.append("file://{}".format(os.path.abspath(s)))
@@ -690,7 +692,7 @@ class PBObject(object):
             if type(pb_tbls) is dict:
                 assert (isinstance(pb_rows, dict) or isinstance(pb_rows, defaultdict))
                 results = []
-                for k, tbl in pb_tbls.iteritems(): # dict of tables
+                for k, tbl in pb_tbls.items(): # dict of tables
                     for r in pb_rows[k]:           # dict of list of rows
                         ins = tbl.insert()
                         results.append(db_conn.execute(ins, r))
@@ -716,6 +718,8 @@ class PBObject(object):
             object
         """
         pb = cls._pb_type()
+        if isinstance(pb_str_bytes, six.string_types):
+            pb_str_bytes = six.b(pb_str_bytes)
         pb.ParseFromString(pb_str_bytes)
         obj = cls.__new__(cls)
         setattr(obj, 'pb', pb)
@@ -765,7 +769,10 @@ class PBObject(object):
         objs = []
         for row in sa_result:
             if 'pb' in row:
-                obj = cls.from_str_bytes(str(row['pb']))
+                pb = row['pb']
+                if isinstance(pb, six.string_types):
+                    pb = pb.encode('utf8')
+                obj = cls.from_str_bytes(pb)
                 obj.state = row['state']
             else:
                 obj = row
@@ -1093,7 +1100,7 @@ class HyperFrameRecord(PBObject):
                 v = f.pb.uuid
                 self.frame_cache[f.pb.name] = f
             else:
-                print "Unable to add frame with type {}: Data {}".format(type(f), f)
+                print("Unable to add frame with type {}: Data {}".format(type(f), f))
                 assert False
 
             st = self.pb.frames.add()
@@ -1146,7 +1153,7 @@ class HyperFrameRecord(PBObject):
                 return fr
 
         if names is None:
-            name_uuids = [(k, v) for k, v in self.frame_dict.iteritems()]
+            name_uuids = [(k, v) for k, v in self.frame_dict.items()]
         else:
             name_uuids = [(k, self.frame_dict[k]) for k in names]
 
@@ -1163,7 +1170,7 @@ class HyperFrameRecord(PBObject):
             (:obj:list (str,str))
         """
         if names is None:
-            names = [n for n in self.frame_dict.keys()]
+            names = list(self.frame_dict.keys())
 
         return [(name, self.frame_dict[name]) for name in names]
 
@@ -1178,7 +1185,7 @@ class HyperFrameRecord(PBObject):
             Nothing
         """
 
-        for k, v in tags.iteritems():
+        for k, v in tags.items():
             t = self.pb.tags.add()
             t.k = k
             t.v = v
@@ -1254,7 +1261,7 @@ class LineageRecord(PBObject):
     def __init__(self, hframe_name=None, hframe_uuid=None,
                  code_repo=None, code_name=None, code_semver=None,
                  code_hash=None, code_branch=None,
-                 creation_date=time.time(), depends_on=None):
+                 creation_date=None, depends_on=None):
         """
         LineageRecord -- a collection of information about how this bundle was created.
 
@@ -1282,7 +1289,12 @@ class LineageRecord(PBObject):
         self.pb.code_semver = code_semver
         self.pb.code_hash = code_hash
         self.pb.code_branch = code_branch
+
+        if creation_date is None:
+            creation_date = time.time()
+
         self.pb.creation_date = creation_date
+
         # Note: depends_on tuple hframe_name is the processing name, very confusing! -- Todo: change in pb spec
         if depends_on is not None:
             _ = [self.pb.depends_on.add(hframe_name = tup[0], hframe_uuid = tup[1]) for tup in depends_on]
@@ -1319,7 +1331,7 @@ class LineageRecord(PBObject):
         """
         assert(self.pb is not None)
 
-        print "Lineage Writing row with TS {}".format(time.ctime(self.pb.lineage.creation_date))
+        print("Lineage Writing row with TS {}".format(time.ctime(self.pb.lineage.creation_date)))
 
         return {'hframe_uuid': self.pb.hframe_uuid,
                 'hframe_name': self.pb.hframe_name,
@@ -1567,7 +1579,7 @@ class FrameRecord(PBObject):
             tester = series_like[0]
             if isinstance(tester, luigi.Target):
                 return True
-            elif isinstance(tester, DBTarget):
+            elif isinstance(tester, DBLink):
                 return True
             elif (tester.startswith('file:///') or
                   tester.startswith('s3://') or
@@ -1620,7 +1632,7 @@ class FrameRecord(PBObject):
 
     def is_db_link_frame(self):
         """
-        Whether this frame contains vertica links
+        Whether this frame contains db links
 
         Returns:
             (bool):
@@ -1718,8 +1730,8 @@ class FrameRecord(PBObject):
             np.float16: 'FLOAT16',
             np.float32: 'FLOAT32',
             np.float64: 'FLOAT64',
-            str:        'STRING',
-            unicode:    'STRING',
+            six.binary_type: 'STRING',
+            six.text_type:   'STRING',
             np.unicode_: 'STRING',
             np.string_: 'STRING',
             np.object_: 'OBJECT'
@@ -1750,10 +1762,10 @@ class FrameRecord(PBObject):
 
         elif self.pb.type == hyperframe_pb2.STRING:
             if len(self.pb.strings) > 0:
-                if isinstance(self.pb.strings[0], str):
-                    nda = np.array(self.pb.strings, dtype=np.string_)
-                elif isinstance(self.pb.strings[0], unicode):
-                    nda = np.array(self.pb.strings, dtype=np.unicode_)
+                if isinstance(self.pb.strings[0], six.binary_type):
+                    nda = np.array(self.pb.strings, dtype=six.binary_type)
+                elif isinstance(self.pb.strings[0], six.text_type):
+                    nda = np.array(self.pb.strings, dtype=six.text_type)
                 else:
                     raise Exception(
                         "Unable to convert pb strings to suitable type for ndarray {}".format(type(self.pb.strings[0])))
@@ -1814,11 +1826,11 @@ class FrameRecord(PBObject):
 
         if nda.dtype.type == np.object_:
             # NOTE: EXPENSIVE TESTS for STRINGS that come from ndarrays inside of Pandas series
-            if all(isinstance(x, str) for x in nda):
-                frame_type = FrameRecord.get_proto_type(str)
+            if all(isinstance(x, six.binary_type) for x in nda):
+                frame_type = FrameRecord.get_proto_type(six.binary_type)
                 series_data = nda
-            elif all(isinstance(x, unicode) for x in nda):
-                frame_type = FrameRecord.get_proto_type(unicode)
+            elif all(isinstance(x, six.text_type) for x in nda):
+                frame_type = FrameRecord.get_proto_type(six.text_type)
                 series_data = nda
             else:
                 # ESCAPE HATCH -- Made from duct tape and JSON
@@ -1914,14 +1926,14 @@ class FrameRecord(PBObject):
         if isinstance(file_paths[0], luigi.LocalTarget):
             file_paths = ['file://{}'.format(lt.path) if lt.path.startswith('/') else lt.path for lt in file_paths]
 
-        if isinstance(file_paths[0], DBTarget):
+        if isinstance(file_paths[0], DBLink):
             link_type = DatabaseLinkRecord
         elif file_paths[0].startswith('file:///'):
             link_type = FileLinkRecord
         elif file_paths[0].startswith('s3://'):
             link_type = S3LinkRecord
         elif file_paths[0].startswith('db://'):
-            _logger.error("Found string-based database reference[{}], use DBTarget object instead.".format(file_paths[0]))
+            _logger.error("Found string-based database reference[{}], use DBLink object instead.".format(file_paths[0]))
             raise Exception("hyperframe:make_link_frame: error trying to copy in string-based database reference.")
         else:
             raise ValueError("Bad file paths -- cannot determine link type: example path {}".format(file_paths[0]))
@@ -2033,14 +2045,14 @@ class LinkAuthBase(PBObject):
         If it exists, update the profile in profile with the information here.
         :return:
         """
-        import ConfigParser
+        from six.moves import configparser
 
-        config = ConfigParser.RawConfigParser()
+        config = configparser.RawConfigParser()
         if os.path.exists(ini_file):
             config.read(ini_file)
 
         config.add_section(self.pb.profile)
-        for k,v in self.__dict__.iteritems():
+        for k,v in self.__dict__.items():
             if v is not None:
                 config.set(self.pb.profile, k, v)
 
@@ -2085,24 +2097,25 @@ class S3LinkAuthRecord(LinkAuthBase):
         self.__deploy_ini("~/.aws/test_credentials")
 
 
-class VerticaLinkAuthRecord(LinkAuthBase):
+class DBLinkAuthRecord(LinkAuthBase):
     """
-    Authentication to Vertica
+    DB Authentication information
+    Note: Does not contain password, instead capture description (DSN)
     """
     def __init__(self, driver, description, database, servername, uid, pwd, port, sslmode, profile=None):
-        super(VerticaLinkAuthRecord, self).__init__()
+        super(DBLinkAuthRecord, self).__init__()
 
         self.pb.profile = 'default-disdat' if profile is None else profile
         self.pb.uuid = str(uuid.uuid1())
 
-        self.pb.vertica_auth.driver = driver
-        self.pb.vertica_auth.description = description
-        self.pb.vertica_auth.database = database
-        self.pb.vertica_auth.servername = servername
-        self.pb.vertica_auth.uid = uid
-        self.pb.vertica_auth.pwd = pwd
-        self.pb.vertica_auth.port= port
-        self.pb.vertica_auth.sslmode = sslmode
+        self.pb.db_auth.driver = driver
+        self.pb.db_auth.description = description
+        self.pb.db_auth.database = database
+        self.pb.db_auth.servername = servername
+        self.pb.db_auth.uid = uid
+        self.pb.db_auth.pwd = pwd
+        self.pb.db_auth.port= port
+        self.pb.db_auth.sslmode = sslmode
 
         self.pb.ClearField('hash')
         self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
@@ -2267,7 +2280,7 @@ class DatabaseLinkRecord(LinkBase):
         """
 
         At this time we store the DSN in the database_link.   This is to avoid users placing userids and passwords
-        in code to create DBTargets.  Only committed bundles can be shared, so only the user creating the bundle
+        in code to create DBLinks.  Only committed bundles can be shared, so only the user creating the bundle
         should be able to commit it.
 
         Args:

@@ -53,7 +53,7 @@ def test():
 
     b.pull(localize=False)
 
-    api.apply(TEST_CONTEXT, '-', 'test_output', 'ConsumeExtDep', incremental_pull=True)
+    api.apply(TEST_CONTEXT, 'test_output', 'ConsumeExtDep', incremental_pull=True)
 
     api.delete_context(TEST_CONTEXT, remote=True)
 
@@ -62,7 +62,7 @@ class ConsumeExtDep(PipeTask):
     """ Consume files from an external dependency
     """
 
-    def pipe_requires(self, pipeline_input=None):
+    def pipe_requires(self):
         """ We depend on a manually created bundle that
         is parameterized by its name and its owner
         """
@@ -71,7 +71,7 @@ class ConsumeExtDep(PipeTask):
                                      {'name': TEST_NAME,
                                       'owner': getpass.getuser()})
 
-    def pipe_run(self, pipeline_input=None, input_files=None):
+    def pipe_run(self, input_files=None):
         """ For each file, print out its name and contents.
         """
         max_len = 0
@@ -81,7 +81,7 @@ class ConsumeExtDep(PipeTask):
                 s = of.read()
                 if len(s) > max_len:
                     max_len = len(s)
-                print "Reading file: {} length:{}".format(v, len(s))
+                print ("Reading file: {} length:{}".format(v, len(s)))
                 nfiles += 1
 
         return {'num categories': [len(input_files)], 'num files': [nfiles], 'max string': [max_len]}

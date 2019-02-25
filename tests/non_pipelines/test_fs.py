@@ -1,5 +1,5 @@
 """
-Test for hyperframe implementations.
+Unit / functional tests for fs and data_context
 """
 
 
@@ -15,10 +15,10 @@ import disdat.fs
 import disdat.common
 
 ##########################################
-# Protocol Buffer Read/Write to local FS test calls
+# Create a local context not in the current users initialized world.
 ##########################################
 
-testdir = os.path.join(tempfile.gettempdir(), "hframetests")
+testdir = os.path.join(tempfile.gettempdir(), "disdat_tests")
 
 if os.path.exists(testdir):  # and os.path.isfile(os.path.join(meta_dir,META_CTXT_FILE)):
     shutil.rmtree(testdir)
@@ -52,11 +52,13 @@ def disdatfs(monkeysession):
 
     cwd = os.path.dirname(sys.modules[__name__].__file__)
 
-    monkeysession.setenv("DISDAT_CONFIG_PATH", os.path.join(cwd, 'config/disdat.cfg'))
+    # If we want to use a standard config, then set this up.
+    # For now, we use the user's config
+    #config_dir = os.path.join(cwd, 'config/disdat.cfg')
 
-    disdat_config = disdat.common.DisdatConfig.instance()
+    _ = disdat.common.DisdatConfig.instance(meta_dir_root=testdir)
 
-    pfs = disdat.fs.DisdatFS(disdat_config)
+    pfs = disdat.fs.DisdatFS()
 
     return pfs
 
@@ -74,20 +76,24 @@ def test_load_context(disdatfs):
     return:
     """
 
-    branch_name = "dsdt-test-branch"
+    context_name = "dsdt-test-branch"
 
-    print "Found disdat fs {}".format(disdatfs)
-
-    disdatfs.branch(branch_name)
-    disdatfs.switch(branch_name)
+    disdatfs.branch(context_name)
+    disdatfs.switch(context_name)
+    assert(disdatfs._curr_context.local_ctxt == context_name)
+    assert(disdatfs.in_context())
 
     return
 
 
-def test_add_and_load_file(disdatfs):
+def defunct_test_add_and_load_file(disdatfs):
     """
 
-    We have a context.  Load it.
+    This is a defunct test.
+    1.) add shouldn't be a task.
+    2.) the test_add_xx.xx files have broken s3 paths so making bundle will fail.
+
+    So, fix add by using the api, then test creating a bundle that way.
 
     return:
     """
@@ -97,14 +103,14 @@ def test_add_and_load_file(disdatfs):
     disdatfs.branch(branch_name)
     disdatfs.switch(branch_name)
 
-    hf_name     = 'dsdt-test-hframe'
+    bundle     = 'dsdt-test-bundle'
 
     cwd      = os.path.dirname(sys.modules[__name__].__file__)
-    test_csv = os.path.join(cwd, './data/test_add_hf.csv')
-    test_tsv = os.path.join(cwd, './data/test_add_hf.tsv')
+    test_csv = os.path.join(cwd, '../data/test_add_hf.csv')
+    test_tsv = os.path.join(cwd, '../data/test_add_hf.tsv')
 
-    disdatfs.add(hf_name, test_csv)
-    disdatfs.add(hf_name, test_tsv)
+    disdatfs.add(bundle, test_csv, {})
+    disdatfs.add(bundle, test_tsv, {})
 
     return
 
@@ -137,3 +143,5 @@ def _add_and_load_dir(disdatfs):
 ##########################################
 
 
+if __name__ == '__main__':
+    test_load_context(disdatfs)

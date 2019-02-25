@@ -41,17 +41,16 @@ $dsdt apply - - df_dup.DFDup
 
 
 class DataMaker(PipeTask):
-    def pipe_run(self, pipeline_input=None):
+    def pipe_run(self):
         data = pd.DataFrame({'heart_rate': [60, 70, 100, 55], 'age': [30, 44, 18, 77]})
         return data
 
 
 class DFDup(PipeTask):
-    def pipe_requires(self, pipeline_input=None):
-        if pipeline_input is None:
-            self.add_dependency('example_data', DataMaker, {})
+    def pipe_requires(self):
+        self.add_dependency('example_data', DataMaker, {})
 
-    def pipe_run(self, pipeline_input=None, example_data=None):
+    def pipe_run(self, example_data=None):
         """
         Doubles data in a dataframe or dictionary and writes to the output
 
@@ -60,21 +59,19 @@ class DFDup(PipeTask):
             example_data:  Data if the user doesn't give us anything
 
         """
-
-        if pipeline_input is None:
-            pipeline_input = example_data
+        pipeline_input = example_data
 
         if isinstance(pipeline_input, dict):
-            pipeline_input.update({"{}_copy".format(k): v for k, v in pipeline_input.iteritems()})
+            pipeline_input.update({"{}_copy".format(k): v for k, v in pipeline_input.items()})
             output = pipeline_input
         elif isinstance(pipeline_input, pd.DataFrame):
             output = pd.concat([pipeline_input, pipeline_input], axis=0)
         else:
-            print "Copy Task requires an input DataFrame or an input dictionary, not {}".format(type(pipeline_input))
+            print ("Copy Task requires an input DataFrame or an input dictionary, not {}".format(type(pipeline_input)))
             output = None
 
         return output
 
 
 if __name__ == "__main__":
-    api.apply('examples', '-', '-', 'DFDup', params={})
+    api.apply('examples', '-', 'DFDup', params={})
