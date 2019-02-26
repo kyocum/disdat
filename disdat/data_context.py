@@ -35,6 +35,7 @@ import pandas as pd
 import numpy as np
 import luigi
 from six.moves import urllib
+import six
 
 _logger = logging.getLogger(__name__)
 
@@ -1063,7 +1064,7 @@ class DataContext(object):
         file_set = []
         return_one_file = False
 
-        if isinstance(src_files, str) or isinstance(src_files, luigi.LocalTarget) or isinstance(src_files, DBLink):
+        if isinstance(src_files, six.string_types) or isinstance(src_files, luigi.LocalTarget) or isinstance(src_files, DBLink):
             return_one_file = True
             src_files = [src_files]
 
@@ -1091,7 +1092,7 @@ class DataContext(object):
                 """ At this time we don't support user-supplied db link paths
                 Instead we assume these are managed.   Which means the db table already exists
                 and doesn't need to be 'copied-in'.   """
-                _logger.warn("Not copying-in a string-based database reference[{}].  Disdat only supports string refs from DBTarget objects.".format(src_path))
+                _logger.warn("Disdat does not copy-in database references[{}].  Assume user stored table as file.".format(src_path))
                 file_set.append(src_path)
                 continue
 
@@ -1144,7 +1145,7 @@ class DataContext(object):
                             raise Exception("copy_in_files: copy local file to unsupported scheme {}".format(dst_scheme))
 
                     else:
-                        raise Exception("DataContext copy-in-file found bad scheme: {}".format(o.scheme))
+                        raise Exception("DataContext copy-in-file found bad scheme: {} from {}".format(o.scheme, o))
                 else:
                     _logger.info("DataContext copy-in-file: Not adding files in directory {}".format(src_path))
             except (IOError, os.error) as why:
@@ -1180,11 +1181,8 @@ class DataContext(object):
         urls = fr.get_link_urls()
 
         if fr.is_db_link_frame():
-            """ Add the local context and return """
-            local_ctxt = self.get_local_name()
-            file_set = [lf.replace('{}_'.format(DBLink.disdat_prefix),
-                                   '{}_{}_'.format(DBLink.disdat_prefix, local_ctxt)) for lf in urls]
-            return file_set
+            """ No-Op with db links """
+            return urls
         else:
             """ Must be s3 or local file links.  All the files in the link must be present """
             assert urllib.parse.urlparse(urls[0]).scheme == common.BUNDLE_URI_SCHEME.replace('://', '')
