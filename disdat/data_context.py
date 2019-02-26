@@ -769,7 +769,7 @@ class DataContext(object):
                 for dbt_pb in fr.pb.links:
                     dbt = DBLink(None, dbt_pb.database.dsn, dbt_pb.database.table,
                                  dbt_pb.database.schema, dbt_pb.database.servername,
-                                 dbt_pb.database.database, self, hfr.pb.uuid)
+                                 dbt_pb.database.database, hfr.pb.uuid)
                     dbt.commit()
 
     def atomic_update_hframe(self, hfr):
