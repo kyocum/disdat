@@ -13,10 +13,6 @@
 #
 from __future__ import print_function
 
-import logging
-
-_logger = logging.getLogger(__name__)
-
 
 class DBLink(object):
     """

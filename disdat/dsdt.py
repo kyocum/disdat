@@ -32,8 +32,8 @@ from disdat import dockerize
 from disdat import run
 from disdat.fs import init_fs_cl
 from disdat.common import DisdatConfig
+from disdat import log
 
-_logger = logging.getLogger(__name__)
 
 _pipes_fs = None
 
@@ -56,6 +56,7 @@ def main():
 
     :return: (shape of input df, shape of pushed df)
     """
+    log.enable()  # TODO: Add configurable verbosity
 
     if getattr(sys, 'frozen', False):
         here = os.path.join(sys._MEIPASS, 'disdat')
