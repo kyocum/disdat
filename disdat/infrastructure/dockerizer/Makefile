@@ -183,7 +183,7 @@ $(DOCKER_CONTEXT)/disdat: $(DOCKER_CONTEXT) $(shell find $(DISDAT_ROOT)/disdat -
 
 # Copy the user pipeline package into the Docker context. For this copy,
 # we DON'T want the directory name to be included in the copy.
-$(DOCKER_CONTEXT)/pipeline: $(DOCKER_CONTEXT) $(shell find $(PIPELINE_ROOT) -type f)
+$(DOCKER_CONTEXT)/pipeline: $(DOCKER_CONTEXT) $(shell find $(PIPELINE_ROOT) -not -path '*/\.*' -type f)
 	@echo "----- Copying pipeline $(PIPELINE_ROOT)"
 	rsync -av --delete --force --quiet $(PIPELINE_ROOT)/ $@
 	touch $@
