@@ -30,6 +30,7 @@ import disdat.common as common
 import logging
 import os
 import pkg_resources
+import six
 
 from botocore.exceptions import ClientError
 from six.moves import urllib
@@ -186,7 +187,15 @@ def ecr_get_auth_config():
     if response['ResponseMetadata']['HTTPStatusCode'] != 200:
         raise RuntimeError('Failed to get AWS ECR authorization token: HTTP Status {}'.format(response['ResponseMetadata']['HTTPStatusCode']))
     token = response['authorizationData'][0]['authorizationToken']
-    username, password = base64.decodestring(token).split(':')
+
+    token_bytes = six.b(token)
+
+    token_decoded_bytes = base64.b64decode(token_bytes)
+
+    token_decoded_str = token_decoded_bytes.decode('utf8')
+
+    username, password = token_decoded_str.split(':')
+
     return {'username': username, 'password': password}
 
 
