@@ -24,7 +24,7 @@ RUN virtualenv $VIRTUAL_ENV
 # UGH.   setuptools 40.7.0 breaks pyodbc installs by passing in unicode to distutils and
 # it breaks looking for a type StringType, and not creating an array and then breaking when string doesn't have append
 # if 2.7.x-slim
-RUN ["/bin/bash", "-c", "source $VIRTUAL_ENV/bin/activate; pip install setuptools==40.6.0; pip install $BUILD_ROOT/disdat/dockerizer/context.template/$DISDAT_SDIST; deactivate"]
+RUN ["/bin/bash", "-c", "source $VIRTUAL_ENV/bin/activate; pip install setuptools==40.6.0; pip install --no-cache-dir $BUILD_ROOT/disdat/dockerizer/context.template/$DISDAT_SDIST; deactivate"]
 
 # Use this line when we move to P3.
 # RUN ["/bin/bash", "-c", "source $VIRTUAL_ENV/bin/activate; pip install $BUILD_ROOT/disdat/dockerizer/context.template/$DISDAT_SDIST; deactivate"]
