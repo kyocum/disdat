@@ -202,7 +202,7 @@ def dockerize(pipeline_root,
             auth_config = aws.ecr_get_auth_config()
         docker_client.api.tag(pipeline_image_name, fq_repository_name)
         for line in docker_client.images.push(fq_repository_name, auth_config=auth_config, stream=True):
-            if 'error' in line:
+            if b'error' in line:
                 if cli:
                     raise RuntimeError(line)
                 else:
@@ -281,3 +281,9 @@ def dockerize_entry(cli=False, **kwargs):
                      sagemaker=kwargs['sagemaker'],
                      cli=cli
                      )
+
+
+if __name__ == "__main__":
+    import api
+
+    api.dockerize('/Users/kyocum/Code/anomaly-detection-service/anomaly', 'pipeline.pipeline.Train', push=True)

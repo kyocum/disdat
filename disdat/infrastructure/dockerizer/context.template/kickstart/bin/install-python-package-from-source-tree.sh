@@ -91,13 +91,13 @@ else
 fi
 
 echo "Using Python interpreter $(which python)"
-if [ -d $package_root ]; then
+if [ -f $package_root/setup.py ]; then
 	echo "cd $package_root; python setup.py install"
 	cd $package_root
 	run python setup.py install
 else
     echo "pip install $package_root"
-	pip install $package_root
+	pip install --no-cache-dir $package_root
 fi
 success "Successfully installed $(basename $package_root) in $virtual_env"
 if [ x$use_conda != 'x' ]; then
