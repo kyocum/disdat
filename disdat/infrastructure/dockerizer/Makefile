@@ -187,7 +187,7 @@ $(DOCKER_CONTEXT)/pipeline: $(DOCKER_CONTEXT) $(shell find $(PIPELINE_ROOT) -not
 	@echo "----- Copying pipeline $(PIPELINE_ROOT)"
 	cd $(PIPELINE_ROOT); \
 	    python $(PIPELINE_ROOT)/setup.py sdist --dist-dir $@; cd -
-	@touch $@/
+	@touch $@
 
 
 #
