@@ -269,7 +269,11 @@ class PipeTask(luigi.Task, PipeBase):
             user_rtn_val = self.pipe_run(**kwargs)
         except Exception as error:
             """ If user's pipe fails for any reason, remove bundle dir and raise """
-            PipeBase.rm_bundle_dir(pce.path, pce.uuid, self.db_targets)
+            try:
+                _logger.error("User pipe_run encountered exception: {}".format(error))
+                PipeBase.rm_bundle_dir(pce.path, pce.uuid, self.db_targets)
+            except OSError as ose:
+                _logger.error("User pipe_run encountered error, and error on remove bundle: {}".format(ose))
             raise
 
         try:
