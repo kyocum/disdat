@@ -575,7 +575,15 @@ def run_entry(cli=False, **kwargs):
     pfs = fs.DisdatFS()
 
     # Ensure kwargs only contains the arguments we want when calling _run
-    [kwargs.pop(k) for k in kwargs.keys() if k not in _run.__code__.co_varnames]
+    remove_keys = []
+    for k in kwargs.keys():
+        if k not in _run.__code__.co_varnames:
+            remove_keys.append(k)
+
+    for k in remove_keys:
+        kwargs.pop(k)
+
+    #[kwargs.pop(k) for k in kwargs.keys() if k not in _run.__code__.co_varnames]
 
     # if any set, the other must be set.  if a or b, then a and b are set
     if kwargs['context'] is not None or kwargs['remote'] is not None:
