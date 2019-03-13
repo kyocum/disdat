@@ -32,20 +32,18 @@ available before I run.
 author: Kenneth Yocum
 """
 
+import os
+import json
 import six
+
+import luigi
+
 from disdat.pipe_base import PipeBase
 from disdat.db_link import DBLink
 from disdat.driver import DriverTask
 from disdat.fs import DisdatFS
 from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PARAMS_PREFIX
-import luigi
-import logging
-import os
-import json
-import six
-
-
-_logger = logging.getLogger(__name__)
+from disdat import logger as _logger
 
 
 class PipeTask(luigi.Task, PipeBase):

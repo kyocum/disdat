@@ -22,13 +22,6 @@ from a variety of backend resources.
 """
 from __future__ import print_function
 
-import disdat.hyperframe as hyperframe
-import disdat.common as common
-import disdat.utility.aws_s3 as aws_s3
-from disdat.data_context import DataContext
-from disdat.common import DisdatConfig
-
-import logging
 import os
 import json
 import uuid
@@ -37,12 +30,18 @@ from datetime import datetime
 from enum import Enum
 import shutil
 import collections
-from multiprocessing import Pool, TimeoutError, cpu_count
+from multiprocessing import Pool, cpu_count
+
 from luigi import retcodes
 import pandas as pd
 
+import disdat.hyperframe as hyperframe
+import disdat.common as common
+import disdat.utility.aws_s3 as aws_s3
+from disdat.data_context import DataContext
+from disdat.common import DisdatConfig
+from disdat import logger as _logger
 
-_logger = logging.getLogger(__name__)
 
 PipeCacheEntry = collections.namedtuple('PipeCacheEntry', 'instance uuid path rerun is_left_edge_task')
 

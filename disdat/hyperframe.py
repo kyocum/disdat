@@ -40,8 +40,7 @@ It may be stored in an HFrame table as a byte blob and re-inflated without worry
 """
 from __future__ import print_function
 
-import disdat.common as common
-from disdat.db_link import DBLink
+import sys
 from collections import namedtuple, defaultdict
 import hashlib
 import time
@@ -49,18 +48,20 @@ import os
 import tempfile
 from datetime import datetime
 import uuid
-from sqlalchemy import Table, Column, String, MetaData, BLOB, Text, TIMESTAMP, Enum, UniqueConstraint, DateTime
-from sqlalchemy.sql import text
-from disdat import hyperframe_pb2
-import enum
+
 import numpy as np
 import pandas as pd
-import sys
 import luigi
-import logging
 import six
+import enum
+from sqlalchemy import Table, Column, String, MetaData, BLOB, Text, Enum, UniqueConstraint, DateTime
+from sqlalchemy.sql import text
 
-_logger = logging.getLogger(__name__)
+import disdat.common as common
+from disdat.db_link import DBLink
+from disdat import hyperframe_pb2
+from disdat import logger as _logger
+
 
 HyperFrameTuple = namedtuple('HyperFrameTuple', 'columns, links, uuid, tags')
 

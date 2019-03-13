@@ -25,18 +25,17 @@ author: Kenneth Yocum
 """
 from __future__ import print_function
 
+import os
+
+import luigi
+import pandas as pd
+from six.moves import urllib
+
 from disdat.pipe_base import PipeBase
 import disdat.constants as constants
 from disdat.hyperframe import FrameRecord
 import disdat.hyperframe_pb2 as hyperframe_pb2
 from disdat.fs import DataContext
-import luigi
-import pandas as pd
-import logging
-import os
-from six.moves import urllib
-
-_logger = logging.getLogger(__name__)
 
 
 class AddTask(luigi.Task, PipeBase):

@@ -10,25 +10,25 @@ Unify DriverTask and PipeTask with one abstract base class.
 from __future__ import print_function
 
 from abc import ABCMeta, abstractmethod
-from disdat.fs import DisdatFS
-from disdat.data_context import DataContext
-from disdat.hyperframe import LineageRecord, HyperFrameRecord, FrameRecord
-
-import disdat.common as common
 import os
 import shutil
-import logging
-import luigi
 import getpass
 import subprocess
 import inspect
 import collections
+
+import luigi
 from six.moves import urllib
 import numpy as np
 import pandas as pd
-import disdat.hyperframe_pb2 as hyperframe_pb2
 
-_logger = logging.getLogger(__name__)
+import disdat.common as common
+from disdat.fs import DisdatFS
+from disdat.data_context import DataContext
+from disdat.hyperframe import LineageRecord, HyperFrameRecord, FrameRecord
+import disdat.hyperframe_pb2 as hyperframe_pb2
+from disdat import logger as _logger
+
 
 CodeVersion = collections.namedtuple('CodeVersion', 'semver hash tstamp branch url dirty')
 
