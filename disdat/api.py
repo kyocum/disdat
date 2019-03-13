@@ -30,11 +30,11 @@ automatically assume the context of the CLI) and perform our operation.
 
 Author: Kenneth Yocum
 """
+from __future__ import print_function
 
-
-import logging
 import os
 import json
+
 import luigi
 from luigi.contrib import s3
 
@@ -43,13 +43,12 @@ import disdat.run
 import disdat.fs
 import disdat.common as common
 from disdat.pipe_base import PipeBase, get_pipe_version
-from disdat.db_target import DBTarget
+from disdat.db_link import DBLink
 from disdat.pipe import PipeTask
 from disdat.hyperframe import HyperFrameRecord, LineageRecord
 from disdat.run import Backend, run_entry
 from disdat.dockerize import dockerize_entry
-
-_logger = logging.getLogger(__name__)
+from disdat import logger as _logger
 
 disdat.fs.DisdatConfig.instance()
 
@@ -178,7 +177,7 @@ class Bundle(HyperFrameRecord):
     def params(self):
         """ Return the tags that were parameters """
         return {k.strip(common.BUNDLE_TAG_PARAMS_PREFIX):json.loads(v)
-                 for k,v in self.tag_dict.iteritems()
+                 for k,v in self.tag_dict.items()
                  if common.BUNDLE_TAG_PARAMS_PREFIX in k}
 
     """ Alternative construction post allocation """
@@ -395,12 +394,12 @@ class Bundle(HyperFrameRecord):
             schema_name (unicode):
 
         Returns:
-            `disdat.db_target.DBTarget`
+            `disdat.db_link.DBLink`
 
         """
         assert (self.open and not self.closed)
 
-        db_target = DBTarget(None, dsn, table_name, schema_name, context=self.data_context)
+        db_target = DBLink(None, dsn, table_name, schema_name, context=self.data_context)
 
         self.db_targets.append(db_target)
 
@@ -533,8 +532,8 @@ def current_context():
 
     try:
         return fs.get_curr_context().get_local_name()
-    except StandardError as se:
-        print ("Current context failed due to error: {}".format(se))
+    except Exception as se:
+        print(("Current context failed due to error: {}".format(se)))
         return None
 
 
@@ -546,7 +545,7 @@ def ls_contexts():
 
     """
     # TODO: have the fs object provide a wrapper function
-    return [ctxt for ctxt in fs._all_contexts.keys()]
+    return list(fs._all_contexts.keys())
 
 
 def context(context_name):
@@ -918,7 +917,7 @@ def run(local_context,
 
     pipeline_arg_list = []
     if pipeline_args is not None:
-        for k,v in pipeline_args.iteritems():
+        for k,v in pipeline_args.items():
             pipeline_arg_list.append(k)
             pipeline_arg_list.append(json.dumps(v))
 
@@ -982,11 +981,6 @@ def dockerize(setup_dir,
                              sagemaker=sagemaker)
 
     return retval
-
-
-def _no_op():
-    # pyinstaller hack for including api in single-image binary
-    pass
 
 
 if __name__ == '__main__':

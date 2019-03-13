@@ -25,18 +25,17 @@ Utilities for accessing AWS using boto3
 # users that use AWS profiles with MFA tokens aren't constantly asked to
 # enter new token values.
 import base64
-import boto3_session_cache as b3
-import disdat.common as common
-import logging
 import os
 import pkg_resources
+from getpass import getuser
+import six
 
 from botocore.exceptions import ClientError
-from urlparse import urlparse
-from getpass import getuser
+import boto3_session_cache as b3
+from six.moves import urllib
 
-
-_logger = logging.getLogger(__name__)
+import disdat.common as common
+from disdat import logger as _logger
 
 
 def batch_get_job_definition_name(pipeline_class_name):
@@ -186,7 +185,15 @@ def ecr_get_auth_config():
     if response['ResponseMetadata']['HTTPStatusCode'] != 200:
         raise RuntimeError('Failed to get AWS ECR authorization token: HTTP Status {}'.format(response['ResponseMetadata']['HTTPStatusCode']))
     token = response['authorizationData'][0]['authorizationToken']
-    username, password = base64.decodestring(token).split(':')
+
+    token_bytes = six.b(token)
+
+    token_decoded_bytes = base64.b64decode(token_bytes)
+
+    token_decoded_str = token_decoded_bytes.decode('utf8')
+
+    username, password = token_decoded_str.split(':')
+
     return {'username': username, 'password': password}
 
 
@@ -501,7 +508,7 @@ def split_s3_url(s3_url):
 
     """
     s3_schemes = ["s3n", "s3"]
-    url = urlparse(s3_url)
+    url = urllib.parse.urlparse(s3_url)
     if url.scheme not in s3_schemes:
         raise ValueError('Got an invalid URL scheme: Expected {}, got "{}" from "{}"'.format(' or '.join(s3_schemes), url.scheme, url.geturl()))
     bucket = url.hostname

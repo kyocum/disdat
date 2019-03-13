@@ -16,6 +16,17 @@
 """
 A DisDat context
 """
+import os
+import json
+import glob
+import shutil
+
+from sqlalchemy import create_engine
+import pandas as pd
+import numpy as np
+import luigi
+from six.moves import urllib
+import six
 
 import disdat.constants as constants
 import disdat.hyperframe_pb2 as hyperframe_pb2
@@ -23,20 +34,9 @@ import disdat.hyperframe as hyperframe
 import disdat.common as common
 import disdat.utility.aws_s3 as aws_s3
 from disdat.common import DisdatConfig
-from disdat.db_target import DBTarget
+from disdat.db_link import DBLink
+from disdat import logger as _logger
 
-import logging
-import os
-import json
-import glob
-import shutil
-from sqlalchemy import create_engine
-import pandas as pd
-import numpy as np
-import luigi
-from urlparse import urlparse, urljoin
-
-_logger = logging.getLogger(__name__)
 
 META_CTXT_FILE = 'ctxt.json'
 DB_FILE = 'ctxt.db'
@@ -117,7 +117,7 @@ class DataContext(object):
 
         """
         if self.unpushed_data() and not force:
-            print("Disdat found un-pushed data in context {}, use -f to delete".format(self.local_ctxt))
+            print(("Disdat found un-pushed data in context {}, use -f to delete".format(self.local_ctxt)))
             return
 
         self.local_engine.dispose()
@@ -141,11 +141,11 @@ class DataContext(object):
             None
 
         """
-        assert (urlparse(s3_url).scheme == 's3')
+        assert (urllib.parse.urlparse(s3_url).scheme == 's3')
 
         if self.remote_ctxt_url is not None and self.remote_ctxt == remote_context and \
                         os.path.normpath(os.path.dirname(self.remote_ctxt_url)) == os.path.normpath(s3_url):
-            print "Context already bound to remote at {}".format(s3_url)
+            print("Context already bound to remote at {}".format(s3_url))
             return
 
         if self.remote_ctxt != remote_context:
@@ -165,9 +165,9 @@ class DataContext(object):
             _logger.debug("Binding local branch {} context {} to URL {}".format(self.local_ctxt, self.remote_ctxt, s3_url))
         else:
             if not force:
-                print "You are re-binding this branch to a different remote context.  You might have un-localized"
-                print "files in pulled bundles.  First, issue 'dsdt pull --localize' to make data local. "
-                print " Then run: `dsdt remote --force {}' to force re-binding the remote.".format(s3_url)
+                print("You are re-binding this branch to a different remote context.  You might have un-localized")
+                print("files in pulled bundles.  First, issue 'dsdt pull --localize' to make data local. ")
+                print(" Then run: `dsdt remote --force {}' to force re-binding the remote.".format(s3_url))
                 return
 
             _logger.debug("Un-binding local branch {} context {} current URL {}".format(self.local_ctxt,
@@ -404,11 +404,12 @@ class DataContext(object):
                                                                                                  l.uuid))
                         return False
                 url = hyperframe.LinkBase.find_url(l)
-                o = urlparse(url)
+                o = urllib.parse.urlparse(url)
                 if o.scheme == 's3':
                     _logger.warn("Disdat FS TODO check on s3 for file {}".format(url))
                 elif o.scheme == 'db':
-                    _logger.warn("Disdat FS TODO support db tables in link columns")
+                    pass
+                    #_logger.warn("Disdat FS TODO support db tables in link columns")
                 elif o.scheme == 'bundle':
                     # this is OK.  file links are bundle urls.
                     _logger.debug("Disdat FS TODO check on bundle links for {}".format(url))
@@ -463,7 +464,7 @@ class DataContext(object):
                     rcd = hyperframe.r_pb_fs(f, rcd_type)
                     store[rcd.pb.uuid] = rcd
 
-        for hfr in hframes.itervalues():
+        for hfr in hframes.values():
             if DataContext._validate_hframe(hfr, frames, auths):
                 # looks like a good hyperframe
                 # see if it exists, if it does do not write hframe and assume frames are also present
@@ -715,31 +716,12 @@ class DataContext(object):
 
     def rm_db_links(self, hfr, dry_run=True):
         """
-        For all the db link frames, delete the tables in the database.
+        For all the db links, let the user code know we wish to delete the relational data.
 
-        Idempotent operation: if we fail to delete all the tables, it may be called again.  If only some tables are removed
-        (computer unplugged during remove), then we will need to clean up the db to remove all non-committed physical
-        tables.
-
-        If HFR is not committed, it is safe to delete the physical tables.  B/c it is not
-        committed, there should not be a view to the virtual table name.
-
-        If HFR is committed, we can safely remove this HFR physical tables (and virtual tables)
-        if there are more recent committed hyperframes.
-
-        Note: We do a fast-check to see if this committed DBTarget's virtual name is a view to this physical table name.
-        If True, then we are the latest committed bundle and we can't remove the table (though the user can remove the
-        bundle meta data -- with 'force')
-        If False, then it is very likely that another more recent commit has taken over that name.  In which case we can
-        delete the underlying physical table.   In the event that we have a race (delete committed bundle during a commit
-        of the same bundle) the db view will break.  Our commit updates the local metadata database last, so we should only
-        see this bundle committed after the DBTarget has been updated.
-
-        Note:  We can have a naming conflict if two bundles want to make the same table (table_name) in the
-        same context.   We are ignoring this condition at our peril here.
+        Note: the dbt.rm() operation should be idempotent.
 
         Args:
-            hfr:
+            hfr (hyperframe.HyperFrameRecord): The HFR we are about to remove.
             dry_run (bool): If True, then we are just testing whether all db links can be safely removed.  If False,
             then remove the tables on the db no matter if they back the view or not.
 
@@ -748,40 +730,16 @@ class DataContext(object):
 
         """
         commit_tag = hfr.get_tag('committed')
-
-        # For each of the tables in the bundle we have to
-        # check the database to see if this table is backing
-        # the current view.  If it is supporting the current view
-        # then there may be another copy of the committed bundle in the universe.
-        # And we don't delete it.
-        # If this committed version is not the version supporting the current
-        # view, then we can safely delete it.
-
-        for fr in hfr.get_frames(self):
-            if fr.is_db_link_frame():
-                for dbt_pb in fr.pb.links:
-                    dbt = DBTarget(None, dbt_pb.database.dsn, dbt_pb.database.table,
-                                   dbt_pb.database.schema, dbt_pb.database.servername,
-                                   dbt_pb.database.database, self, hfr.pb.uuid)
-                    if commit_tag is not None and commit_tag == 'True':
-                        if not dbt.is_latest_committed():
-                            if dry_run:
-                                pass
-                            else:
-                                dbt.rm(drop_view=True)
-                        else:
-                            if dry_run:
-                                print ("Data Context: Attempting to remove a committed bundle, but we found")
-                                print ("            : that table {} is backing the current view {}.".format(dbt.phys_name, dbt.virt_name))
-                                return False
-                            else:
-                                dbt.rm(drop_view=True)
-                    else:
-                        if dry_run:
-                            pass
-                        else:
-                            dbt.rm()
-        return True
+        success = True
+        if not dry_run:
+            for fr in hfr.get_frames(self):
+                if fr.is_db_link_frame():
+                    for dbt_pb in fr.pb.links:
+                        dbt = DBLink(None, dbt_pb.database.dsn, dbt_pb.database.table,
+                                     dbt_pb.database.schema, dbt_pb.database.servername,
+                                     dbt_pb.database.database, hfr.pb.uuid)
+                        success = dbt.rm(commit_tag=commit_tag)
+        return success
 
     def commit_db_links(self, hfr):
         """
@@ -809,9 +767,9 @@ class DataContext(object):
         for fr in hfr.get_frames(self):
             if fr.is_db_link_frame():
                 for dbt_pb in fr.pb.links:
-                    dbt = DBTarget(None, dbt_pb.database.dsn, dbt_pb.database.table,
-                                   dbt_pb.database.schema, dbt_pb.database.servername,
-                                   dbt_pb.database.database, self, hfr.pb.uuid)
+                    dbt = DBLink(None, dbt_pb.database.dsn, dbt_pb.database.table,
+                                 dbt_pb.database.schema, dbt_pb.database.servername,
+                                 dbt_pb.database.database, hfr.pb.uuid)
                     dbt.commit()
 
     def atomic_update_hframe(self, hfr):
@@ -1105,18 +1063,18 @@ class DataContext(object):
         file_set = []
         return_one_file = False
 
-        if isinstance(src_files, basestring) or isinstance(src_files, luigi.LocalTarget) or isinstance(src_files, DBTarget):
+        if isinstance(src_files, six.string_types) or isinstance(src_files, luigi.LocalTarget) or isinstance(src_files, DBLink):
             return_one_file = True
             src_files = [src_files]
 
-        dst_scheme = urlparse(dst_dir).scheme
+        dst_scheme = urllib.parse.urlparse(dst_dir).scheme
 
         for src_path in src_files:
             try:
                 # If this is a luigi LocalTarget and it's in a managed path
                 # space, convert the target to a path name but no copy.
                 if src_path.path.startswith(dst_dir):
-                    file_set.append(urljoin('file:', src_path.path))
+                    file_set.append(urllib.parse.urljoin('file:', src_path.path))
                     continue
                 else:
                     src_path = src_path.path
@@ -1124,16 +1082,16 @@ class DataContext(object):
                 pass
 
             # If DBTarget, just pass it on through.
-            if isinstance(src_path, DBTarget):
+            if isinstance(src_path, DBLink):
                 file_set.append(src_path)
                 continue
 
             # Detect manual db:// paths and error out.
-            if urlparse(src_path).scheme == 'db':
+            if urllib.parse.urlparse(src_path).scheme == 'db':
                 """ At this time we don't support user-supplied db link paths
                 Instead we assume these are managed.   Which means the db table already exists
                 and doesn't need to be 'copied-in'.   """
-                _logger.warn("Not copying-in a string-based database reference[{}].  Disdat only supports string refs from DBTarget objects.".format(src_path))
+                _logger.warn("Disdat does not copy-in database references[{}].  Assume user stored table as file.".format(src_path))
                 file_set.append(src_path)
                 continue
 
@@ -1142,7 +1100,7 @@ class DataContext(object):
             dst_file = os.path.join(dst_dir, sub_dir, os.path.basename(src_path))
 
             if dst_scheme != 's3' and dst_scheme != 'db':
-                file_set.append(urljoin('file:', dst_file))
+                file_set.append(urllib.parse.urljoin('file:', dst_file))
             else:
                 file_set.append(dst_file)
 
@@ -1152,8 +1110,8 @@ class DataContext(object):
                 file_set[-1] = src_path
                 _logger.debug("DataContext: copy_in_files found src {} == dst {}".format(src_path, file_set[-1]))
                 # but it can also happen if you re-bind and push.  So check that file is present!
-                if urlparse(src_path).scheme == 's3' and not aws_s3.s3_path_exists(src_path):
-                    print ("DataContext: copy_in_files found s3 link {} not present!".format(src_path))
+                if urllib.parse.urlparse(src_path).scheme == 's3' and not aws_s3.s3_path_exists(src_path):
+                    print(("DataContext: copy_in_files found s3 link {} not present!".format(src_path)))
                     print ("It is likely that this bundle existed on another remote branch and ")
                     print ("was not localized before changing remotes.")
                     raise Exception("copy_in_files: bad localized bundle push.")
@@ -1161,7 +1119,7 @@ class DataContext(object):
 
             try:
                 if not os.path.isdir(src_path):
-                    o = urlparse(src_path)
+                    o = urllib.parse.urlparse(src_path)
 
                     if o.scheme == 's3':
                         # s3 to s3
@@ -1186,7 +1144,7 @@ class DataContext(object):
                             raise Exception("copy_in_files: copy local file to unsupported scheme {}".format(dst_scheme))
 
                     else:
-                        raise Exception("DataContext copy-in-file found bad scheme: {}".format(o.scheme))
+                        raise Exception("DataContext copy-in-file found bad scheme: {} from {}".format(o.scheme, o))
                 else:
                     _logger.info("DataContext copy-in-file: Not adding files in directory {}".format(src_path))
             except (IOError, os.error) as why:
@@ -1222,14 +1180,11 @@ class DataContext(object):
         urls = fr.get_link_urls()
 
         if fr.is_db_link_frame():
-            """ Add the local context and return """
-            local_ctxt = self.get_local_name()
-            file_set = [lf.replace('{}_'.format(DBTarget.disdat_prefix),
-                                   '{}_{}_'.format(DBTarget.disdat_prefix, local_ctxt)) for lf in urls]
-            return file_set
+            """ No-Op with db links """
+            return urls
         else:
             """ Must be s3 or local file links.  All the files in the link must be present """
-            assert urlparse(urls[0]).scheme == common.BUNDLE_URI_SCHEME.replace('://', '')
+            assert urllib.parse.urlparse(urls[0]).scheme == common.BUNDLE_URI_SCHEME.replace('://', '')
             local_dir = self.get_object_dir()
             local_file_set = [os.path.join(local_dir, fr.hframe_uuid, f.replace(common.BUNDLE_URI_SCHEME, '')) for f in
                               urls]

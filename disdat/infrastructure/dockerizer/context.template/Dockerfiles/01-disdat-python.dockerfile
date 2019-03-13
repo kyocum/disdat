@@ -21,9 +21,13 @@ COPY disdat $BUILD_ROOT/disdat
 # ...and install Disdat
 RUN virtualenv $VIRTUAL_ENV
 
-# Ugh.   setuptools 40.7.0 breaks pyodbc installs by passing in unicode to distutils and
+# UGH.   setuptools 40.7.0 breaks pyodbc installs by passing in unicode to distutils and
 # it breaks looking for a type StringType, and not creating an array and then breaking when string doesn't have append
-RUN ["/bin/bash", "-c", "source $VIRTUAL_ENV/bin/activate; pip install setuptools==40.6.0; pip install $BUILD_ROOT/disdat/dockerizer/context.template/$DISDAT_SDIST; deactivate"]
+# if 2.7.x-slim
+RUN ["/bin/bash", "-c", "source $VIRTUAL_ENV/bin/activate; pip install setuptools==40.6.0; pip install --no-cache-dir $BUILD_ROOT/disdat/dockerizer/context.template/$DISDAT_SDIST; deactivate"]
+
+# Use this line when we move to P3.
+# RUN ["/bin/bash", "-c", "source $VIRTUAL_ENV/bin/activate; pip install $BUILD_ROOT/disdat/dockerizer/context.template/$DISDAT_SDIST; deactivate"]
 
 # Add the virtual environment Python to the head of the PATH; running
 # `python` will then get you the installed virtual environment and the
@@ -37,6 +41,6 @@ RUN dsdt init
 COPY pip.conf /opt/pip.conf
 ENV PIP_CONFIG_FILE /opt/pip.conf
 
-# Local environmment may hvae its own odbc.ini file, if not set, copies empty file.
+# Local environmment may have its own odbc.ini file, if not set, copies empty file.
 COPY odbc.ini /opt/odbc.ini
 ENV ODBCINI /opt/odbc.ini

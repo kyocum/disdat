@@ -20,19 +20,15 @@ Configuration
 import logging
 import os
 import sys
-import ConfigParser
 import shutil
+
+import luigi
+from six.moves import urllib
+from six.moves import configparser
+
 from disdat import resource
 import disdat.config
-import luigi
-
-from urlparse import urlparse
-
-_logger = logging.getLogger(__name__)
-
-_logging_format_simple = '%(levelname)s : %(name)s : %(message)s'
-_logging_format_fancy = '%(asctime)s : %(levelname)s : %(name)s : %(message)s'
-_logging_default_level = logging.WARN
+from disdat import logger as _logger
 
 
 SYSTEM_CONFIG_DIR = '~/.config/disdat'
@@ -92,24 +88,6 @@ def apply_handle_result(apply_result, raise_not_exit=False):
             sys.exit(error_str)
 
 
-def setup_default_logging():
-    """
-    Set up root logger so all inherited loggers get console for free.
-
-    Args:
-        logger:
-
-    Returns:
-
-    """
-    global _logger
-
-    logging.basicConfig(stream=sys.stderr, format=_logging_format_simple, level=_logging_default_level)
-
-    # so that the logger for this file is set up.
-    _logger = logging.getLogger(__name__)
-
-
 class SingletonType(type):
     def __call__(self, *args, **kwargs):
         try:
@@ -131,43 +109,47 @@ class DisdatConfig(object):
 
     _instance = None
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, meta_dir_root=None, config_dir=None):
+        """
 
-        # Set up default logging to begin with. Can later be updated.
-        setup_default_logging()
-
+        Args:
+            meta_dir_root (str): Optional place to store disdat contexts. Default `~/`
+            config_dir (str): Optional directory from which to get disdat.cfg and luigi.cfg.  Default SYSTEM_CONFIG_DIR
+        """
         # Find configuration directory
-        config_dir = os.path.expanduser(SYSTEM_CONFIG_DIR)
+        if config_dir:
+            config_dir = config_dir
+        else:
+            config_dir = os.path.expanduser(SYSTEM_CONFIG_DIR)
+
         if not os.path.exists(config_dir):
             error(
-                'Did not find configuration. '
-                'Call "dsdt init" to initialize context.'
+                'Did not find Disdat configuration. '
+                'Call "dsdt init" to initialize Disdat.'
             )
 
         # Extract individual configuration files
         disdat_cfg = os.path.join(config_dir, CFG_FILE)
         luigi_cfg = os.path.join(config_dir, LUIGI_FILE)
 
-        """ If running through pyinstaller, then use the current pythonpath to find the apply transforms"""
-        if getattr(sys, 'frozen', False):
-            # we are running in a bundle
-            bundle_dir = sys._MEIPASS
-            sys.path.extend(os.environ.get('PYTHONPATH', '').split(':'))
+        if meta_dir_root:
+            self.meta_dir_root = meta_dir_root
         else:
-            # we are running in a normal Python environment
-            bundle_dir = os.path.dirname(os.path.abspath(__file__))
-
-        self.meta_dir_root = '~/'
+            self.meta_dir_root = '~/'
         self.logging_config = None
         self.parser = self._read_configuration_file(disdat_cfg, luigi_cfg)
 
     @staticmethod
-    def instance(*args, **kwargs):
+    def instance(meta_dir_root=None, config_dir=None):
         """
         Singleton getter
+
+        Args:
+            meta_dir_root (str): Optional place to store disdat contexts. Default `~/`
+            config_dir (str): Optional directory from which to get disdat.cfg and luigi.cfg.  Default SYSTEM_CONFIG_DIR
         """
         if DisdatConfig._instance is None:
-            DisdatConfig._instance = DisdatConfig(*args, **kwargs)
+            DisdatConfig._instance = DisdatConfig(meta_dir_root=meta_dir_root, config_dir=config_dir)
         return DisdatConfig._instance
 
     @staticmethod
@@ -183,18 +165,11 @@ class DisdatConfig(object):
         Next, see if there is a disdat.cfg in cwd.  Then configure disdat and (re)configure logging.
         """
         # _logger.debug("Loading config file [{}]".format(disdat_config_file))
-        config = ConfigParser.SafeConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
+        config = configparser.SafeConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
         config.read(disdat_config_file)
         self.meta_dir_root = os.path.expanduser(config.get('core', 'meta_dir_root'))
         self.meta_dir_root = DisdatConfig._fix_relative_path(disdat_config_file, self.meta_dir_root)
         self.ignore_code_version = config.getboolean('core', 'ignore_code_version')
-
-        try:
-            self.logging_config = os.path.expanduser(config.get('core', 'logging_conf_file'))
-            self.logging_config = DisdatConfig._fix_relative_path(disdat_config_file, self.logging_config)
-            logging.config.fileConfig(self.logging_config, disable_existing_loggers=False)
-        except ConfigParser.NoOptionError:
-            pass
 
         # Set up luigi configuration
         luigi.configuration.get_config().read(luigi_config_file)
@@ -244,11 +219,11 @@ class DisdatConfig(object):
 
         # Make sure paths are absolute in luigi config
         luigi_dir = os.path.join(directory, LUIGI_FILE)
-        config = ConfigParser.ConfigParser()
+        config = configparser.ConfigParser()
         config.read(luigi_dir)
         value = config.get('core', 'logging_conf_file')
         config.set('core', 'logging_conf_file', os.path.expanduser(value))
-        with open(luigi_dir, 'wb') as handle:
+        with open(luigi_dir, 'w') as handle:
             config.write(handle)
 
 
@@ -324,7 +299,7 @@ def make_run_command(
         '--output-bundle-uuid ', output_bundle_uuid,
         '--remote', remote,
         '--branch', context,
-        '--workers', unicode(workers)
+        '--workers', str(workers)
     ]
     if no_pull:
         args += ['--no-pull']
@@ -395,7 +370,7 @@ def get_local_file_path(url):
     Raises:
         TypeError if the URL is not a file URL
     """
-    parsed_url = urlparse(url)
+    parsed_url = urllib.parse.urlparse(url)
     if parsed_url.scheme != 'file' and parsed_url.scheme != '':
         raise TypeError('Expected file scheme in URL, got {}'.format(parsed_url.scheme))
     return parsed_url.path

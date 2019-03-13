@@ -29,29 +29,28 @@ Backends do things in different ways.
 
 author: Kenneth Yocum
 """
-
+from __future__ import print_function
 
 import argparse
-
-import boto3_session_cache as b3
-import disdat.fs as fs
-import disdat.common as common
-import disdat.utility.aws_s3 as aws
-import docker
 import inspect
-import logging
 import os
 import tempfile
 import time
 import json
-from disdat.common import DisdatConfig
-from enum import Enum
 from sys import platform
+
+import docker
+import boto3_session_cache as b3
+from enum import Enum
+
+import disdat.fs as fs
+import disdat.common as common
+import disdat.utility.aws_s3 as aws
+from disdat.common import DisdatConfig
+from disdat import logger as _logger
 
 
 _MODULE_NAME = inspect.getmodulename(__file__)
-
-_logger = logging.getLogger(__name__)
 
 
 class Backend(Enum):
@@ -125,7 +124,7 @@ def _run_local(cli, arglist, pipeline_class_name, backend):
 
         stdout = client.containers.run(pipeline_image_name, arglist, detach=False,
                                        environment=environment, init=True, stderr=True, volumes=volumes)
-        if cli: print stdout
+        if cli: print(stdout)
         return stdout
     except docker.errors.ImageNotFound:
         _logger.error("Unable to find the docker image {}".format(pipeline_image_name))
@@ -358,17 +357,17 @@ def _run_aws_sagemaker(arglist, job_name, pipeline_class_name):
             {'Key': 'job', 'Value': job_name}]
 
     if False:
-        print "Disdat SageMaker configs"
-        print "job name: {}".format(job_name)
-        print "hparams: {}".format(hyperparameter_dict)
-        print "algorithm: {}".format(algorithm_specification)
-        print "Role ARN: {}".format(role_arn)
-        print "Input data conf: {}".format(input_channel_config)
-        print "Output data conf: {}".format(output_data_config)
-        print "Resource conf: {}".format(resource_config)
-        print "VPC conf: {}".format(vpc_config)
-        print "Stopping condition seconds: {}".format(stopping_condition)
-        print "Tags: {}".format(tags)
+        print("Disdat SageMaker configs")
+        print("job name: {}".format(job_name))
+        print("hparams: {}".format(hyperparameter_dict))
+        print("algorithm: {}".format(algorithm_specification))
+        print("Role ARN: {}".format(role_arn))
+        print("Input data conf: {}".format(input_channel_config))
+        print("Output data conf: {}".format(output_data_config))
+        print("Resource conf: {}".format(resource_config))
+        print("VPC conf: {}".format(vpc_config))
+        print("Stopping condition seconds: {}".format(stopping_condition))
+        print("Tags: {}".format(tags))
 
     client = b3.client('sagemaker', region_name=aws.profile_get_region())
 
@@ -576,16 +575,24 @@ def run_entry(cli=False, **kwargs):
     pfs = fs.DisdatFS()
 
     # Ensure kwargs only contains the arguments we want when calling _run
-    [kwargs.pop(k) for k in kwargs.keys() if k not in _run.__code__.co_varnames]
+    remove_keys = []
+    for k in kwargs.keys():
+        if k not in _run.__code__.co_varnames:
+            remove_keys.append(k)
+
+    for k in remove_keys:
+        kwargs.pop(k)
+
+    #[kwargs.pop(k) for k in kwargs.keys() if k not in _run.__code__.co_varnames]
 
     # if any set, the other must be set.  if a or b, then a and b are set
     if kwargs['context'] is not None or kwargs['remote'] is not None:
         if kwargs['context'] is None or kwargs['remote'] is None:
-            print "Must set both context [{}] and remote [{}] simultaneously.".format(kwargs['context'], kwargs['remote'])
+            print("Must set both context [{}] and remote [{}] simultaneously.".format(kwargs['context'], kwargs['remote']))
             return
     else:
         if not pfs.in_context():
-            print "'Must be in a context (or specify --context and --remote) to execute 'dsdt run'"
+            print("'Must be in a context (or specify --context and --remote) to execute 'dsdt run'")
             return
 
     if kwargs['backend'] is not None:

@@ -32,18 +32,18 @@ available before I run.
 author: Kenneth Yocum
 """
 
+import os
+import json
+import six
+
+import luigi
+
 from disdat.pipe_base import PipeBase
-from disdat.db_target import DBTarget
+from disdat.db_link import DBLink
 from disdat.driver import DriverTask
 from disdat.fs import DisdatFS
 from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PARAMS_PREFIX
-import luigi
-import logging
-import os
-import json
-
-
-_logger = logging.getLogger(__name__)
+from disdat import logger as _logger
 
 
 class PipeTask(luigi.Task, PipeBase):
@@ -211,7 +211,7 @@ class PipeTask(luigi.Task, PipeBase):
         for user_arg_name, cls_and_params in rslt.items():
             pipe_class, params = cls_and_params[0], cls_and_params[1]
 
-            if isinstance(pipe_class, str) or isinstance(pipe_class, unicode):
+            if isinstance(pipe_class, six.string_types):
                 """ if it is a string, find the Python task class """
                 pipe_class = DriverTask.get_task_cls(pipe_class)
 
@@ -267,7 +267,11 @@ class PipeTask(luigi.Task, PipeBase):
             user_rtn_val = self.pipe_run(**kwargs)
         except Exception as error:
             """ If user's pipe fails for any reason, remove bundle dir and raise """
-            PipeBase.rm_bundle_dir(pce.path, pce.uuid, self.db_targets)
+            try:
+                _logger.error("User pipe_run encountered exception: {}".format(error))
+                PipeBase.rm_bundle_dir(pce.path, pce.uuid, self.db_targets)
+            except OSError as ose:
+                _logger.error("User pipe_run encountered error, and error on remove bundle: {}".format(ose))
             raise
 
         try:
@@ -327,7 +331,7 @@ class PipeTask(luigi.Task, PipeBase):
             if not isinstance(param_obj, luigi.Parameter):
                 continue
             val = getattr(self,p)
-            if type(val) is str or type(val) is unicode:
+            if isinstance(val, six.string_types):
                 ser_val = json.dumps(val)
             else:
                 ser_val = param_obj.serialize(getattr(self, p))  # serialize the param_obj.normalize(x)
@@ -501,7 +505,7 @@ class PipeTask(luigi.Task, PipeBase):
             (`disdat.db_target.DBTarget`)
 
         """
-        target = DBTarget(self, dsn, table_name, schema_name=schema_name)
+        target = DBLink(self, dsn, table_name, schema_name=schema_name)
 
         return target
 
