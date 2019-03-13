@@ -21,18 +21,14 @@ import logging
 import os
 import sys
 import shutil
-from disdat import resource
-import disdat.config
-import luigi
 
+import luigi
 from six.moves import urllib
 from six.moves import configparser
 
-_logger = logging.getLogger(__name__)
-
-_logging_format_simple = '%(levelname)s : %(name)s : %(message)s'
-_logging_format_fancy = '%(asctime)s : %(levelname)s : %(name)s : %(message)s'
-_logging_default_level = logging.WARN
+from disdat import resource
+import disdat.config
+from disdat import logger as _logger
 
 
 SYSTEM_CONFIG_DIR = '~/.config/disdat'
@@ -92,24 +88,6 @@ def apply_handle_result(apply_result, raise_not_exit=False):
             sys.exit(error_str)
 
 
-def setup_default_logging():
-    """
-    Set up root logger so all inherited loggers get console for free.
-
-    Args:
-        logger:
-
-    Returns:
-
-    """
-    global _logger
-
-    logging.basicConfig(stream=sys.stderr, format=_logging_format_simple, level=_logging_default_level)
-
-    # so that the logger for this file is set up.
-    _logger = logging.getLogger(__name__)
-
-
 class SingletonType(type):
     def __call__(self, *args, **kwargs):
         try:
@@ -138,10 +116,6 @@ class DisdatConfig(object):
             meta_dir_root (str): Optional place to store disdat contexts. Default `~/`
             config_dir (str): Optional directory from which to get disdat.cfg and luigi.cfg.  Default SYSTEM_CONFIG_DIR
         """
-
-        # Set up default logging to begin with. Can later be updated.
-        setup_default_logging()
-
         # Find configuration directory
         if config_dir:
             config_dir = config_dir
@@ -196,13 +170,6 @@ class DisdatConfig(object):
         self.meta_dir_root = os.path.expanduser(config.get('core', 'meta_dir_root'))
         self.meta_dir_root = DisdatConfig._fix_relative_path(disdat_config_file, self.meta_dir_root)
         self.ignore_code_version = config.getboolean('core', 'ignore_code_version')
-
-        try:
-            self.logging_config = os.path.expanduser(config.get('core', 'logging_conf_file'))
-            self.logging_config = DisdatConfig._fix_relative_path(disdat_config_file, self.logging_config)
-            logging.config.fileConfig(self.logging_config, disable_existing_loggers=False)
-        except configparser.NoOptionError:
-            pass
 
         # Set up luigi configuration
         luigi.configuration.get_config().read(luigi_config_file)

@@ -32,26 +32,25 @@ author: Kenneth Yocum
 from __future__ import print_function
 
 import argparse
-
-import boto3_session_cache as b3
-import disdat.fs as fs
-import disdat.common as common
-import disdat.utility.aws_s3 as aws
-import docker
 import inspect
-import logging
 import os
 import tempfile
 import time
 import json
-from disdat.common import DisdatConfig
-from enum import Enum
 from sys import platform
+
+import docker
+import boto3_session_cache as b3
+from enum import Enum
+
+import disdat.fs as fs
+import disdat.common as common
+import disdat.utility.aws_s3 as aws
+from disdat.common import DisdatConfig
+from disdat import logger as _logger
 
 
 _MODULE_NAME = inspect.getmodulename(__file__)
-
-_logger = logging.getLogger(__name__)
 
 
 class Backend(Enum):

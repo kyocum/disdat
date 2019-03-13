@@ -16,6 +16,17 @@
 """
 A DisDat context
 """
+import os
+import json
+import glob
+import shutil
+
+from sqlalchemy import create_engine
+import pandas as pd
+import numpy as np
+import luigi
+from six.moves import urllib
+import six
 
 import disdat.constants as constants
 import disdat.hyperframe_pb2 as hyperframe_pb2
@@ -24,20 +35,8 @@ import disdat.common as common
 import disdat.utility.aws_s3 as aws_s3
 from disdat.common import DisdatConfig
 from disdat.db_link import DBLink
+from disdat import logger as _logger
 
-import logging
-import os
-import json
-import glob
-import shutil
-from sqlalchemy import create_engine
-import pandas as pd
-import numpy as np
-import luigi
-from six.moves import urllib
-import six
-
-_logger = logging.getLogger(__name__)
 
 META_CTXT_FILE = 'ctxt.json'
 DB_FILE = 'ctxt.db'

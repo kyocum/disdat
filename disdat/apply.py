@@ -25,17 +25,17 @@ author: Kenneth Yocum
 """
 from __future__ import print_function
 
-import logging
 import sys
 import json
 import collections
+
+from luigi import build, worker
+
 import disdat.common as common  # config, especially logging, before luigi ever loads
 import disdat.pipe_base as pipe_base
 import disdat.fs as fs
 import disdat.driver as driver
-from luigi import build, worker
-
-_logger = logging.getLogger(__name__)
+from disdat import logger as _logger
 
 
 def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,

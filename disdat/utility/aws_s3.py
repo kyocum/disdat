@@ -25,19 +25,17 @@ Utilities for accessing AWS using boto3
 # users that use AWS profiles with MFA tokens aren't constantly asked to
 # enter new token values.
 import base64
-import boto3_session_cache as b3
-import disdat.common as common
-import logging
 import os
 import pkg_resources
+from getpass import getuser
 import six
 
 from botocore.exceptions import ClientError
+import boto3_session_cache as b3
 from six.moves import urllib
-from getpass import getuser
 
-
-_logger = logging.getLogger(__name__)
+import disdat.common as common
+from disdat import logger as _logger
 
 
 def batch_get_job_definition_name(pipeline_class_name):
