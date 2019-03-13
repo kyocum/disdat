@@ -185,12 +185,8 @@ $(DOCKER_CONTEXT)/disdat: $(DOCKER_CONTEXT) $(shell find $(DISDAT_ROOT)/disdat -
 # We assume the user has a setup.py that can create an sdist.
 $(DOCKER_CONTEXT)/pipeline: $(DOCKER_CONTEXT) $(shell find $(PIPELINE_ROOT) -not -path '*/\.*' -type f)
 	@echo "----- Copying pipeline $(PIPELINE_ROOT)"
-<<<<<<< HEAD
-	python $(PIPELINE_ROOT)/setup.py sdist --dist-dir $@
-=======
 	cd $(PIPELINE_ROOT); \
 	    python $(PIPELINE_ROOT)/setup.py sdist --dist-dir $@; cd -
->>>>>>> develop
 	@touch $@
 
 
