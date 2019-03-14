@@ -56,7 +56,6 @@ def main():
 
     :return: (shape of input df, shape of pushed df)
     """
-    log.enable()  # TODO: Add configurable verbosity
 
     if getattr(sys, 'frozen', False):
         here = os.path.join(sys._MEIPASS, 'disdat')
@@ -113,10 +112,11 @@ def main():
 
     args = parser.parse_args(args)
 
-    log_level = logging.WARN
+    log_level = logging.INFO
     if args.verbose:
         log_level = logging.DEBUG
-    logging.basicConfig(level=log_level)
+
+    log.enable(level=log_level)  # TODO: Add configurable verbosity
 
     if args.aws_profile is not None:
         os.environ['AWS_PROFILE'] = args.aws_profile
