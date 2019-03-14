@@ -123,7 +123,8 @@ setup(
             'nose',
             'pylint',
             'coverage',
-            'tox'
+            'tox',
+            'moto'
         ],
         'rel': [
             'wheel',

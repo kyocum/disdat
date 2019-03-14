@@ -159,7 +159,7 @@ class DataContext(object):
 
         if not aws_s3.s3_path_exists(s3_url):
             _logger.error("Unable to bind context {} because URL {} does not exist.".format(remote_context, s3_url))
-            return
+            raise RuntimeError
 
         if self.remote_ctxt_url is None:
             _logger.debug("Binding local branch {} context {} to URL {}".format(self.local_ctxt, self.remote_ctxt, s3_url))
