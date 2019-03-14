@@ -721,9 +721,9 @@ class DisdatFS(object):
                 if self._curr_context is not None and self._curr_context is ctxt:
                     cprint("*", "white", end='')
                     cprint("\t{}".format(ctxt_name), "green", end='')
-                    cprint("\t[{}@{}]".format(ctxt.remote_ctxt, self._curr_context.get_remote_object_dir()))
+                    cprint("\t[{}@{}]".format(ctxt.remote_ctxt, self._curr_context.remote_ctxt_url))
                 else:
-                    print("\t{}\t[{}@{}]".format(ctxt.local_ctxt, ctxt.remote_ctxt, ctxt.get_remote_object_dir()))
+                    print("\t{}\t[{}@{}]".format(ctxt.local_ctxt, ctxt.remote_ctxt, ctxt.remote_ctxt_url))
             return 0
 
         remote_context, local_context = DisdatFS._parse_fq_context_name(fq_context_name)
@@ -1346,12 +1346,17 @@ class DisdatFS(object):
 
         _logger.debug("Fast Pull Pool using {} processes.".format(cpu_count()))
 
+        _logger.info("Fast Pull synchronizing with remote context {}@{}".format(data_context.remote_ctxt,
+                                                                                   data_context.remote_ctxt_url))
+
         remote_s3_object_dir = data_context.get_remote_object_dir()
         s3_bucket, remote_obj_dir = aws_s3.split_s3_url(remote_s3_object_dir)
         all_objects = aws_s3.ls_s3_url_objects(remote_s3_object_dir)
 
         if not localize:
             all_objects = [obj for obj in all_objects if 'frame.pb' in obj.key]
+
+        fetch_count = 0
 
         multiple_results = []
         for s3_obj in all_objects:
@@ -1361,9 +1366,12 @@ class DisdatFS(object):
             local_uuid_dir = os.path.join(data_context.get_object_dir(), obj_suffix_dir)
             local_object_path = os.path.join(local_uuid_dir, obj_basename)
             if not os.path.exists(local_object_path):
+                fetch_count += 1
                 multiple_results.append(pool.apply_async(aws_s3.get_s3_key,
                                                          (s3_bucket,s3_obj.key,local_object_path)))
         pool.close()
+
+        _logger.info("Fast pull fetching {} objects...".format(fetch_count))
 
         results = [res.get(timeout=MAX_WAIT) for res in multiple_results]
 
