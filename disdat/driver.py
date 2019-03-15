@@ -26,16 +26,14 @@ Depending on the kind of pipe given, change our behavior between 1:1,
 
 author: Kenneth Yocum
 """
-from disdat.fs import PipeCacheEntry, DisdatFS
-from .pipe_base import PipeBase
-
-from luigi.task_register import load_task
-from collections import defaultdict, deque
-import luigi
 import json
-import logging
+from collections import defaultdict, deque
 
-_logger = logging.getLogger(__name__)
+import luigi
+from luigi.task_register import load_task
+
+from disdat.fs import PipeCacheEntry, DisdatFS
+from disdat.pipe_base import PipeBase
 
 
 class DriverTask(luigi.WrapperTask, PipeBase):

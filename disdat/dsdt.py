@@ -32,8 +32,8 @@ from disdat import dockerize
 from disdat import run
 from disdat.fs import init_fs_cl
 from disdat.common import DisdatConfig
+from disdat import log
 
-_logger = logging.getLogger(__name__)
 
 _pipes_fs = None
 
@@ -112,10 +112,11 @@ def main():
 
     args = parser.parse_args(args)
 
-    log_level = logging.WARN
+    log_level = logging.INFO
     if args.verbose:
         log_level = logging.DEBUG
-    logging.basicConfig(level=log_level)
+
+    log.enable(level=log_level)  # TODO: Add configurable verbosity
 
     if args.aws_profile is not None:
         os.environ['AWS_PROFILE'] = args.aws_profile

@@ -32,20 +32,18 @@ available before I run.
 author: Kenneth Yocum
 """
 
+import os
+import json
 import six
+
+import luigi
+
 from disdat.pipe_base import PipeBase
 from disdat.db_link import DBLink
 from disdat.driver import DriverTask
 from disdat.fs import DisdatFS
 from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PARAMS_PREFIX
-import luigi
-import logging
-import os
-import json
-import six
-
-
-_logger = logging.getLogger(__name__)
+from disdat import logger as _logger
 
 
 class PipeTask(luigi.Task, PipeBase):
@@ -269,7 +267,11 @@ class PipeTask(luigi.Task, PipeBase):
             user_rtn_val = self.pipe_run(**kwargs)
         except Exception as error:
             """ If user's pipe fails for any reason, remove bundle dir and raise """
-            PipeBase.rm_bundle_dir(pce.path, pce.uuid, self.db_targets)
+            try:
+                _logger.error("User pipe_run encountered exception: {}".format(error))
+                PipeBase.rm_bundle_dir(pce.path, pce.uuid, self.db_targets)
+            except OSError as ose:
+                _logger.error("User pipe_run encountered error, and error on remove bundle: {}".format(ose))
             raise
 
         try:
