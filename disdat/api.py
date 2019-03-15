@@ -32,9 +32,9 @@ Author: Kenneth Yocum
 """
 from __future__ import print_function
 
-import logging
 import os
 import json
+
 import luigi
 from luigi.contrib import s3
 
@@ -48,8 +48,7 @@ from disdat.pipe import PipeTask
 from disdat.hyperframe import HyperFrameRecord, LineageRecord
 from disdat.run import Backend, run_entry
 from disdat.dockerize import dockerize_entry
-
-_logger = logging.getLogger(__name__)
+from disdat import logger as _logger
 
 disdat.fs.DisdatConfig.instance()
 

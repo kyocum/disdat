@@ -16,6 +16,17 @@
 """
 A DisDat context
 """
+import os
+import json
+import glob
+import shutil
+
+from sqlalchemy import create_engine
+import pandas as pd
+import numpy as np
+import luigi
+from six.moves import urllib
+import six
 
 import disdat.constants as constants
 import disdat.hyperframe_pb2 as hyperframe_pb2
@@ -24,20 +35,8 @@ import disdat.common as common
 import disdat.utility.aws_s3 as aws_s3
 from disdat.common import DisdatConfig
 from disdat.db_link import DBLink
+from disdat import logger as _logger
 
-import logging
-import os
-import json
-import glob
-import shutil
-from sqlalchemy import create_engine
-import pandas as pd
-import numpy as np
-import luigi
-from six.moves import urllib
-import six
-
-_logger = logging.getLogger(__name__)
 
 META_CTXT_FILE = 'ctxt.json'
 DB_FILE = 'ctxt.db'
@@ -160,7 +159,7 @@ class DataContext(object):
 
         if not aws_s3.s3_path_exists(s3_url):
             _logger.error("Unable to bind context {} because URL {} does not exist.".format(remote_context, s3_url))
-            return
+            raise RuntimeError
 
         if self.remote_ctxt_url is None:
             _logger.debug("Binding local branch {} context {} to URL {}".format(self.local_ctxt, self.remote_ctxt, s3_url))
