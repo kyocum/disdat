@@ -221,8 +221,6 @@ class DisdatConfig(object):
         luigi_dir = os.path.join(directory, LUIGI_FILE)
         config = configparser.ConfigParser()
         config.read(luigi_dir)
-        value = config.get('core', 'logging_conf_file')
-        config.set('core', 'logging_conf_file', os.path.expanduser(value))
         with open(luigi_dir, 'w') as handle:
             config.write(handle)
 
