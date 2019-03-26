@@ -378,21 +378,22 @@ class DisdatFS(object):
 
     def add(self, bundle_name, path_name, tags):
         """  Create bundle bundle_name given path path_name.
-        The path may point to a file or a csv/tsv file.  If a file, create a simple bundle
-        with a single link.  Otherwise create a bundle with the data in the csv/tsv file.
-        The presentation is set to dataframe for these bundle creations.
+        If path = directory, then create bundle with items in directory as a list of links
+        If path = file:
+            If file ends in .tsv | .csv, then treat as dataframe presented bundle
+            else: create bundle as single link to this file.
 
         If bundle exists, create a new version with the same name.
 
+
         Args:
-            bundle_name (str):
-            path_name (str):
-            tags (dict):
+            bundle_name (str):  The human name for this new bundle
+            path_name (str):  The directory or file from which to create a bundle
+            tags (dict):  The set of tags to attach to this bundle
 
         Returns:
-
+            None
         """
-        import disdat.add  # Note, FS->AddTask->PipeBase->FS, import cycle.
 
         if not self.in_context():
             _logger.warning('Not in a data context')
@@ -400,20 +401,58 @@ class DisdatFS(object):
         _logger.debug('Adding file {} to bundle {} in context {}'.format(path_name,
                                                                          bundle_name,
                                                                          self._curr_context.get_repo_name()))
+        input_path = path_name
+        output_bundle = bundle_name
 
-        # we only make the instance to add the output bundle -- it MUST have the same args as args below!
-        add_pipe = disdat.add.AddTask(path_name, bundle_name, tags)
+        output_bundles = [(self.pipe_id(), self.pfs.get_path_cache(self).uuid)]
+        return output_bundles
 
-        self.new_output_hframe(add_pipe, is_left_edge_task=False)
+        bundle_processing_name, add_hf_uuid = self.bundle_outputs()[0]  # @UnusedVariable
+        bundle_hframe_file = self.output()[PipeBase.HFRAME].path
+        managed_path = os.path.dirname(bundle_hframe_file)
 
-        args = [disdat.add.AddTask.task_family,
-                '--local-scheduler',
-                '--input-path', path_name,
-                '--output-bundle', bundle_name,
-                '--tags', json.dumps(tags)
-                ]
+        if os.path.isdir(self.input_path):
+            """ With a directory, add all files under one special frame """
+            abs_input_path = os.path.abspath(self.input_path)
+            files = [urllib.parse.urljoin('file:', os.path.join(abs_input_path, f)) for f in os.listdir(abs_input_path)]
+            file_set = DataContext.copy_in_files(files, managed_path)
+            frames = [FrameRecord.make_link_frame(add_hf_uuid, constants.FILE, file_set, managed_path), ]
+            presentation = hyperframe_pb2.TENSOR
+        elif os.path.isfile(self.input_path):
+            if str(self.input_path).endswith('.csv') or str(self.input_path).endswith('.tsv'):
+                bundle_df = pd.read_csv(self.input_path, sep=None) # sep=None means python parse engine detects sep
+                frames = DataContext.convert_df2frames(add_hf_uuid, bundle_df, managed_path=managed_path)
+                presentation = hyperframe_pb2.DF
+            else:
+                """ Other kinds of file """
+                abs_input_path = os.path.abspath(self.input_path)
+                files = [urllib.parse.urljoin('file:', abs_input_path)]
+                file_set = DataContext.copy_in_files(files, managed_path)
+                frames = [FrameRecord.make_link_frame(add_hf_uuid, constants.FILE, file_set, managed_path), ]
+                presentation = hyperframe_pb2.TENSOR
+        else:
+            raise RuntimeError('Unable to find input file or path {}'.format(self.input_path))
 
-        retcodes.run_with_retcodes(args)
+        """ Make a single HyperFrame output for an add """
+
+        if 'taskname' in self.tags or 'presentable' in self.tags:
+            print("Unable to add bundle {}: tags contain reserved keys 'taskname' or 'presentable'".format(self.output_bundle))
+            # Todo: Delete temporary bundle here
+            return
+
+        tags = {'taskname': 'add', 'presentable': 'True', 'root_task':'True'}
+
+        tags.update(self.tags)
+
+        task_hfr = self.make_hframe(frames, add_hf_uuid, self.bundle_inputs(),
+                                    self.pipeline_id(), self.pipe_id(), self,
+                                    tags=tags,
+                                    presentation=presentation)
+
+        self.pfs.get_curr_context().write_hframe(task_hfr)
+
+
+
 
     def get_latest_hframe(self, human_name, tags=None, getall=False, data_context=None):
         """

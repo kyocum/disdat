@@ -212,15 +212,18 @@ def profile_get_region():
                 return _get_region(profiles, profile_name)
             except KeyError:
                 return None
-    session = b3.session()
-    if 'AWS_PROFILE' in os.environ:
-        profile_name = os.environ['AWS_PROFILE']
-    else:
-        profile_name = 'default'
-    profiles = session.full_config['profiles']
-    region = _get_region(profiles, profile_name)
+
+    # ENV variables take precedence over the region in the ~/.aws/ folder
     if 'AWS_DEFAULT_REGION' in os.environ:
         region = os.environ['AWS_DEFAULT_REGION']
+    else:
+        session = b3.session()
+        if 'AWS_PROFILE' in os.environ:
+            profile_name = os.environ['AWS_PROFILE']
+        else:
+            profile_name = 'default'
+        profiles = session.full_config['profiles']
+        region = _get_region(profiles, profile_name)
     return region
 
 
