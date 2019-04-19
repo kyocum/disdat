@@ -156,7 +156,7 @@ def get_fq_docker_repo_name(is_sagemaker, pipeline_class_name):
     # including the registry.
     registry_name = disdat_config.parser.get('docker', 'registry').strip('/')
     if registry_name == '*ECR*':
-        fq_repository_name = aws.ecr_get_fq_respository_name(repository_name)
+        fq_repository_name = aws.ecr_get_fq_repository_name(repository_name)
     else:
         fq_repository_name = '{}/{}'.format(registry_name, repository_name)
 
@@ -263,6 +263,30 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name,
     # a batch EC2 instance might not have access to the S3 remote. To
     # get around this, allow the user to create some temporary AWS
     # credentials.
+
+    if aws_session_token_duration > 0 and job_role_arn is None:
+        sts_client = b3.client('sts')
+        try:
+            token = sts_client.get_session_token(DurationSeconds=aws_session_token_duration)
+            credentials = token['Credentials']
+            container_overrides['environment'] = [
+                {'name': 'AWS_ACCESS_KEY_ID', 'value': credentials['AccessKeyId']},
+                {'name': 'AWS_SECRET_ACCESS_KEY', 'value': credentials['SecretAccessKey']},
+                {'name': 'AWS_SESSION_TOKEN', 'value': credentials['SessionToken']}
+            ]
+        except Exception as e:
+            print ("Failed to get a token, trying users default credentials...")
+            credentials = b3.session().get_credentials()
+            #print (credentials.__dict__)
+            container_overrides['environment'] = [
+                {'name': 'AWS_ACCESS_KEY_ID', 'value': credentials.access_key},
+                {'name': 'AWS_SECRET_ACCESS_KEY', 'value': credentials.secret_key},
+                {'name': 'AWS_SESSION_TOKEN', 'value': credentials.token}
+            ]
+
+
+
+
     if aws_session_token_duration > 0 and job_role_arn is None:
         sts_client = b3.client('sts')
         token = sts_client.get_session_token(DurationSeconds=aws_session_token_duration)

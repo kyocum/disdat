@@ -54,7 +54,6 @@ disdat.fs.DisdatConfig.instance()
 
 fs = disdat.fs.DisdatFS()
 
-
 def set_aws_profile(aws_profile):
     os.environ['AWS_PROFILE'] = aws_profile
 
@@ -238,6 +237,7 @@ class Bundle(HyperFrameRecord):
             _logger.warn("Bundle is already open.")
             return
         elif not self.closed:
+
             self.local_dir, self.pb.uuid, self.remote_dir = self.data_context.make_managed_path()
             self.open = True
         else:

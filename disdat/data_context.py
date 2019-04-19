@@ -243,7 +243,7 @@ class DataContext(object):
         files = glob.glob(os.path.join(ctxt_dir, '*'))
 
         for ctxt in files:
-            _logger.debug("Loading context {}...".format(ctxt))
+            #_logger.debug("Loading context {}...".format(ctxt))
             meta_file = os.path.join(ctxt_dir, ctxt, META_CTXT_FILE)
 
             if not os.path.isfile(meta_file):
