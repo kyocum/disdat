@@ -200,8 +200,10 @@ def ecr_get_auth_config():
 
 
 def profile_get_region():
-    """Get the AWS region for the current AWS profile.
+    """Gets the AWS region for the current AWS profile. If AWS_DEFAULT_REGION is set in env will just default to use
+    that.
     """
+
     def _get_region(profiles, profile_name):
         if profile_name not in profiles:
             raise KeyError('AWS profile {} not defined in AWS config'.format(profile_name))
@@ -227,7 +229,6 @@ def profile_get_region():
         profiles = session.full_config['profiles']
         region = _get_region(profiles, profile_name)
     return region
-
 
 def s3_path_exists(s3_url):
     """
