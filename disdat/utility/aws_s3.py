@@ -169,12 +169,14 @@ def ecr_create_fq_respository_name(repository_name, policy_resource_package=None
                 repositoryNames=[repository_name]
             )
             repository_metadata = response['repositories'][0]
+        elif e.response['Error']['Code'] == 'AccessDeniedException':
+            _logger.warn("Error [AccessDeniedException] when creating repo {}, trying to continue...".format(repository_name))
         else:
             raise e
     return repository_metadata['repositoryUri']
 
 
-def ecr_get_fq_respository_name(repository_name):
+def ecr_get_fq_repository_name(repository_name):
     return ecr_create_fq_respository_name(repository_name)
 
 
@@ -215,6 +217,7 @@ def profile_get_region():
             except KeyError:
                 return None
 
+    # ENV variables take precedence over the region in the ~/.aws/ folder
     if 'AWS_DEFAULT_REGION' in os.environ:
         region = os.environ['AWS_DEFAULT_REGION']
     else:
