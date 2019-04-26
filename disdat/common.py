@@ -319,43 +319,6 @@ def make_sagemaker_project_image_name(setup_file_path):
     return make_project_image_name(setup_file_path) + "-sagemaker"
 
 
-def make_pipeline_image_name(pipeline_class_name):
-    """ Create the string for the image for this pipeline_class_name
-
-    'disdat-module[-submodule]...'
-
-    Args:
-        pipeline_class_name:
-
-    Returns:
-        str: The name of the image 'disdat-module[-submodule]...'
-    """
-
-    return '-'.join(['disdat'] + pipeline_class_name.split('.')[:-1]).lower()
-
-
-def make_sagemaker_pipeline_image_name(pipeline_class_name):
-    """ Create the string for the image for this pipeline if it uses sagemaker's
-    calling convention
-
-    Args:
-        pipeline_class_name:
-
-    Returns:
-        str: The name of the image 'disdat-module[-submodule]...-sagemaker'
-    """
-
-    return make_pipeline_image_name(pipeline_class_name) + "-sagemaker"
-
-
-def make_pipeline_repository_name(docker_repository_prefix, pipeline_class_name):
-    return '/'.join(([docker_repository_prefix.strip('/')] if docker_repository_prefix is not None else []) + [make_pipeline_image_name(pipeline_class_name)])
-
-
-def make_sagemaker_pipeline_repository_name(docker_repository_prefix, pipeline_class_name):
-    return '/'.join(([docker_repository_prefix.strip('/')] if docker_repository_prefix is not None else []) + [make_sagemaker_pipeline_image_name(pipeline_class_name)])
-
-
 def make_project_repository_name(docker_repository_prefix, setup_file_path):
     return '/'.join(([docker_repository_prefix.strip('/')] if docker_repository_prefix is not None else []) + [make_project_image_name(setup_file_path)])
 

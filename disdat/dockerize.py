@@ -70,6 +70,38 @@ def _copy_in_dot_file(disdat_config, docker_context, dot_file_name, option_name,
     return retval
 
 
+def latest_container_id(pipeline_root, cli):
+    """ Return the unique container image hash from the latest container made
+    from this setup.py
+
+    Args:
+        pipeline_root (str): The path to the setup.py file that defines the container
+        cli (bool): if called from cli
+
+    Returns:
+        (str): The full docker container image hash
+
+    """
+    setup_file = os.path.join(pipeline_root, 'setup.py')
+    pipeline_image_name = disdat.common.make_project_image_name(setup_file)
+    docker_client = docker.from_env()
+
+    try:
+        img_obj = docker_client.images.get(pipeline_image_name)
+    except (docker.errors.APIError, docker.errors.ImageNotFound) as er:
+        if cli:
+            print("Disdat unable to find image with project name {}".format(pipeline_image_name))
+            raise # exit with code > 0
+        return None
+
+    id = img_obj.id.replace('sha256:','')
+
+    if cli:
+        print("{}".format(id))
+
+    return id
+
+
 def dockerize(pipeline_root,
               config_dir=None,
               os_type=None,
@@ -78,7 +110,8 @@ def dockerize(pipeline_root,
               push=False,
               sagemaker=False,
               cli=False,
-              fq_repository_name=None):
+              fq_repository_name=None,
+              quiet=False):
     """ Create a Docker image for running a pipeline.
 
     Args:
@@ -92,6 +125,7 @@ def dockerize(pipeline_root,
         sagemaker (bool): Build a container for 'train' or 'serve' in SageMaker
         cli (bool): Whether dockerize was called from the CLI (True) or an API (False -- default)
         fq_repository_name (str): If set, the user has given us the entire name for this docker image
+        quiet (bool): Suppress output and return docker container image ID.
 
     Returns:
         (int): 0 equals success, >0 for error
@@ -149,7 +183,6 @@ def dockerize(pipeline_root,
             'DOCKER_CONTEXT={}'.format(docker_context),
             'DISDAT_ROOT={}'.format(os.path.join(DISDAT_HOME)),  # XXX YUCK
             'PIPELINE_ROOT={}'.format(pipeline_root),
-            'PIPELINE_CLASS=DEPRECATED_STUFF',
             'OS_TYPE={}'.format(image_os_type),
             'OS_VERSION={}'.format(image_os_version),
         ]
@@ -245,6 +278,11 @@ def add_arg_parser(parsers):
         help="Push the image to a remote Docker registry (default is to not push; must set 'docker_registry' in Disdat config)",
     )
     dockerize_p.add_argument(
+        '--get-id',
+        action='store_true',
+        help="Do not build, only return latest container image ID",
+    )
+    dockerize_p.add_argument(
         '--sagemaker',
         action='store_true',
         default=False,
@@ -276,16 +314,19 @@ def dockerize_entry(cli=False, **kwargs):
         (int): 0 for success, 1 for failure
     """
 
-    return dockerize(kwargs['pipe_root'],
-                     config_dir=kwargs['config_dir'],
-                     os_type=kwargs['os_type'],
-                     os_version=kwargs['os_version'],
-                     build=kwargs['build'],
-                     push=kwargs['push'],
-                     sagemaker=kwargs['sagemaker'],
-                     cli=cli,
-                     fq_repository_name=kwargs['fq_repo_name']
-                     )
+    if kwargs['get_id']:
+        return latest_container_id(kwargs['pipe_root'], cli)
+    else:
+        return dockerize(kwargs['pipe_root'],
+                         config_dir=kwargs['config_dir'],
+                         os_type=kwargs['os_type'],
+                         os_version=kwargs['os_version'],
+                         build=kwargs['build'],
+                         push=kwargs['push'],
+                         sagemaker=kwargs['sagemaker'],
+                         cli=cli,
+                         fq_repository_name=kwargs['fq_repo_name']
+                         )
 
 
 if __name__ == "__main__":

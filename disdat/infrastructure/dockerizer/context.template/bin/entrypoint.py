@@ -269,10 +269,13 @@ def run_disdat_container(args):
 
 
 def main(input_args):
-    # To simplify configuring and building pipeline images, we keep all
-    # of the various defaults parameter values in the Docker image makefile,
-    # and pass them on as Docker ENV variables.
-    _pipeline_class_default = os.environ[_PIPELINE_CLASS_ENVVAR] if _PIPELINE_CLASS_ENVVAR in os.environ else None
+
+    # To simplify configuring and building pipeline images, we can keep
+    # various default parameter values in the Docker image makefile,
+    # and pass them on as Docker ENV variables.   At the moment, we set
+    # the default params below to handle most cases.  This is an example
+    # of how you might do this in the future if needed.
+    # some_default = os.environ[_YOURVAR_ENVVAR] if _YOURVAR_ENVVAR in os.environ else None
 
     parser = argparse.ArgumentParser(
         description=_HELP,
@@ -315,10 +318,10 @@ def main(input_args):
     pipeline_parser = parser.add_argument_group('pipe arguments')
     pipeline_parser.add_argument(
         '--pipeline',
-        default=_pipeline_class_default,
+        default=None,
         type=str,
-        required=(_pipeline_class_default is None),
-        help=add_argument_help_string('Name of the pipeline class to run', _pipeline_class_default),
+        required=True,
+        help=add_argument_help_string('Name of the pipeline class to run'),
     )
 
     pipeline_parser.add_argument(
