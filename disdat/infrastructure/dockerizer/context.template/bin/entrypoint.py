@@ -6,6 +6,7 @@ Entry point for pipelines run within Docker images.
 @copyright: Human Longevity, Inc. 2017
 @license: Apache 2.0
 """
+from __future__ import print_function
 
 import argparse
 import disdat.apply
@@ -24,8 +25,8 @@ _PIPELINE_CLASS_ENVVAR = 'PIPELINE_CLASS'
 
 _HELP = """ Run a Disdat pipeline. This script wraps up several of the
 steps required to run a pipeline, including: creating a working context, 
-applying a pipeline class to an input bundle to
-generate an output bundle, and pushing an output bundle to a Disdat remote.
+running a pipeline class to generate an output bundle, and pushing an 
+output bundle to a Disdat remote.
 """
 
 _logger = logging.getLogger(__name__)
@@ -130,9 +131,9 @@ def retrieve_secret(secret_name):
         if e.response['Error']['Code'] == 'ResourceNotFoundException':
             print("The requested secret " + secret_name + " was not found")
         elif e.response['Error']['Code'] == 'InvalidRequestException':
-            print("The request was invalid due to:", e)
+            print(("The request was invalid due to:", e))
         elif e.response['Error']['Code'] == 'InvalidParameterException':
-            print("The request had invalid params:", e)
+            print(("The request had invalid params:", e))
     else:
         # Decrypted secret using the associated KMS CMK
         # Depending on whether the secret was a string or binary, one of these fields will be populated
@@ -142,7 +143,7 @@ def retrieve_secret(secret_name):
             binary_secret_data = get_secret_value_response['SecretBinary']
 
         print ("Found the secret string as ")
-        print secret
+        print(secret)
 
 
 def add_argument_help_string(help_string, default=None):
@@ -170,7 +171,7 @@ def run_disdat_container(args):
 
     """
 
-    print "Entrypoint running with args: {}".format(args)
+    print("Entrypoint running with args: {}".format(args))
 
     # By default containerized execution ALWAYS localize's bundles on demand
     incremental_pull = True
@@ -224,7 +225,6 @@ def run_disdat_container(args):
 
     try:
         result = disdat.api.apply(args.branch,
-                                  args.input_bundle,
                                   args.output_bundle,
                                   args.pipeline,
                                   input_tags=input_tags,
@@ -360,11 +360,6 @@ def main(input_args):
         '--force',
         action='store_true',
         help='Force recomputation of all pipe dependencies (default is to recompute dependencies with changed inputs or code)',
-    )
-    pipeline_parser.add_argument(
-        'input_bundle',
-        type=str,
-        help='Name of the input bundle',
     )
     pipeline_parser.add_argument(
         'output_bundle',

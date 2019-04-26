@@ -7,7 +7,6 @@ PIPES_CLASS         = os.environ.get("PIPES_CLASS", None)
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Disdat Calling Convention Parsing')
-    parser.add_argument('--input-bundle', type=str, help='input bundle', required=True)
     parser.add_argument('--output-bundle', type=str, help='output bundle', required=True)
 
     parser.add_argument('--remote', type=str, help='Workflow execution id', required=True, default=None)
@@ -25,7 +24,6 @@ if __name__ == '__main__':
 
     print "PIPES DOCKERIZED"
     print "Args are:"
-    print "input bundle: {}".format(args.input_bundle)
     print "output bundle: {}".format(args.output_bundle)
     print "pipe_class: {}".format(args.pipeline)
     print "branch: {}".format(args.branch)

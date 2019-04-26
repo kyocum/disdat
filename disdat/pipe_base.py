@@ -10,25 +10,25 @@ Unify DriverTask and PipeTask with one abstract base class.
 from __future__ import print_function
 
 from abc import ABCMeta, abstractmethod
-from disdat.fs import DisdatFS
-from disdat.data_context import DataContext
-from disdat.hyperframe import LineageRecord, HyperFrameRecord, FrameRecord
-
-import disdat.common as common
 import os
 import shutil
-import logging
-import luigi
 import getpass
 import subprocess
 import inspect
 import collections
-from urlparse import urlparse
+
+import luigi
+from six.moves import urllib
 import numpy as np
 import pandas as pd
-import disdat.hyperframe_pb2 as hyperframe_pb2
 
-_logger = logging.getLogger(__name__)
+import disdat.common as common
+from disdat.fs import DisdatFS
+from disdat.data_context import DataContext
+from disdat.hyperframe import LineageRecord, HyperFrameRecord, FrameRecord
+import disdat.hyperframe_pb2 as hyperframe_pb2
+from disdat import logger as _logger
+
 
 CodeVersion = collections.namedtuple('CodeVersion', 'semver hash tstamp branch url dirty')
 
@@ -80,7 +80,7 @@ def get_pipe_version(pipe_instance):
     if _run_git_cmd(git_dir, git_ls_files_cmd) == 0:
         # Get the hash and date of the last commit for the pipe.
         git_tight_hash_cmd = 'log -n 1 --pretty=format:"%h;%aI" -- {}'.format(source_file)
-        git_tight_hash_result = _run_git_cmd(git_dir, git_tight_hash_cmd, get_output=True).split(';')
+        git_tight_hash_result = _run_git_cmd(git_dir, git_tight_hash_cmd, get_output=True).split(';'.encode('utf8'))
         if len(git_tight_hash_result) == 2:
             tight_hash, tight_date = git_tight_hash_result
 
@@ -252,7 +252,7 @@ class PipeBase(object):
 
     @staticmethod
     def _interpret_scheme(full_path):
-        scheme = urlparse(full_path).scheme
+        scheme = urllib.parse.urlparse(full_path).scheme
 
         if scheme == '' or scheme == 'file':
             ''' LOCAL FILE '''
@@ -313,7 +313,7 @@ class PipeBase(object):
                 luigi_outputs = luigi_outputs[0]
         elif isinstance(output_value, dict):
             luigi_outputs = {}
-            for k, v in output_value.iteritems():
+            for k, v in output_value.items():
                 full_path = os.path.join(output_dir, v)
                 luigi_outputs[k] = PipeBase._interpret_scheme(full_path)
         else:
@@ -349,13 +349,18 @@ class PipeBase(object):
     def rm_bundle_dir(output_path, uuid, db_targets):
         """
         We created a directory (managed path) to hold the bundle and any files.   The files have been
-        copied in.   Removing the directory removes any created files.  However we also need to
-        clean up any temporary tables as well.
+        copied in.   Removing the directory removes any created files.  If the user has told us about
+        any DBTargets, also call rm() on those.
 
         TODO: Integrate with data_context bundle remove.   That deals with information already
         stored in the local DB.
 
         ASSUMES:  That we haven't actually updated the local DB with information on this bundle.
+
+        Args:
+            output_path (str):
+            uuid (str):
+            db_targets (list(DBTarget)):
 
         Returns:
             None
@@ -367,7 +372,7 @@ class PipeBase(object):
             # then we will have to clean those up as well.
 
             for t in db_targets:
-                t.drop_table()
+                t.rm()
 
         except IOError as why:
             _logger.error("Removal of hyperframe directory {} failed with error {}. Continuing removal...".format(
@@ -411,7 +416,7 @@ class PipeBase(object):
 
         elif isinstance(val, dict):
             presentation = hyperframe_pb2.ROW
-            for k, v in val.iteritems():
+            for k, v in val.items():
                 if not isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, collections.Sequence)):
                     frames.append(DataContext.convert_scalar2frame(hfid, k, v, managed_path))
                 else:

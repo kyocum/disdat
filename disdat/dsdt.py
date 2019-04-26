@@ -32,9 +32,8 @@ from disdat import dockerize
 from disdat import run
 from disdat.fs import init_fs_cl
 from disdat.common import DisdatConfig
-from disdat.init import init
+from disdat import log
 
-_logger = logging.getLogger(__name__)
 
 _pipes_fs = None
 
@@ -82,7 +81,7 @@ def main():
     subparsers = parser.add_subparsers()
 
     ls_p = subparsers.add_parser('init')
-    ls_p.set_defaults(func=lambda args: init())
+    ls_p.set_defaults(func=lambda args: DisdatConfig.init())
 
     # dockerize
     subparsers = dockerize.add_arg_parser(subparsers)
@@ -98,7 +97,6 @@ def main():
                          help="Input bundle tags: '-it authoritative:True -it version:0.7.1'")
     apply_p.add_argument('-ot', '--output-tag', nargs=1, type=str, action='append',
                          help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'")
-    apply_p.add_argument("input_bundle", type=str, help="Name of source data bundle.  '-' means no input bundle.")
     apply_p.add_argument("output_bundle", type=str, help="Name of destination bundle.  '-' means default output bundle.")
     apply_p.add_argument("pipe_cls", type=str, help="User-defined transform, e.g., module.PipeClass")
     apply_p.add_argument("--local", action='store_true', help="Run the class locally (even if dockered)")
@@ -114,10 +112,11 @@ def main():
 
     args = parser.parse_args(args)
 
-    log_level = logging.WARN
+    log_level = logging.INFO
     if args.verbose:
         log_level = logging.DEBUG
-    logging.basicConfig(level=log_level)
+
+    log.enable(level=log_level)  # TODO: Add configurable verbosity
 
     if args.aws_profile is not None:
         os.environ['AWS_PROFILE'] = args.aws_profile

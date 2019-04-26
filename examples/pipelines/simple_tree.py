@@ -58,7 +58,7 @@ class SimpleTree(PipeTask):
     """
     uuid          = luigi.Parameter(default='None')
 
-    def pipe_requires(self, pipeline_input=None):
+    def pipe_requires(self):
         """
 
         Args:
@@ -72,7 +72,7 @@ class SimpleTree(PipeTask):
             self.add_dependency('B_{}'.format(i), B, {'task_label': str(i), 'uuid': '12340000'})
         return
 
-    def pipe_run(self, pipeline_input=None, **kwargs):
+    def pipe_run(self, **kwargs):
         """
 
         Args:
@@ -88,4 +88,4 @@ class SimpleTree(PipeTask):
 
 
 if __name__ == "__main__":
-    api.apply('examples', '-', 'SimpleTree.example.output', 'SimpleTree')
+    api.apply('examples', 'SimpleTree.example.output', 'SimpleTree')

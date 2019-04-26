@@ -39,23 +39,26 @@ fi
 
 
 # Install user Python sdist package dependencies
+# NOTE: Since PIP 19.0 fails with --no-cache-dir, removed '-n' flag on kickstart-python.py script
+# NOTE: need to test with Python 3.6+
 RUN files=$(echo $BUILD_ROOT/config/python-sdist/*.tar.gz); if [ "$files" != $BUILD_ROOT/config/python-sdist/'*.tar.gz' ]; then \
 	for i in $files; do \
-		$KICKSTART_ROOT/bin/kickstart-python.sh -n $VIRTUAL_ENV $i; \
+		$KICKSTART_ROOT/bin/kickstart-python.sh $VIRTUAL_ENV $i; \
 		$KICKSTART_ROOT/bin/install-python-package-from-source-tree.sh $VIRTUAL_ENV $i; \
 	done; \
 fi
 
-# Install the pipeline package. We prefer getting dependencies from setup.py
-# over requirements.txt if the package source provides both.
+# Install the pipeline package. The user must have a valid setup.py that can generate an sdist .tar.gz.
+# That will have been copied into the docker context.  Note, the install-python-package-from-source-tree script
+# installs with '--no-cache-dir' option.
 ARG PIPELINE_ROOT
 COPY pipeline $PIPELINE_ROOT
-RUN if [ -f $PIPELINE_ROOT/setup.py ]; then \
-	$KICKSTART_ROOT/bin/kickstart-python.sh -n $VIRTUAL_ENV $PIPELINE_ROOT/setup.py; \
-elif [ -f $PIPELINE_ROOT/ ]; then \
-	$KICKSTART_ROOT/bin/kickstart-python.sh -n $VIRTUAL_ENV $PIPELINE_ROOT/requirements.txt; \
+RUN files=$(echo $PIPELINE_ROOT/*.tar.gz);  if [ "$files" != $PIPELINE_ROOT/'*.tar.gz' ]; then \
+	for i in $files; do \
+	    echo $i; \
+    	$KICKSTART_ROOT/bin/install-python-package-from-source-tree.sh $VIRTUAL_ENV $i; \
+    done; \
 fi
-RUN $KICKSTART_ROOT/bin/install-python-package-from-source-tree.sh $VIRTUAL_ENV $PIPELINE_ROOT
 
 # Clean up the temporary build directory
 RUN rm -rf $BUILD_ROOT

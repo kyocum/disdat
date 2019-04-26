@@ -15,11 +15,7 @@
 #
 
 """
-Run
-
 Run dockerized version of this pipe
-
-pipes run input_bundle output_bundle pipes_cls
 
 Run differs from apply.  Apply will run the transform locally / natively.
 Run executes the most recently built container.   By default it will
@@ -31,35 +27,30 @@ Backends do things in different ways.
 2.) Entrypoint long vs. short-lived.  They might run a web-server in the container, e.g., to serve a model.
 
 
-It will then need to run it remotely.   Thus we need to submit a job.
-
-
 author: Kenneth Yocum
 """
+from __future__ import print_function
 
-# Built-in imports
 import argparse
-
-# Third-party imports
-import boto3_session_cache as b3
-import disdat.fs as fs
-import disdat.common as common
-import disdat.utility.aws_s3 as aws
-import docker
 import inspect
-import logging
 import os
 import tempfile
 import time
 import json
-from disdat.common import DisdatConfig
-from enum import Enum
 from sys import platform
+
+import docker
+import boto3_session_cache as b3
+from enum import Enum
+
+import disdat.fs as fs
+import disdat.common as common
+import disdat.utility.aws_s3 as aws
+from disdat.common import DisdatConfig
+from disdat import logger as _logger
 
 
 _MODULE_NAME = inspect.getmodulename(__file__)
-
-_logger = logging.getLogger(__name__)
 
 
 class Backend(Enum):
@@ -133,7 +124,7 @@ def _run_local(cli, arglist, pipeline_class_name, backend):
 
         stdout = client.containers.run(pipeline_image_name, arglist, detach=False,
                                        environment=environment, init=True, stderr=True, volumes=volumes)
-        if cli: print stdout
+        if cli: print(stdout)
         return stdout
     except docker.errors.ImageNotFound:
         _logger.error("Unable to find the docker image {}".format(pipeline_image_name))
@@ -366,17 +357,17 @@ def _run_aws_sagemaker(arglist, job_name, pipeline_class_name):
             {'Key': 'job', 'Value': job_name}]
 
     if False:
-        print "Disdat SageMaker configs"
-        print "job name: {}".format(job_name)
-        print "hparams: {}".format(hyperparameter_dict)
-        print "algorithm: {}".format(algorithm_specification)
-        print "Role ARN: {}".format(role_arn)
-        print "Input data conf: {}".format(input_channel_config)
-        print "Output data conf: {}".format(output_data_config)
-        print "Resource conf: {}".format(resource_config)
-        print "VPC conf: {}".format(vpc_config)
-        print "Stopping condition seconds: {}".format(stopping_condition)
-        print "Tags: {}".format(tags)
+        print("Disdat SageMaker configs")
+        print("job name: {}".format(job_name))
+        print("hparams: {}".format(hyperparameter_dict))
+        print("algorithm: {}".format(algorithm_specification))
+        print("Role ARN: {}".format(role_arn))
+        print("Input data conf: {}".format(input_channel_config))
+        print("Output data conf: {}".format(output_data_config))
+        print("Resource conf: {}".format(resource_config))
+        print("VPC conf: {}".format(vpc_config))
+        print("Stopping condition seconds: {}".format(stopping_condition))
+        print("Tags: {}".format(tags))
 
     client = b3.client('sagemaker', region_name=aws.profile_get_region())
 
@@ -396,8 +387,8 @@ def _run_aws_sagemaker(arglist, job_name, pipeline_class_name):
     _logger.info("Disdat SageMaker create_training_job response {}".format(response))
     return response['TrainingJobArn']
 
+
 def _run(
-        input_bundle = '-',
         output_bundle = '-',
         pipeline_args ='',
         pipe_cls = None,
@@ -422,7 +413,6 @@ def _run(
     Note these are named parameters so we avoid bugs related to argument order.
 
     Args:
-        input_bundle (str): The human name of the input bundle
         output_bundle (str): The human name of the output bundle
         pipeline_args: Optional arguments to pass to the pipeline class
         pipe_cls: Name of the pipeline class to run
@@ -459,8 +449,9 @@ def _run(
         _logger.error("'run' requires a remote set with `dsdt remote <s3 url>`")
         return
 
-    arglist = common.make_run_command(input_bundle, output_bundle, output_bundle_uuid, remote, context,
-                                      input_tags, output_tags, force, no_pull, no_push, no_push_int, workers, pipeline_args)
+    arglist = common.make_run_command(output_bundle, output_bundle_uuid, remote, context,
+                                      input_tags, output_tags, force, no_pull, no_push,
+                                      no_push_int, workers, pipeline_args)
 
     if backend == Backend.AWSBatch or backend == Backend.SageMaker:
 
@@ -557,7 +548,6 @@ def add_arg_parser(parsers):
     run_p.add_argument('-ot', '--output-tag', nargs=1, type=str, action='append',
                        help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'",
                        dest='output_tags')
-    run_p.add_argument("input_bundle", type=str, help="Name of source data bundle.  '-' means no input bundle.")
     run_p.add_argument("output_bundle", type=str, help="Name of destination bundle.  '-' means default output bundle.")
     run_p.add_argument("pipe_cls", type=str, help="User-defined transform, e.g., module.PipeClass")
     run_p.add_argument("pipeline_args", type=str,  nargs=argparse.REMAINDER,
@@ -585,16 +575,24 @@ def run_entry(cli=False, **kwargs):
     pfs = fs.DisdatFS()
 
     # Ensure kwargs only contains the arguments we want when calling _run
-    [kwargs.pop(k) for k in kwargs.keys() if k not in _run.__code__.co_varnames]
+    remove_keys = []
+    for k in kwargs.keys():
+        if k not in _run.__code__.co_varnames:
+            remove_keys.append(k)
+
+    for k in remove_keys:
+        kwargs.pop(k)
+
+    #[kwargs.pop(k) for k in kwargs.keys() if k not in _run.__code__.co_varnames]
 
     # if any set, the other must be set.  if a or b, then a and b are set
     if kwargs['context'] is not None or kwargs['remote'] is not None:
         if kwargs['context'] is None or kwargs['remote'] is None:
-            print "Must set both context [{}] and remote [{}] simultaneously.".format(kwargs['context'], kwargs['remote'])
+            print("Must set both context [{}] and remote [{}] simultaneously.".format(kwargs['context'], kwargs['remote']))
             return
     else:
         if not pfs.in_context():
-            print "'Must be in a context (or specify --context and --remote) to execute 'dsdt run'"
+            print("'Must be in a context (or specify --context and --remote) to execute 'dsdt run'")
             return
 
     if kwargs['backend'] is not None:
