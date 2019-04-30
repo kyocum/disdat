@@ -343,6 +343,7 @@ def get_run_command_parameters(pfs):
 def make_run_command(
         output_bundle,
         output_bundle_uuid,
+        pipe_cls,
         remote,
         context,
         input_tags,
@@ -358,7 +359,8 @@ def make_run_command(
         '--output-bundle-uuid ', output_bundle_uuid,
         '--remote', remote,
         '--branch', context,
-        '--workers', str(workers)
+        '--workers', str(workers),
+        '--pipeline', str(pipe_cls)
     ]
     if no_pull:
         args += ['--no-pull']

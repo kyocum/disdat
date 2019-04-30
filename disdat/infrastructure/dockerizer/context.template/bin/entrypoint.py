@@ -20,9 +20,6 @@ import sys
 import boto3
 from botocore.exceptions import ClientError
 
-_PIPELINE_CLASS_ENVVAR = 'PIPELINE_CLASS'
-
-
 _HELP = """ Run a Disdat pipeline. This script wraps up several of the
 steps required to run a pipeline, including: creating a working context, 
 running a pipeline class to generate an output bundle, and pushing an 
@@ -275,7 +272,7 @@ def main(input_args):
     # and pass them on as Docker ENV variables.   At the moment, we set
     # the default params below to handle most cases.  This is an example
     # of how you might do this in the future if needed.
-    # some_default = os.environ[_YOURVAR_ENVVAR] if _YOURVAR_ENVVAR in os.environ else None
+    # some_default = os.environ[ENVVAR] if ENVVAR in os.environ else None
 
     parser = argparse.ArgumentParser(
         description=_HELP,

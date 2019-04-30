@@ -295,7 +295,7 @@ def add_arg_parser(parsers):
         dest='build',
     )
     dockerize_p.add_argument(
-        "pipe_root",
+        "pipeline_root",
         type=str,
         help="Root of the Python source tree containing the user-defined transform; must have a setuptools-style setup.py file"
     )
@@ -315,9 +315,9 @@ def dockerize_entry(cli=False, **kwargs):
     """
 
     if kwargs['get_id']:
-        return latest_container_id(kwargs['pipe_root'], cli)
+        return latest_container_id(kwargs['pipeline_root'], cli)
     else:
-        return dockerize(kwargs['pipe_root'],
+        return dockerize(kwargs['pipeline_root'],
                          config_dir=kwargs['config_dir'],
                          os_type=kwargs['os_type'],
                          os_version=kwargs['os_version'],
