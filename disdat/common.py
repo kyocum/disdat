@@ -20,21 +20,20 @@ Configuration
 import logging
 import os
 import sys
-import ConfigParser
+import shutil
+import subprocess
+
 import luigi
+from six.moves import urllib
+from six.moves import configparser
 
-from urlparse import urlparse
-
-_logger = logging.getLogger(__name__)
-
-_logging_format_simple = '%(levelname)s : %(name)s : %(message)s'
-_logging_format_fancy = '%(asctime)s : %(levelname)s : %(name)s : %(message)s'
-_logging_default_level = logging.WARN
+from disdat import resource
+import disdat.config
+from disdat import logger as _logger
 
 
 SYSTEM_CONFIG_DIR = '~/.config/disdat'
 PACKAGE_CONFIG_DIR = 'disdat'
-PROJECT_CONFIG_NAME = 'disdat_config'
 LOGGING_FILE = 'logging.conf'
 LUIGI_FILE = 'luigi.cfg'
 CFG_FILE = 'disdat.cfg'
@@ -51,7 +50,12 @@ LOCAL_EXECUTION = 'LOCAL_EXECUTION'  # Docker endpoint env variable if we're run
 
 
 class ApplyException(Exception):
-    pass
+    def __init__(self, message, apply_result):
+        super(ApplyException, self).__init__(message)
+        self.apply_result = apply_result
+    @property
+    def result(self):
+        return self.apply_result
 
 
 def error(msg, *args, **kwargs):
@@ -80,27 +84,9 @@ def apply_handle_result(apply_result, raise_not_exit=False):
     else:
         error_str = "Disdat Apply ran, but one or more tasks failed."
         if raise_not_exit:
-            raise ApplyException(error_str)
+            raise ApplyException(error_str, apply_result)
         else:
             sys.exit(error_str)
-
-
-def setup_default_logging():
-    """
-    Set up root logger so all inherited loggers get console for free.
-
-    Args:
-        logger:
-
-    Returns:
-
-    """
-    global _logger
-
-    logging.basicConfig(stream=sys.stderr, format=_logging_format_simple, level=_logging_default_level)
-
-    # so that the logger for this file is set up.
-    _logger = logging.getLogger(__name__)
 
 
 class SingletonType(type):
@@ -116,25 +102,6 @@ class MySingleton(object):
     __metaclass__ = SingletonType
 
 
-def find_config_directory(directory=None):
-
-    # Use current directory if nothing is passed in
-    if not directory:
-        directory = os.getcwd()
-
-    # Return the path to the config directory if it is found
-    if PROJECT_CONFIG_NAME in os.listdir(directory):
-        return os.path.join(directory, PROJECT_CONFIG_NAME)
-
-    # If root was the last directory checked, return None
-    if os.path.dirname(directory) == directory:
-        return None
-
-    # Recurse on next directory up
-    start, _ = os.path.split(directory)
-    return find_config_directory(start)
-
-
 class DisdatConfig(object):
     """
     Configure Disdat.  Configure logging.
@@ -143,49 +110,47 @@ class DisdatConfig(object):
 
     _instance = None
 
-    def __init__(self, meta_dir_root=None):
+    def __init__(self, meta_dir_root=None, config_dir=None):
+        """
 
-        # Set up default logging to begin with. Can later be updated.
-        setup_default_logging()
-
+        Args:
+            meta_dir_root (str): Optional place to store disdat contexts. Default `~/`
+            config_dir (str): Optional directory from which to get disdat.cfg and luigi.cfg.  Default SYSTEM_CONFIG_DIR
+        """
         # Find configuration directory
-        config_dir = find_config_directory()
+        if config_dir:
+            config_dir = config_dir
+        else:
+            config_dir = os.path.expanduser(SYSTEM_CONFIG_DIR)
 
-        if not config_dir:
+        if not os.path.exists(config_dir):
             error(
-                'Did not find configuration. '
-                'Call "dsdt init" to initialize context.'
+                'Did not find Disdat configuration. '
+                'Call "dsdt init" to initialize Disdat.'
             )
 
         # Extract individual configuration files
         disdat_cfg = os.path.join(config_dir, CFG_FILE)
         luigi_cfg = os.path.join(config_dir, LUIGI_FILE)
 
-        # """ If running through pyinstaller, then use the current pythonpath to find the apply transforms"""
-        # if getattr(sys, 'frozen', False):
-        #     # we are running in a bundle
-        #     bundle_dir = sys._MEIPASS
-        #     sys.path.extend(os.environ.get('PYTHONPATH', '').split(':'))
-        # else:
-        #     # we are running in a normal Python environment
-        #     bundle_dir = os.path.dirname(os.path.abspath(__file__))
-        #
-
         if meta_dir_root:
             self.meta_dir_root = meta_dir_root
         else:
-            self.meta_dir_root = os.path.expanduser('~')
-
+            self.meta_dir_root = '~/'
         self.logging_config = None
         self.parser = self._read_configuration_file(disdat_cfg, luigi_cfg)
 
     @staticmethod
-    def instance():
+    def instance(meta_dir_root=None, config_dir=None):
         """
         Singleton getter
+
+        Args:
+            meta_dir_root (str): Optional place to store disdat contexts. Default `~/`
+            config_dir (str): Optional directory from which to get disdat.cfg and luigi.cfg.  Default SYSTEM_CONFIG_DIR
         """
         if DisdatConfig._instance is None:
-            DisdatConfig._instance = DisdatConfig()
+            DisdatConfig._instance = DisdatConfig(meta_dir_root=meta_dir_root, config_dir=config_dir)
         return DisdatConfig._instance
 
     @staticmethod
@@ -201,18 +166,11 @@ class DisdatConfig(object):
         Next, see if there is a disdat.cfg in cwd.  Then configure disdat and (re)configure logging.
         """
         # _logger.debug("Loading config file [{}]".format(disdat_config_file))
-        config = ConfigParser.SafeConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
+        config = configparser.SafeConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
         config.read(disdat_config_file)
         self.meta_dir_root = os.path.expanduser(config.get('core', 'meta_dir_root'))
         self.meta_dir_root = DisdatConfig._fix_relative_path(disdat_config_file, self.meta_dir_root)
         self.ignore_code_version = config.getboolean('core', 'ignore_code_version')
-
-        try:
-            self.logging_config = os.path.expanduser(config.get('core', 'logging_conf_file'))
-            self.logging_config = DisdatConfig._fix_relative_path(disdat_config_file, self.logging_config)
-            logging.config.fileConfig(self.logging_config, disable_existing_loggers=False)
-        except ConfigParser.NoOptionError:
-            pass
 
         # Set up luigi configuration
         luigi.configuration.get_config().read(luigi_config_file)
@@ -236,45 +194,137 @@ class DisdatConfig(object):
     def get_context_dir(self):
         return os.path.join(self.get_meta_dir(), DISDAT_CONTEXT_DIR)
 
+    @staticmethod
+    def init():
+        """
+        Create a default configuration in the config directory. This makes a
+        disdat folder which contains all configuration files.
+        """
+        directory = os.path.expanduser(SYSTEM_CONFIG_DIR)
+
+        # Make sure disdat has not already been initialized
+        if os.path.exists(directory):
+            error(
+                'DisDat already initialized in {}.'.format(directory)
+            )
+
+        # Create outer folder if the system does not have it yet
+        path = os.path.dirname(directory)
+        if not os.path.exists(path):
+            os.mkdir(path)
+
+        # Copy over default configurations
+        src = resource.filename(disdat.config, PACKAGE_CONFIG_DIR)
+        dst = directory
+        shutil.copytree(src, dst)
+
+        # Make sure paths are absolute in luigi config
+        luigi_dir = os.path.join(directory, LUIGI_FILE)
+        config = configparser.ConfigParser()
+        config.read(luigi_dir)
+        with open(luigi_dir, 'w') as handle:
+            config.write(handle)
+
+#
+# subprocess wrapper
+#
+
+def do_subprocess(cmd, cli):
+    """ Standardize error processing
+
+    Args:
+        cmd (str): command to execute
+        cli (bool): whether called from CLI (True) or API (False)
+
+    Returns:
+        (int): 0 if success, >0 if failure
+
+    """
+    output = 'No captured output from running CMD [{}]'.format(cmd)
+    try:
+        if not cli:
+            output = subprocess.check_output(cmd)
+        else:
+            subprocess.check_call(cmd)
+    except subprocess.CalledProcessError as cpe:
+        if not cli:
+            print (output)
+            return cpe.returncode
+        raise
+
+    return 0
+
+
+def do_subprocess_with_output(cmd):
+    """ Standardize error processing
+
+    Args:
+        cmd (str): command to execute
+
+    Returns:
+        (str): output of command
+
+    """
+    try:
+        output = subprocess.check_output(cmd)
+        return output
+    except subprocess.CalledProcessError as cpe:
+        raise
+
 #
 # Make Docker images names from pipeline class names
 #
 
-def make_pipeline_image_name(pipeline_class_name):
-    """ Create the string for the image for this pipeline_class_name
 
-    'disdat-module[-submodule]...'
+def make_project_image_name(setup_file_path):
+    """
+    Create a container name from the name field in the setup.py file.
+    This uses some setuptools magic.  When you install disdat, we install
+    an entrypoint.   It becomes available to anyone using setup tools.
+    This extracts the information from the setup.py.
+
+    see disdat/infrastructure/dockerizer/setup_tools_commands.py
 
     Args:
-        pipeline_class_name:
+        setup_file_path (str): The FQP to the setup.py file used to dockerize.
 
     Returns:
-        str: The name of the image 'disdat-module[-submodule]...'
+        (str): image name string
+
     """
 
-    return '-'.join(['disdat'] + pipeline_class_name.split('.')[:-1]).lower()
+    python_command = [
+        'python',
+        setup_file_path,
+        '-q',
+        'dsdt_distname'
+    ]
+
+    retval = do_subprocess_with_output(python_command).strip()
+
+    return retval
 
 
-def make_sagemaker_pipeline_image_name(pipeline_class_name):
+def make_sagemaker_project_image_name(setup_file_path):
     """ Create the string for the image for this pipeline if it uses sagemaker's
     calling convention
 
     Args:
-        pipeline_class_name:
+        setup_file_path (str): The FQP to the setup.py file used to dockerize
 
     Returns:
-        str: The name of the image 'disdat-module[-submodule]...-sagemaker'
+        str: The name of the image + '-sagemaker'
     """
 
-    return make_pipeline_image_name(pipeline_class_name) + "-sagemaker"
+    return make_project_image_name(setup_file_path) + "-sagemaker"
 
 
-def make_pipeline_repository_name(docker_repository_prefix, pipeline_class_name):
-    return '/'.join(([docker_repository_prefix.strip('/')] if docker_repository_prefix is not None else []) + [make_pipeline_image_name(pipeline_class_name)])
+def make_project_repository_name(docker_repository_prefix, setup_file_path):
+    return '/'.join(([docker_repository_prefix.strip('/')] if docker_repository_prefix is not None else []) + [make_project_image_name(setup_file_path)])
 
 
-def make_sagemaker_pipeline_repository_name(docker_repository_prefix, pipeline_class_name):
-    return '/'.join(([docker_repository_prefix.strip('/')] if docker_repository_prefix is not None else []) + [make_sagemaker_pipeline_image_name(pipeline_class_name)])
+def make_sagemaker_project_repository_name(docker_repository_prefix, setup_file_path):
+    return '/'.join(([docker_repository_prefix.strip('/')] if docker_repository_prefix is not None else []) + [make_sagemaker_project_image_name(setup_file_path)])
 
 
 #
@@ -291,9 +341,9 @@ def get_run_command_parameters(pfs):
 
 
 def make_run_command(
-        input_bundle,
         output_bundle,
         output_bundle_uuid,
+        pipe_cls,
         remote,
         context,
         input_tags,
@@ -309,7 +359,8 @@ def make_run_command(
         '--output-bundle-uuid ', output_bundle_uuid,
         '--remote', remote,
         '--branch', context,
-        '--workers', unicode(workers)
+        '--workers', str(workers),
+        '--pipeline', str(pipe_cls)
     ]
     if no_pull:
         args += ['--no-pull']
@@ -326,7 +377,7 @@ def make_run_command(
         for next_tag in output_tags:
             args += ['--output-tag', next_tag]
 
-    args += [input_bundle, output_bundle]
+    args += [output_bundle]
     return [x.strip() for x in args + pipeline_params]
 
 
@@ -380,7 +431,7 @@ def get_local_file_path(url):
     Raises:
         TypeError if the URL is not a file URL
     """
-    parsed_url = urlparse(url)
+    parsed_url = urllib.parse.urlparse(url)
     if parsed_url.scheme != 'file' and parsed_url.scheme != '':
         raise TypeError('Expected file scheme in URL, got {}'.format(parsed_url.scheme))
     return parsed_url.path

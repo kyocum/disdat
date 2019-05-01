@@ -68,11 +68,12 @@ class Backend(Enum):
         return [i.name for i in list(Backend)]
 
 
-def _run_local(cli, arglist, pipeline_class_name, backend):
+def _run_local(cli, pipeline_setup_file, arglist, pipeline_class_name, backend):
     """
     Run container locally or run sagemaker container locally
     Args:
         cli (bool): Whether we were called from the CLI or API
+        pipeline_setup_file (str): The FQ path to the setup.py used to dockerize the pipeline.
         arglist:
         pipeline_class_name:
         backend:
@@ -104,7 +105,7 @@ def _run_local(cli, arglist, pipeline_class_name, backend):
 
     try:
         if backend == Backend.LocalSageMaker:
-            pipeline_image_name = common.make_sagemaker_pipeline_image_name(pipeline_class_name)
+            pipeline_image_name = common.make_sagemaker_project_image_name(pipeline_setup_file)
             tempdir = tempfile.mkdtemp()
             with open(os.path.join(tempdir, 'hyperparameters.json'), 'w') as of:
                 json.dump(_sagemaker_hyperparameters_from_arglist(arglist), of)
@@ -118,7 +119,7 @@ def _run_local(cli, arglist, pipeline_class_name, backend):
                 volumes[localdir] = {'bind': '/opt/ml/input/config/', 'mode': 'rw'}
                 _logger.info("VOLUMES: {}".format(volumes))
         else:
-            pipeline_image_name = common.make_pipeline_image_name(pipeline_class_name)
+            pipeline_image_name = common.make_project_image_name(pipeline_setup_file)
 
         _logger.debug('Running image {} with arguments {}'.format(pipeline_image_name, arglist))
 
@@ -131,13 +132,13 @@ def _run_local(cli, arglist, pipeline_class_name, backend):
         return None
 
 
-def get_fq_docker_repo_name(is_sagemaker, pipeline_class_name):
+def get_fq_docker_repo_name(is_sagemaker, pipeline_setup_file):
     """
     Produce the fully qualified docker repo name.
 
     Args:
         is_sagemaker (bool): for sagemaker image
-        pipeline_class_name (str): the package.module.class string
+        pipeline_setup_file (str): the path to the setup.py file used to dockerize this pipeline
 
     Returns:
         (str): The fully qualified docker image repository name
@@ -148,22 +149,22 @@ def get_fq_docker_repo_name(is_sagemaker, pipeline_class_name):
     if disdat_config.parser.has_option('docker', 'repository_prefix'):
         repository_prefix = disdat_config.parser.get('docker', 'repository_prefix')
     if is_sagemaker:
-        repository_name = common.make_sagemaker_pipeline_repository_name(repository_prefix, pipeline_class_name)
+        repository_name = common.make_sagemaker_project_repository_name(repository_prefix, pipeline_setup_file)
     else:
-        repository_name = common.make_pipeline_repository_name(repository_prefix, pipeline_class_name)
+        repository_name = common.make_project_repository_name(repository_prefix, pipeline_setup_file)
 
     # Figure out the fully-qualified repository name, i.e., the name
     # including the registry.
     registry_name = disdat_config.parser.get('docker', 'registry').strip('/')
     if registry_name == '*ECR*':
-        fq_repository_name = aws.ecr_get_fq_respository_name(repository_name)
+        fq_repository_name = aws.ecr_get_fq_repository_name(repository_name)
     else:
         fq_repository_name = '{}/{}'.format(registry_name, repository_name)
 
     return fq_repository_name
 
 
-def _run_aws_batch(arglist, job_name, pipeline_class_name,
+def _run_aws_batch(arglist, fq_repository_name, job_name, pipeline_image_name,
                    aws_session_token_duration, vcpus, memory,
                    no_submit, job_role_arn):
     """
@@ -173,7 +174,9 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name,
 
     Args:
         arglist:
-        pipeline_class_name:
+        fq_repository_name (str): The fully qualified docker repository name
+        job_name:
+        pipeline_image_name:
         aws_session_token_duration:
         vcpus:
         memory:
@@ -214,9 +217,7 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name,
     # In addition, we never re-use a job definition, since the user may update
     # the vcpu or memory requirements and those are stuck in the job definition
 
-    fq_repository_name = get_fq_docker_repo_name(False, pipeline_class_name)
-
-    job_definition_name = aws.batch_get_job_definition_name(pipeline_class_name)
+    job_definition_name = aws.batch_get_job_definition_name(pipeline_image_name)
 
     if disdat_config.parser.has_option(_MODULE_NAME, 'aws_batch_job_definition'):
         job_definition_name = disdat_config.parser.get(_MODULE_NAME, 'aws_batch_job_definition')
@@ -263,17 +264,30 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name,
     # a batch EC2 instance might not have access to the S3 remote. To
     # get around this, allow the user to create some temporary AWS
     # credentials.
+
     if aws_session_token_duration > 0 and job_role_arn is None:
         sts_client = b3.client('sts')
-        token = sts_client.get_session_token(DurationSeconds=aws_session_token_duration)
-        credentials = token['Credentials']
-        container_overrides['environment'] = [
-            {'name': 'AWS_ACCESS_KEY_ID', 'value': credentials['AccessKeyId']},
-            {'name': 'AWS_SECRET_ACCESS_KEY', 'value': credentials['SecretAccessKey']},
-            {'name': 'AWS_SESSION_TOKEN', 'value': credentials['SessionToken']}
-        ]
+        try:
+            token = sts_client.get_session_token(DurationSeconds=aws_session_token_duration)
+            credentials = token['Credentials']
+            container_overrides['environment'] = [
+                {'name': 'AWS_ACCESS_KEY_ID', 'value': credentials['AccessKeyId']},
+                {'name': 'AWS_SECRET_ACCESS_KEY', 'value': credentials['SecretAccessKey']},
+                {'name': 'AWS_SESSION_TOKEN', 'value': credentials['SessionToken']}
+            ]
+        except Exception as e:
+            print ("Failed to get a token, trying users default credentials...")
+            credentials = b3.session().get_credentials()
+            #print (credentials.__dict__)
+            container_overrides['environment'] = [
+                {'name': 'AWS_ACCESS_KEY_ID', 'value': credentials.access_key},
+                {'name': 'AWS_SECRET_ACCESS_KEY', 'value': credentials.secret_key},
+                {'name': 'AWS_SESSION_TOKEN', 'value': credentials.token}
+            ]
+
     job = client.submit_job(jobName=job_name, jobDefinition=job_definition_fqn, jobQueue=job_queue,
                             containerOverrides=container_overrides)
+
     status = job['ResponseMetadata']['HTTPStatusCode']
     if status == 200:
         _logger.info('Job {} (ID {}) with definition {} submitted to AWS Batch queue {}'.format(job['jobName'], job['jobId'],
@@ -282,6 +296,7 @@ def _run_aws_batch(arglist, job_name, pipeline_class_name,
     else:
         _logger.error('Job submission failed: HTTP Status {}'.format())
         return None
+
 
 def _sagemaker_hyperparameters_from_arglist(arglist):
     """
@@ -298,13 +313,16 @@ def _sagemaker_hyperparameters_from_arglist(arglist):
     return {'arglist': json.dumps(arglist)}
 
 
-def _run_aws_sagemaker(arglist, job_name, pipeline_class_name):
+def _run_aws_sagemaker(arglist, fq_repository_name, job_name, pipeline_class_name):
     """
     Runs a training job on AWS SageMaker.  This uses the default machine type
     in the disdat.cfg file.
 
     Args:
-        cli (bool): Whether we were called from the CLI or API
+        arglist:
+        fq_repository_name (str): fully qualified repository name
+        job_name:  instance job name
+        pipeline_class_name: The package.module.class Disdat task we are executing.
 
     Returns:
         TrainingJobArn (str)
@@ -315,8 +333,6 @@ def _run_aws_sagemaker(arglist, job_name, pipeline_class_name):
     job_name = job_name.replace('_', '-') # b/c SageMaker complains it must be ^[a-zA-Z0-9](-*[a-zA-Z0-9])*
 
     hyperparameter_dict = _sagemaker_hyperparameters_from_arglist(arglist)
-
-    fq_repository_name = get_fq_docker_repo_name(True, pipeline_class_name)
 
     algorithm_specification = {'TrainingImage': fq_repository_name,
                                'TrainingInputMode': 'File'}
@@ -379,7 +395,6 @@ def _run_aws_sagemaker(arglist, job_name, pipeline_class_name):
         InputDataConfig=input_channel_config,
         OutputDataConfig=output_data_config,
         ResourceConfig=resource_config,
-        #VpcConfig=vpc_config,
         StoppingCondition=stopping_condition,
         Tags=tags
     )
@@ -390,7 +405,8 @@ def _run_aws_sagemaker(arglist, job_name, pipeline_class_name):
 
 def _run(
         output_bundle = '-',
-        pipeline_args ='',
+        pipeline_root = '',
+        pipeline_args = '',
         pipe_cls = None,
         backend = None,
         input_tags = {},
@@ -414,6 +430,7 @@ def _run(
 
     Args:
         output_bundle (str): The human name of the output bundle
+        pipeline_root (str): The path to the setup.py used to create the container
         pipeline_args: Optional arguments to pass to the pipeline class
         pipe_cls: Name of the pipeline class to run
         backend: The batch execution back-end to use (default
@@ -440,6 +457,8 @@ def _run(
 
     pfs = fs.DisdatFS()
 
+    pipeline_setup_file = os.path.join(pipeline_root, 'setup.py')
+
     try:
         output_bundle_uuid = pfs.disdat_uuid()
         if remote is None or context is None:
@@ -449,26 +468,40 @@ def _run(
         _logger.error("'run' requires a remote set with `dsdt remote <s3 url>`")
         return
 
-    arglist = common.make_run_command(output_bundle, output_bundle_uuid, remote, context,
+    arglist = common.make_run_command(output_bundle, output_bundle_uuid, pipe_cls, remote, context,
                                       input_tags, output_tags, force, no_pull, no_push,
                                       no_push_int, workers, pipeline_args)
 
     if backend == Backend.AWSBatch or backend == Backend.SageMaker:
 
-        pipeline_image_name = common.make_pipeline_image_name(pipe_cls)
+        pipeline_image_name = common.make_project_image_name(pipeline_setup_file)
 
         job_name = '{}-{}'.format(pipeline_image_name, int(time.time()))
 
+        fq_repository_name = get_fq_docker_repo_name(False, pipeline_setup_file)
+
         if backend == Backend.AWSBatch:
-            retval = _run_aws_batch(arglist, job_name, pipe_cls,
-                           aws_session_token_duration, vcpus, memory,
-                           no_submit, job_role_arn)
+
+            retval = _run_aws_batch(arglist,
+                                    fq_repository_name,
+                                    job_name,
+                                    pipeline_image_name,
+                                    aws_session_token_duration,
+                                    vcpus,
+                                    memory,
+                                    no_submit,
+                                    job_role_arn)
         else:
-            retval = _run_aws_sagemaker(arglist, job_name, pipe_cls)
+
+            fq_repository_name = get_fq_docker_repo_name(True, pipeline_root)
+
+            retval = _run_aws_sagemaker(arglist,
+                                        fq_repository_name,
+                                        job_name,
+                                        pipe_cls)
 
     elif backend == Backend.Local or backend == Backend.LocalSageMaker:
-
-        retval = _run_local(cli, arglist, pipe_cls, backend)
+        retval = _run_local(cli, pipeline_setup_file, arglist, pipe_cls, backend)
 
     else:
         raise ValueError('Got unrecognized job backend \'{}\': Expected {}'.format(backend, Backend.options()))
@@ -548,6 +581,7 @@ def add_arg_parser(parsers):
     run_p.add_argument('-ot', '--output-tag', nargs=1, type=str, action='append',
                        help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'",
                        dest='output_tags')
+    run_p.add_argument("pipeline_root", type=str, help="Root of the Python source tree containing the user-defined transform; must have a setuptools-style setup.py file")
     run_p.add_argument("output_bundle", type=str, help="Name of destination bundle.  '-' means default output bundle.")
     run_p.add_argument("pipe_cls", type=str, help="User-defined transform, e.g., module.PipeClass")
     run_p.add_argument("pipeline_args", type=str,  nargs=argparse.REMAINDER,

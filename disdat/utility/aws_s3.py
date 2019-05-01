@@ -38,7 +38,7 @@ import disdat.common as common
 from disdat import logger as _logger
 
 
-def batch_get_job_definition_name(pipeline_class_name):
+def batch_get_job_definition_name(pipeline_image_name):
     """Get the most recent active AWS Batch job definition for a dockerized
     pipeline.
 
@@ -47,9 +47,9 @@ def batch_get_job_definition_name(pipeline_class_name):
     """
 
     try:
-        return '{}-{}-job-definition'.format(getuser(), common.make_pipeline_image_name(pipeline_class_name))
+        return '{}-{}-job-definition'.format(getuser(), pipeline_image_name)
     except Exception as e:
-        return '{}-{}-job-definition'.format('DEFAULT', common.make_pipeline_image_name(pipeline_class_name))
+        return '{}-{}-job-definition'.format('DEFAULT', pipeline_image_name)
 
 
 def batch_get_latest_job_definition(job_definition_name):
@@ -169,12 +169,14 @@ def ecr_create_fq_respository_name(repository_name, policy_resource_package=None
                 repositoryNames=[repository_name]
             )
             repository_metadata = response['repositories'][0]
+        elif e.response['Error']['Code'] == 'AccessDeniedException':
+            _logger.warn("Error [AccessDeniedException] when creating repo {}, trying to continue...".format(repository_name))
         else:
             raise e
     return repository_metadata['repositoryUri']
 
 
-def ecr_get_fq_respository_name(repository_name):
+def ecr_get_fq_repository_name(repository_name):
     return ecr_create_fq_respository_name(repository_name)
 
 
@@ -198,8 +200,10 @@ def ecr_get_auth_config():
 
 
 def profile_get_region():
-    """Get the AWS region for the current AWS profile.
+    """Gets the AWS region for the current AWS profile. If AWS_DEFAULT_REGION is set in env will just default to use
+    that.
     """
+
     def _get_region(profiles, profile_name):
         if profile_name not in profiles:
             raise KeyError('AWS profile {} not defined in AWS config'.format(profile_name))
@@ -212,17 +216,19 @@ def profile_get_region():
                 return _get_region(profiles, profile_name)
             except KeyError:
                 return None
-    session = b3.session()
-    if 'AWS_PROFILE' in os.environ:
-        profile_name = os.environ['AWS_PROFILE']
-    else:
-        profile_name = 'default'
-    profiles = session.full_config['profiles']
-    region = _get_region(profiles, profile_name)
+
+    # ENV variables take precedence over the region in the ~/.aws/ folder
     if 'AWS_DEFAULT_REGION' in os.environ:
         region = os.environ['AWS_DEFAULT_REGION']
+    else:
+        session = b3.session()
+        if 'AWS_PROFILE' in os.environ:
+            profile_name = os.environ['AWS_PROFILE']
+        else:
+            profile_name = 'default'
+        profiles = session.full_config['profiles']
+        region = _get_region(profiles, profile_name)
     return region
-
 
 def s3_path_exists(s3_url):
     """

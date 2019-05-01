@@ -63,11 +63,6 @@ fi
 # Clean up the temporary build directory
 RUN rm -rf $BUILD_ROOT
 
-# Set the pipeline execution parameters
-
-ARG PIPELINE_CLASS
-ENV PIPELINE_CLASS $PIPELINE_CLASS
-
 # Set up the default entry point. If the user starts an image with no
 # arguments, show some help
 COPY bin/entrypoint.py /opt/bin/entrypoint.py

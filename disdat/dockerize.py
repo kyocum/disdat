@@ -19,7 +19,6 @@ from __future__ import print_function
 import inspect
 import logging
 import os
-import subprocess
 import tempfile
 import shutil
 
@@ -38,47 +37,86 @@ _DOCKERIZER_ROOT = os.path.dirname(inspect.getsourcefile(dockerizer))
 _logger = logging.getLogger(__name__)
 
 
-def _do_subprocess(cmd, cli):
-    """ Standardize error processing
+def _copy_in_dot_file(disdat_config, docker_context, dot_file_name, option_name, cli):
+    """
+    Copy in a dot file to a file with name "dot_file_name" into the docker context.
+    The user might have put the src path in the disdat config file under the "option_name"
 
     Args:
-        cmd (str): command to execute
-        cli (bool): whether called from CLI (True) or API (False)
+        disdat_config:  A disdat config object
+        docker_context:  The place we are storing the docker context for build
+        dot_file_name:  The name of the file in the docker context
+        option_name: the name of the option in disdat.cfg
+        cli (bool): whether we are called from cli
 
     Returns:
-        (int): 0 if success, >0 if failure
+        None or if subprocess has output
 
     """
-    output = 'No captured output from running CMD [{}]'.format(cmd)
-    try:
-        if not cli:
-            output = subprocess.check_output(cmd)
-        else:
-            subprocess.check_call(cmd)
-    except subprocess.CalledProcessError as cpe:
-        if not cli:
-            print (output)
-            return cpe.returncode
-        raise
+    retval = 0
 
-    return 0
+    dot_file_path = os.path.join(docker_context, dot_file_name)
+    if disdat_config.parser.has_option(_MODULE_NAME, option_name):
+        dot_file = os.path.expanduser(disdat_config.parser.get(_MODULE_NAME, option_name))
+        shutil.copy(dot_file, dot_file_path)
+        print("Copying dot file {} into {}".format(dot_file, docker_context))
+    else:
+        touch_command = [
+            'touch',
+            dot_file_path
+        ]
+        retval = disdat.common.do_subprocess(touch_command, cli)
+
+    return retval
+
+
+def latest_container_id(pipeline_root, cli):
+    """ Return the unique container image hash from the latest container made
+    from this setup.py
+
+    Args:
+        pipeline_root (str): The path to the setup.py file that defines the container
+        cli (bool): if called from cli
+
+    Returns:
+        (str): The full docker container image hash
+
+    """
+    setup_file = os.path.join(pipeline_root, 'setup.py')
+    pipeline_image_name = disdat.common.make_project_image_name(setup_file)
+    docker_client = docker.from_env()
+
+    try:
+        img_obj = docker_client.images.get(pipeline_image_name)
+    except (docker.errors.APIError, docker.errors.ImageNotFound) as er:
+        if cli:
+            print("Disdat unable to find image with project name {}".format(pipeline_image_name))
+            raise # exit with code > 0
+        return None
+
+    id = img_obj.id.replace('sha256:','')
+
+    if cli:
+        print("{}".format(id))
+
+    return id
 
 
 def dockerize(pipeline_root,
-              pipeline_class_name,
               config_dir=None,
               os_type=None,
               os_version=None,
               build=True,
               push=False,
               sagemaker=False,
-              cli=False):
+              cli=False,
+              fq_repository_name=None,
+              quiet=False):
     """ Create a Docker image for running a pipeline.
 
     Args:
         pipeline_root: Root of the Python source tree containing the
-        user-defined transform; must have a setuptools-style setup.py file.
-        pipeline_class_name: The fully-qualified name of the pipeline
+        setuptools-style setup.py file.
         config_dir (str):  Configuration of image (.deb, requires.txt, etc.)
         os_type (str): OS type string
         os_version (str): Version of OS
@@ -86,6 +124,8 @@ def dockerize(pipeline_root,
         push (bool): Push to registry listed in Disdat config file
         sagemaker (bool): Build a container for 'train' or 'serve' in SageMaker
         cli (bool): Whether dockerize was called from the CLI (True) or an API (False -- default)
+        fq_repository_name (str): If set, the user has given us the entire name for this docker image
+        quiet (bool): Suppress output and return docker container image ID.
 
     Returns:
         (int): 0 equals success, >0 for error
@@ -114,42 +154,24 @@ def dockerize(pipeline_root,
         docker_context,
     ]
 
-    retval = _do_subprocess(rsync_command, cli)
+    retval = disdat.common.do_subprocess(rsync_command, cli)
     if retval: return retval
 
     # PIP: Overwrite pip.conf in the context.template in your repo if they have set the option,
     # else just create empty file.
     # At this time, the Dockerfile always sets the PIP_CONFIG_FILE ENV var to this file.
-    pip_file_path = os.path.join(docker_context, "pip.conf")
-    if disdat_config.parser.has_option(_MODULE_NAME, 'dot_pip_file'):
-        dot_pip_file = os.path.expanduser(disdat_config.parser.get(_MODULE_NAME, 'dot_pip_file'))
-        shutil.copy(dot_pip_file, pip_file_path)
-        print("Copying dot pip file {} into {}".format(dot_pip_file, docker_context))
-    else:
-        touch_command = [
-            'touch',
-            pip_file_path
-        ]
-        retval = _do_subprocess(touch_command, cli)
-        if retval: return retval
+    retval = _copy_in_dot_file(disdat_config, docker_context, "pip.conf", "dot_pip_file", cli)
+    if retval: return retval
 
     # ODBC: Overwrite the .odbc.ini in the context.template in your repo if the user set the option,
     # else just create empty file.
     # At this time, the Dockerfile always sets the ODBCINI var to this file.
-    odbc_file_path = os.path.join(docker_context,"odbc.ini")
-    if disdat_config.parser.has_option(_MODULE_NAME, 'dot_odbc_ini_file'):
-        dot_odbc_ini_file = os.path.expanduser(disdat_config.parser.get(_MODULE_NAME, 'dot_odbc_ini_file'))
-        shutil.copy(dot_odbc_ini_file, odbc_file_path)
-        print("Copying dot odbc.ini file {} into {}".format(dot_odbc_ini_file, odbc_file_path))
-    else:
-        touch_command = [
-            'touch',
-            odbc_file_path
-        ]
-        retval = _do_subprocess(touch_command, cli)
-        if retval: return retval
+    retval = _copy_in_dot_file(disdat_config, docker_context, "odbc.ini", "dot_odbc_ini_file", cli)
+    if retval: return retval
 
-    pipeline_image_name = disdat.common.make_pipeline_image_name(pipeline_class_name)
+    setup_file = os.path.join(pipeline_root, 'setup.py')
+    pipeline_image_name = disdat.common.make_project_image_name(setup_file)
+
     DEFAULT_DISDAT_HOME = os.path.join('/', *os.path.dirname(disdat.dockerize.__file__).split('/')[:-1])
     DISDAT_HOME = os.getenv('DISDAT_HOME', DEFAULT_DISDAT_HOME)
 
@@ -161,42 +183,53 @@ def dockerize(pipeline_root,
             'DOCKER_CONTEXT={}'.format(docker_context),
             'DISDAT_ROOT={}'.format(os.path.join(DISDAT_HOME)),  # XXX YUCK
             'PIPELINE_ROOT={}'.format(pipeline_root),
-            'PIPELINE_CLASS={}'.format(pipeline_class_name),
             'OS_TYPE={}'.format(image_os_type),
             'OS_VERSION={}'.format(image_os_version),
         ]
         if config_dir is not None:
             build_command.append('CONFIG_ROOT={}'.format(config_dir))
         if sagemaker:
-            build_command.append('SAGEMAKER_TRAIN_IMAGE_NAME={}'.format(disdat.common.make_sagemaker_pipeline_image_name(pipeline_class_name)))
+            build_command.append('SAGEMAKER_TRAIN_IMAGE_NAME={}'.format(disdat.common.make_sagemaker_project_image_name(setup_file)))
             build_command.append('sagemaker')
-        retval = _do_subprocess(build_command, cli)
+        retval = disdat.common.do_subprocess(build_command, cli)
         if retval: return retval
 
     if push:
         docker_client = docker.from_env()
-        repository_name_prefix = None
-        if disdat_config.parser.has_option('docker', 'repository_prefix'):
-            repository_name_prefix = disdat_config.parser.get('docker', 'repository_prefix')
-        if sagemaker:
-            repository_name = disdat.common.make_sagemaker_pipeline_repository_name(repository_name_prefix, pipeline_class_name)
-            pipeline_image_name = disdat.common.make_sagemaker_pipeline_image_name(pipeline_class_name)
-        else:
-            repository_name = disdat.common.make_pipeline_repository_name(repository_name_prefix, pipeline_class_name)
-        # Figure out the fully-qualified repository name, i.e., the name
-        # including the registry.
-        registry_name = disdat_config.parser.get('docker', 'registry').strip('/')
-        if registry_name == '*ECR*':
-            policy_resource_name = None
-            if disdat_config.parser.has_option('docker', 'ecr_policy'):
-                policy_resource_name = disdat_config.parser.get('docker', 'ecr_policy')
-            fq_repository_name = aws.ecr_create_fq_respository_name(
-                repository_name,
-                policy_resource_package=disdat.resources,
-                policy_resource_name=policy_resource_name
-            )
-        else:
-            fq_repository_name = '{}/{}'.format(registry_name, repository_name)
+
+        registry_name = None
+
+        if fq_repository_name is None:
+            repository_name_prefix = None
+            if disdat_config.parser.has_option('docker', 'repository_prefix'):
+                repository_name_prefix = disdat_config.parser.get('docker', 'repository_prefix')
+            if sagemaker:
+                repository_name = disdat.common.make_sagemaker_project_repository_name(repository_name_prefix, setup_file)
+                pipeline_image_name = disdat.common.make_sagemaker_project_image_name(setup_file)
+            else:
+                repository_name = disdat.common.make_project_repository_name(repository_name_prefix, setup_file)
+
+            # Figure out the fully-qualified repository name, i.e., the name
+            # including the registry.
+            if disdat_config.parser.has_option('docker','registry'):
+                registry_name = disdat_config.parser.get('docker', 'registry').strip('/')
+                if registry_name == '*ECR*':
+                    policy_resource_name = None
+                    if disdat_config.parser.has_option('docker', 'ecr_policy'):
+                        policy_resource_name = disdat_config.parser.get('docker', 'ecr_policy')
+                    fq_repository_name = aws.ecr_create_fq_respository_name(
+                        repository_name,
+                        policy_resource_package=disdat.resources,
+                        policy_resource_name=policy_resource_name
+                    )
+                else:
+                    fq_repository_name = '{}/{}'.format(registry_name, repository_name)
+            else:
+                if cli:
+                    raise RuntimeError("No registry present for push to succeed")
+                else:
+                    return 1
+
         auth_config = None
         if disdat_config.parser.has_option('docker', 'ecr_login') or registry_name == '*ECR*':
             auth_config = aws.ecr_get_auth_config()
@@ -215,6 +248,12 @@ def dockerize(pipeline_root,
 
 def add_arg_parser(parsers):
     dockerize_p = parsers.add_parser('dockerize', description="Dockerizer a particular transform.")
+    dockerize_p.add_argument(
+        '--fq-repo-name',
+        type=str,
+        default=None,
+        help="Set the Docker registry name and repository string",
+    )
     dockerize_p.add_argument(
         '--config-dir',
         type=str,
@@ -239,6 +278,11 @@ def add_arg_parser(parsers):
         help="Push the image to a remote Docker registry (default is to not push; must set 'docker_registry' in Disdat config)",
     )
     dockerize_p.add_argument(
+        '--get-id',
+        action='store_true',
+        help="Do not build, only return latest container image ID",
+    )
+    dockerize_p.add_argument(
         '--sagemaker',
         action='store_true',
         default=False,
@@ -251,11 +295,10 @@ def add_arg_parser(parsers):
         dest='build',
     )
     dockerize_p.add_argument(
-        "pipe_root",
+        "pipeline_root",
         type=str,
         help="Root of the Python source tree containing the user-defined transform; must have a setuptools-style setup.py file"
     )
-    dockerize_p.add_argument("pipe_cls", type=str, help="User-defined transform, e.g., module.PipeClass")
     dockerize_p.set_defaults(func=lambda args: dockerize_entry(cli=True, **vars(args)))
     return parsers
 
@@ -271,16 +314,19 @@ def dockerize_entry(cli=False, **kwargs):
         (int): 0 for success, 1 for failure
     """
 
-    return dockerize(kwargs['pipe_root'],
-                     kwargs['pipe_cls'],
-                     config_dir=kwargs['config_dir'],
-                     os_type=kwargs['os_type'],
-                     os_version=kwargs['os_version'],
-                     build=kwargs['build'],
-                     push=kwargs['push'],
-                     sagemaker=kwargs['sagemaker'],
-                     cli=cli
-                     )
+    if kwargs['get_id']:
+        return latest_container_id(kwargs['pipeline_root'], cli)
+    else:
+        return dockerize(kwargs['pipeline_root'],
+                         config_dir=kwargs['config_dir'],
+                         os_type=kwargs['os_type'],
+                         os_version=kwargs['os_version'],
+                         build=kwargs['build'],
+                         push=kwargs['push'],
+                         sagemaker=kwargs['sagemaker'],
+                         cli=cli,
+                         fq_repository_name=kwargs['fq_repo_name']
+                         )
 
 
 if __name__ == "__main__":
