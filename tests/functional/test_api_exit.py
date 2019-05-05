@@ -13,12 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+import luigi
 
-import numpy as np
 from disdat.pipe import PipeTask
 import disdat.api as api
-import random
-import luigi
+from tests.functional.common import init_project
 
 """
 Demo Pipeline
@@ -47,7 +46,7 @@ TEST_CONTEXT = '_test_context_'
 TEST_NAME    = 'test_bundle'
 
 
-def test():
+def test(tmpdir):
     """ Purpose of this test is to have one task that produces a bundle.
     And another task that requires it.
 
@@ -60,6 +59,8 @@ def test():
     3.) Try to run Root -- it should find DataMaker but not re-create it or PreMaker_auf_datamaker
 
     """
+
+    init_project(tmpdir)
 
     api.context(TEST_CONTEXT)
 

@@ -50,8 +50,6 @@ from disdat.run import Backend, run_entry
 from disdat.dockerize import dockerize_entry
 from disdat import logger as _logger
 
-disdat.fs.DisdatConfig.instance()
-
 fs = disdat.fs.DisdatFS()
 
 def set_aws_profile(aws_profile):

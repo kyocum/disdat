@@ -31,9 +31,8 @@ from disdat import resource
 import disdat.config
 from disdat import logger as _logger
 
-
-SYSTEM_CONFIG_DIR = '~/.config/disdat'
 PACKAGE_CONFIG_DIR = 'disdat'
+PROJECT_CONFIG_DIR = '.dsdt'
 LOGGING_FILE = 'logging.conf'
 LUIGI_FILE = 'luigi.cfg'
 CFG_FILE = 'disdat.cfg'
@@ -110,7 +109,7 @@ class DisdatConfig(object):
 
     _instance = None
 
-    def __init__(self, meta_dir_root=None, config_dir=None):
+    def __init__(self, meta_dir_root=None, project_root=None):
         """
 
         Args:
@@ -118,12 +117,12 @@ class DisdatConfig(object):
             config_dir (str): Optional directory from which to get disdat.cfg and luigi.cfg.  Default SYSTEM_CONFIG_DIR
         """
         # Find configuration directory
-        if config_dir:
-            config_dir = config_dir
+        if project_root:
+            config_dir = self._find_config_directory(project_root)
         else:
-            config_dir = os.path.expanduser(SYSTEM_CONFIG_DIR)
+            config_dir = self._find_config_directory()
 
-        if not os.path.exists(config_dir):
+        if not config_dir:
             error(
                 'Did not find Disdat configuration. '
                 'Call "dsdt init" to initialize Disdat.'
@@ -141,16 +140,16 @@ class DisdatConfig(object):
         self.parser = self._read_configuration_file(disdat_cfg, luigi_cfg)
 
     @staticmethod
-    def instance(meta_dir_root=None, config_dir=None):
+    def instance(meta_dir_root=None, project_root=None):
         """
         Singleton getter
 
         Args:
             meta_dir_root (str): Optional place to store disdat contexts. Default `~/`
-            config_dir (str): Optional directory from which to get disdat.cfg and luigi.cfg.  Default SYSTEM_CONFIG_DIR
+            project_root (str): Optional directory which is the root of the disdat project
         """
         if DisdatConfig._instance is None:
-            DisdatConfig._instance = DisdatConfig(meta_dir_root=meta_dir_root, config_dir=config_dir)
+            DisdatConfig._instance = DisdatConfig(meta_dir_root=meta_dir_root, project_root=project_root)
         return DisdatConfig._instance
 
     @staticmethod
@@ -158,6 +157,24 @@ class DisdatConfig(object):
         if not os.path.isabs(to_fix_path):
             return os.path.join(os.path.dirname(config_file), to_fix_path)
         return to_fix_path
+
+    def _find_config_directory(self, directory=None):
+        # Use current directory if nothing is passed in
+        if not directory:
+            directory = os.getcwd()
+
+        # Return the path to the config directory if it is found
+        if PROJECT_CONFIG_DIR in os.listdir(directory):
+            return os.path.join(directory, PROJECT_CONFIG_DIR)
+
+        # If root was the last directory checked, return None
+        if os.path.dirname(directory) == directory:
+            return None
+
+        # Recurse on next directory up
+        start, _ = os.path.split(directory)
+        return self._find_config_directory(start)
+
 
     def _read_configuration_file(self, disdat_config_file, luigi_config_file):
         """
@@ -195,35 +212,28 @@ class DisdatConfig(object):
         return os.path.join(self.get_meta_dir(), DISDAT_CONTEXT_DIR)
 
     @staticmethod
-    def init():
+    def init(directory=None):
         """
         Create a default configuration in the config directory. This makes a
         disdat folder which contains all configuration files.
         """
-        directory = os.path.expanduser(SYSTEM_CONFIG_DIR)
+        if not directory:
+            directory = os.getcwd()
+
+        directory = os.path.expanduser(directory)
 
         # Make sure disdat has not already been initialized
-        if os.path.exists(directory):
+        config_directory = os.path.join(directory, PROJECT_CONFIG_DIR)
+
+        if os.path.exists(config_directory):
             error(
                 'DisDat already initialized in {}.'.format(directory)
             )
 
-        # Create outer folder if the system does not have it yet
-        path = os.path.dirname(directory)
-        if not os.path.exists(path):
-            os.mkdir(path)
-
         # Copy over default configurations
         src = resource.filename(disdat.config, PACKAGE_CONFIG_DIR)
-        dst = directory
+        dst = os.path.join(directory, PROJECT_CONFIG_DIR)
         shutil.copytree(src, dst)
-
-        # Make sure paths are absolute in luigi config
-        luigi_dir = os.path.join(directory, LUIGI_FILE)
-        config = configparser.ConfigParser()
-        config.read(luigi_dir)
-        with open(luigi_dir, 'w') as handle:
-            config.write(handle)
 
 #
 # subprocess wrapper

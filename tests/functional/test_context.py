@@ -1,5 +1,8 @@
+import os
+
 from disdat.pipe import PipeTask
 import disdat.api as api
+from tests.functional.common import init_project
 
 
 class ContextTest(PipeTask):
@@ -10,7 +13,10 @@ class ContextTest(PipeTask):
         return 2
 
 
-def test_create_context():
+def test_create_context(tmpdir):
+    # Init Disdat Project
+    init_project(tmpdir)
+
     context_name = '__test__'
     assert context_name not in api.ls_contexts(), 'Context exists'
 
@@ -20,7 +26,12 @@ def test_create_context():
     assert context_name not in api.ls_contexts(), 'Test context exists'
 
 
-def test_independent_context():
+def test_independent_context(tmpdir):
+    # Init Disdat Project
+    print(tmpdir)
+
+    init_project(tmpdir)
+
     context_1_name = '__test_context_1__'
     context_2_name = '__test_context_2__'
 
