@@ -28,8 +28,6 @@ def test_create_context(tmpdir):
 
 def test_independent_context(tmpdir):
     # Init Disdat Project
-    print(tmpdir)
-
     init_project(tmpdir)
 
     context_1_name = '__test_context_1__'
