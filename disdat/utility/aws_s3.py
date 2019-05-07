@@ -38,7 +38,7 @@ import disdat.common as common
 from disdat import logger as _logger
 
 
-def batch_get_job_definition_name(pipeline_class_name):
+def batch_get_job_definition_name(pipeline_image_name):
     """Get the most recent active AWS Batch job definition for a dockerized
     pipeline.
 
@@ -47,9 +47,9 @@ def batch_get_job_definition_name(pipeline_class_name):
     """
 
     try:
-        return '{}-{}-job-definition'.format(getuser(), common.make_pipeline_image_name(pipeline_class_name))
+        return '{}-{}-job-definition'.format(getuser(), pipeline_image_name)
     except Exception as e:
-        return '{}-{}-job-definition'.format('DEFAULT', common.make_pipeline_image_name(pipeline_class_name))
+        return '{}-{}-job-definition'.format('DEFAULT', pipeline_image_name)
 
 
 def batch_get_latest_job_definition(job_definition_name):

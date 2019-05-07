@@ -21,6 +21,7 @@ import logging
 import os
 import sys
 import shutil
+import subprocess
 
 import luigi
 from six.moves import urllib
@@ -224,46 +225,107 @@ class DisdatConfig(object):
         with open(luigi_dir, 'w') as handle:
             config.write(handle)
 
+#
+# subprocess wrapper
+#
+
+
+def do_subprocess(cmd, cli):
+    """ Standardize error processing
+
+    Args:
+        cmd (str): command to execute
+        cli (bool): whether called from CLI (True) or API (False)
+
+    Returns:
+        (int): 0 if success, >0 if failure
+
+    """
+    output = 'No captured output from running CMD [{}]'.format(cmd)
+    try:
+        if not cli:
+            output = subprocess.check_output(cmd)
+        else:
+            subprocess.check_call(cmd)
+    except subprocess.CalledProcessError as cpe:
+        if not cli:
+            print (output)
+            return cpe.returncode
+        raise
+
+    return 0
+
+
+def do_subprocess_with_output(cmd):
+    """ Standardize error processing
+
+    Args:
+        cmd (str): command to execute
+
+    Returns:
+        (str): output of command
+
+    """
+    try:
+        output = subprocess.check_output(cmd)
+        return output
+    except subprocess.CalledProcessError as cpe:
+        raise
 
 #
 # Make Docker images names from pipeline class names
 #
 
-def make_pipeline_image_name(pipeline_class_name):
-    """ Create the string for the image for this pipeline_class_name
 
-    'disdat-module[-submodule]...'
+def make_project_image_name(setup_file_path):
+    """
+    Create a container name from the name field in the setup.py file.
+    This uses some setuptools magic.  When you install disdat, we install
+    an entrypoint.   It becomes available to anyone using setup tools.
+    This extracts the information from the setup.py.
+
+    see disdat/infrastructure/dockerizer/setup_tools_commands.py
 
     Args:
-        pipeline_class_name:
+        setup_file_path (str): The FQP to the setup.py file used to dockerize.
 
     Returns:
-        str: The name of the image 'disdat-module[-submodule]...'
+        (str): image name string
+
     """
 
-    return '-'.join(['disdat'] + pipeline_class_name.split('.')[:-1]).lower()
+    python_command = [
+        'python',
+        setup_file_path,
+        '-q',
+        'dsdt_distname'
+    ]
+
+    retval = do_subprocess_with_output(python_command).strip()
+
+    return retval
 
 
-def make_sagemaker_pipeline_image_name(pipeline_class_name):
+def make_sagemaker_project_image_name(setup_file_path):
     """ Create the string for the image for this pipeline if it uses sagemaker's
     calling convention
 
     Args:
-        pipeline_class_name:
+        setup_file_path (str): The FQP to the setup.py file used to dockerize
 
     Returns:
-        str: The name of the image 'disdat-module[-submodule]...-sagemaker'
+        str: The name of the image + '-sagemaker'
     """
 
-    return make_pipeline_image_name(pipeline_class_name) + "-sagemaker"
+    return make_project_image_name(setup_file_path) + "-sagemaker"
 
 
-def make_pipeline_repository_name(docker_repository_prefix, pipeline_class_name):
-    return '/'.join(([docker_repository_prefix.strip('/')] if docker_repository_prefix is not None else []) + [make_pipeline_image_name(pipeline_class_name)])
+def make_project_repository_name(docker_repository_prefix, setup_file_path):
+    return '/'.join(([docker_repository_prefix.strip('/')] if docker_repository_prefix is not None else []) + [make_project_image_name(setup_file_path)])
 
 
-def make_sagemaker_pipeline_repository_name(docker_repository_prefix, pipeline_class_name):
-    return '/'.join(([docker_repository_prefix.strip('/')] if docker_repository_prefix is not None else []) + [make_sagemaker_pipeline_image_name(pipeline_class_name)])
+def make_sagemaker_project_repository_name(docker_repository_prefix, setup_file_path):
+    return '/'.join(([docker_repository_prefix.strip('/')] if docker_repository_prefix is not None else []) + [make_sagemaker_project_image_name(setup_file_path)])
 
 
 #
@@ -282,6 +344,7 @@ def get_run_command_parameters(pfs):
 def make_run_command(
         output_bundle,
         output_bundle_uuid,
+        pipe_cls,
         remote,
         context,
         input_tags,
@@ -297,7 +360,8 @@ def make_run_command(
         '--output-bundle-uuid ', output_bundle_uuid,
         '--remote', remote,
         '--branch', context,
-        '--workers', str(workers)
+        '--workers', str(workers),
+        '--pipeline', str(pipe_cls)
     ]
     if no_pull:
         args += ['--no-pull']
@@ -388,3 +452,12 @@ def slicezip(a, b):
     result[::2] = a
     result[1::2] = b
     return result
+
+
+def setup_exists(fqp_setup):
+    """ Check if file exists
+    """
+    if not os.path.exists(fqp_setup):
+        print ("No setup.py found at {}.".format(fqp_setup))
+        return False
+    return True
