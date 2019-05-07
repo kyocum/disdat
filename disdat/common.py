@@ -229,6 +229,7 @@ class DisdatConfig(object):
 # subprocess wrapper
 #
 
+
 def do_subprocess(cmd, cli):
     """ Standardize error processing
 
@@ -451,3 +452,12 @@ def slicezip(a, b):
     result[::2] = a
     result[1::2] = b
     return result
+
+
+def setup_exists(fqp_setup):
+    """ Check if file exists
+    """
+    if not os.path.exists(fqp_setup):
+        print ("No setup.py found at {}.".format(fqp_setup))
+        return False
+    return True

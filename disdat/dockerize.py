@@ -170,6 +170,10 @@ def dockerize(pipeline_root,
     if retval: return retval
 
     setup_file = os.path.join(pipeline_root, 'setup.py')
+
+    if not disdat.common.setup_exists(setup_file):
+        return 1
+
     pipeline_image_name = disdat.common.make_project_image_name(setup_file)
 
     DEFAULT_DISDAT_HOME = os.path.join('/', *os.path.dirname(disdat.dockerize.__file__).split('/')[:-1])
