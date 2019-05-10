@@ -978,8 +978,8 @@ def dockerize(setup_dir,
                              os_version=None,
                              build=build,
                              push=push,
-                             sagemaker=sagemaker,
-                             fq_repo_name=None)
+                             sagemaker=sagemaker
+                             )
 
     return retval
 

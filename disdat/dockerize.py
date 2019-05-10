@@ -109,9 +109,8 @@ def dockerize(pipeline_root,
               build=True,
               push=False,
               sagemaker=False,
-              cli=False,
-              fq_repository_name=None,
-              quiet=False):
+              cli=False
+              ):
     """ Create a Docker image for running a pipeline.
 
     Args:
@@ -124,8 +123,6 @@ def dockerize(pipeline_root,
         push (bool): Push to registry listed in Disdat config file
         sagemaker (bool): Build a container for 'train' or 'serve' in SageMaker
         cli (bool): Whether dockerize was called from the CLI (True) or an API (False -- default)
-        fq_repository_name (str): If set, the user has given us the entire name for this docker image
-        quiet (bool): Suppress output and return docker container image ID.
 
     Returns:
         (int): 0 equals success, >0 for error
@@ -201,38 +198,36 @@ def dockerize(pipeline_root,
     if push:
         docker_client = docker.from_env()
 
-        registry_name = None
+        repository_name_prefix = None
 
-        if fq_repository_name is None:
-            repository_name_prefix = None
-            if disdat_config.parser.has_option('docker', 'repository_prefix'):
-                repository_name_prefix = disdat_config.parser.get('docker', 'repository_prefix')
-            if sagemaker:
-                repository_name = disdat.common.make_sagemaker_project_repository_name(repository_name_prefix, setup_file)
-                pipeline_image_name = disdat.common.make_sagemaker_project_image_name(setup_file)
-            else:
-                repository_name = disdat.common.make_project_repository_name(repository_name_prefix, setup_file)
+        if disdat_config.parser.has_option('docker', 'repository_prefix'):
+            repository_name_prefix = disdat_config.parser.get('docker', 'repository_prefix')
+        if sagemaker:
+            repository_name = disdat.common.make_sagemaker_project_repository_name(repository_name_prefix, setup_file)
+            pipeline_image_name = disdat.common.make_sagemaker_project_image_name(setup_file)
+        else:
+            repository_name = disdat.common.make_project_repository_name(repository_name_prefix, setup_file)
 
-            # Figure out the fully-qualified repository name, i.e., the name
-            # including the registry.
-            if disdat_config.parser.has_option('docker','registry'):
-                registry_name = disdat_config.parser.get('docker', 'registry').strip('/')
-                if registry_name == '*ECR*':
-                    policy_resource_name = None
-                    if disdat_config.parser.has_option('docker', 'ecr_policy'):
-                        policy_resource_name = disdat_config.parser.get('docker', 'ecr_policy')
-                    fq_repository_name = aws.ecr_create_fq_respository_name(
-                        repository_name,
-                        policy_resource_package=disdat.resources,
-                        policy_resource_name=policy_resource_name
-                    )
-                else:
-                    fq_repository_name = '{}/{}'.format(registry_name, repository_name)
+        # Figure out the fully-qualified repository name, i.e., the name
+        # including the registry.
+        if disdat_config.parser.has_option('docker','registry'):
+            registry_name = disdat_config.parser.get('docker', 'registry').strip('/')
+            if registry_name == '*ECR*':
+                policy_resource_name = None
+                if disdat_config.parser.has_option('docker', 'ecr_policy'):
+                    policy_resource_name = disdat_config.parser.get('docker', 'ecr_policy')
+                fq_repository_name = aws.ecr_create_fq_respository_name(
+                    repository_name,
+                    policy_resource_package=disdat.resources,
+                    policy_resource_name=policy_resource_name
+                )
             else:
-                if cli:
-                    raise RuntimeError("No registry present for push to succeed")
-                else:
-                    return 1
+                fq_repository_name = '{}/{}'.format(registry_name, repository_name)
+        else:
+            if cli:
+                raise RuntimeError("No registry present for push to succeed")
+            else:
+                return 1
 
         auth_config = None
         if disdat_config.parser.has_option('docker', 'ecr_login') or registry_name == '*ECR*':
@@ -252,12 +247,6 @@ def dockerize(pipeline_root,
 
 def add_arg_parser(parsers):
     dockerize_p = parsers.add_parser('dockerize', description="Dockerizer a particular transform.")
-    dockerize_p.add_argument(
-        '--fq-repo-name',
-        type=str,
-        default=None,
-        help="Set the Docker registry name and repository string",
-    )
     dockerize_p.add_argument(
         '--config-dir',
         type=str,
@@ -328,8 +317,7 @@ def dockerize_entry(cli=False, **kwargs):
                          build=kwargs['build'],
                          push=kwargs['push'],
                          sagemaker=kwargs['sagemaker'],
-                         cli=cli,
-                         fq_repository_name=kwargs['fq_repo_name']
+                         cli=cli
                          )
 
 
