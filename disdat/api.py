@@ -54,7 +54,6 @@ disdat.fs.DisdatConfig.instance()
 
 fs = disdat.fs.DisdatFS()
 
-
 def set_aws_profile(aws_profile):
     os.environ['AWS_PROFILE'] = aws_profile
 
@@ -238,6 +237,7 @@ class Bundle(HyperFrameRecord):
             _logger.warn("Bundle is already open.")
             return
         elif not self.closed:
+
             self.local_dir, self.pb.uuid, self.remote_dir = self.data_context.make_managed_path()
             self.open = True
         else:
@@ -870,6 +870,7 @@ def apply(local_context, output_bundle, transform,
 
 def run(local_context,
         remote_context,
+        setup_dir,
         output_bundle,
         pipe_cls,
         pipeline_args,
@@ -893,6 +894,7 @@ def run(local_context,
     Args:
         local_context (str):  The local context in which the pipeline will run in the container
         remote_context (str): The remote context to pull / push bundles during execution
+        setup_dir (str): The directory that contains the setup.py holding the requirements for any pipelines
         output_bundle (str): human name of output bundle
         pipe_cls (str): The pkg.module.class of the root of the pipeline DAG
         pipeline_args (dict): Dictionary of the parameters of the root task
@@ -924,6 +926,7 @@ def run(local_context,
     context = "{}/{}".format(remote_context, local_context) # remote_name/local_name
 
     retval = run_entry(output_bundle=output_bundle,
+                       pipeline_root=setup_dir,
                        pipeline_args=pipeline_arg_list,
                        pipe_cls=pipe_cls,
                        backend=backend,
@@ -946,7 +949,6 @@ def run(local_context,
 
 
 def dockerize(setup_dir,
-              pipe_cls,
               config_dir=None,
               build=True,
               push=False,
@@ -960,7 +962,6 @@ def dockerize(setup_dir,
 
     Args:
         setup_dir (str): The directory that contains the setup.py holding the requirements for any pipelines
-        pipe_cls (str): The package.module.class string of the pipeline root.
         config_dir (str): The directory containing the configuration of .deb packages
         build (bool): If False, just copy files into the Docker build context without building image.
         push (bool):  Push the container to the repository
@@ -971,14 +972,14 @@ def dockerize(setup_dir,
 
     """
 
-    retval = dockerize_entry(pipe_root=setup_dir,
-                             pipe_cls=pipe_cls,
+    retval = dockerize_entry(pipeline_root=setup_dir,
                              config_dir=config_dir,
                              os_type=None,
                              os_version=None,
                              build=build,
                              push=push,
-                             sagemaker=sagemaker)
+                             sagemaker=sagemaker
+                             )
 
     return retval
 
