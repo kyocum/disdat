@@ -452,12 +452,16 @@ def _run(
         cli (bool): Whether we called run from the API (buffer output) or the CLI
 
     Returns:
-        job_result (json): A json blob that contains information about the run job.
+        job_result (json): A json blob that contains information about the run job.  Error with empty dict.  If backend
+        is Sagemaker, return TrainingJobArn.   If backend is AWSBatch, return Batch Job description.   If local, return stdout.
     """
 
     pfs = fs.DisdatFS()
 
     pipeline_setup_file = os.path.join(pipeline_root, 'setup.py')
+
+    if not common.setup_exists(pipeline_setup_file):
+        return None
 
     try:
         output_bundle_uuid = pfs.disdat_uuid()
