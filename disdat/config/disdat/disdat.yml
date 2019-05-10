@@ -1,6 +1,0 @@
-aws_profile: default
-
-os_type: python
-os_version: 2.7.15-slim
-
-aws_batch_queue: disdat-batch-queue

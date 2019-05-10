@@ -26,21 +26,3 @@ JSON_DATA = 'json_data'
 DATA = 'data'
 FILE = 'files'
 
-
-# Config Defaults
-class Config(enum.Enum):
-    # Docker
-    OS_TYPE = 'python'
-    OS_VERSION = '2.7.15 - slim'
-
-    # General AWS
-    AWS_PROFILE_NAME = 'default'
-
-    # Batch
-    DISDAT_BATCH_QUEUE = 'disdat_batch_queue'
-
-    # Sagemaker
-    AWS_SAGEMAKER_INSTANCE_TYPE = 'ml.m4.xlarge'
-    AWS_SAGEMAKER_INSTANCE_COUNT = 1
-    AWS_SAGEMAKER_VOLUME_SIZEGB = 128
-    AWS_SAGEMAKER_MAX_RUNTIME_SEC = 300
