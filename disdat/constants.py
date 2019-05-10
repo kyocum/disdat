@@ -1,4 +1,3 @@
-import enum
 #
 # Copyright 2015, 2016  Human Longevity, Inc.
 #
@@ -25,4 +24,3 @@ _MANAGED_OBJECTS = "objects"   # directory in the context for objects
 JSON_DATA = 'json_data'
 DATA = 'data'
 FILE = 'files'
-

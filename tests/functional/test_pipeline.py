@@ -40,8 +40,6 @@ class C(PipeTask):
 
 
 def test_single_task():
-    # Init with simulated project root
-
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
     api.apply(TEST_CONTEXT, '-', 'A')
