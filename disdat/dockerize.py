@@ -318,7 +318,7 @@ def dockerize_entry(cli=False, **kwargs):
         (int): 0 for success, 1 for failure
     """
 
-    if kwargs['get_id']:
+    if 'get_id' in kwargs and kwargs['get_id']:
         return latest_container_id(kwargs['pipeline_root'], cli)
     else:
         return dockerize(kwargs['pipeline_root'],
