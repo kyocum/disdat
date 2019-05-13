@@ -30,13 +30,14 @@ from six.moves import configparser
 
 from disdat import resource
 import disdat.config
+from disdat.constants import Config, init_defaults
 from disdat import logger as _logger
 
 PACKAGE_CONFIG_DIR = 'disdat'
 PROJECT_CONFIG_DIR = '.dsdt'
 LOGGING_FILE = 'logging.conf'
 LUIGI_FILE = 'luigi.cfg'
-CFG_FILE = 'disdat.cfg'
+CFG_FILE = 'disdat.yml'
 META_DIR = '.disdat'
 DISDAT_CONTEXT_DIR = 'context'  # ~/.disdat/context/<local_context_name>
 DEFAULT_FRAME_NAME = 'unnamed'
@@ -176,7 +177,6 @@ class DisdatConfig(object):
         start, _ = os.path.split(directory)
         return self._find_config_directory(start)
 
-
     def _read_configuration_file(self, disdat_config_file, luigi_config_file):
         """
         Check for environment varialbe 'DISDAT_CONFIG_PATH' -- should point to disdat.cfg
@@ -184,11 +184,13 @@ class DisdatConfig(object):
         Next, see if there is a disdat.cfg in cwd.  Then configure disdat and (re)configure logging.
         """
         # _logger.debug("Loading config file [{}]".format(disdat_config_file))
-        config = configparser.SafeConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
-        config.read(disdat_config_file)
+        # config = configparser.SafeConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
+        # config.read(disdat_config_file)
+        with open(disdat_config_file) as f:
+            config = yaml.load(f, Loader=yaml.BaseLoader)
+
         self.meta_dir_root = os.path.expanduser(config.get('core', 'meta_dir_root'))
         self.meta_dir_root = DisdatConfig._fix_relative_path(disdat_config_file, self.meta_dir_root)
-        self.ignore_code_version = config.getboolean('core', 'ignore_code_version')
 
         # Set up luigi configuration
         luigi.configuration.get_config().read(luigi_config_file)
@@ -211,6 +213,9 @@ class DisdatConfig(object):
 
     def get_context_dir(self):
         return os.path.join(self.get_meta_dir(), DISDAT_CONTEXT_DIR)
+
+    def get_config(self, config_enum):
+        return self.parser.get(config_enum.name.lower(), config_enum.value)
 
     @staticmethod
     def init(directory=None):
@@ -235,6 +240,13 @@ class DisdatConfig(object):
         src = resource.filename(disdat.config, PACKAGE_CONFIG_DIR)
         dst = os.path.join(directory, PROJECT_CONFIG_DIR)
         shutil.copytree(src, dst)
+
+        # Create yaml config file with defaults
+        init_config = init_defaults()
+
+        dsdt_config_path = os.path.join(dst, CFG_FILE)
+        with open(dsdt_config_path, 'w') as f:
+            yaml.dump(init_config, f, default_flow_style=False)
 
 #
 # subprocess wrapper

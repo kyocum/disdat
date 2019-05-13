@@ -32,6 +32,7 @@ import collections
 from luigi import build, worker
 
 import disdat.common as common  # config, especially logging, before luigi ever loads
+from disdat.constants import Config
 import disdat.pipe_base as pipe_base
 import disdat.fs as fs
 import disdat.driver as driver
@@ -232,7 +233,7 @@ def different_code_versions(code_version, lineage_obj):
 
     conf = common.DisdatConfig.instance()
 
-    if conf.ignore_code_version:
+    if conf.get_config(Config.IGNORE_CODE_VERSION):
         return False
 
     # If there were uncommitted changes, then we have to re-run, mark as different
