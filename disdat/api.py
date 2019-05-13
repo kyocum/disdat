@@ -38,6 +38,7 @@ import shutil
 
 import luigi
 from luigi.contrib import s3
+import pandas as pd
 
 import disdat.apply
 import disdat.run
@@ -260,6 +261,9 @@ class Bundle(HyperFrameRecord):
 
         try:
 
+            if self.data is None:
+                self.data = pd.DataFrame(self.rows)
+
             presentation, frames = PipeBase.parse_return_val(self.uuid, self.data, self.data_context)
 
             self.add_frames(frames)
@@ -402,9 +406,6 @@ class Bundle(HyperFrameRecord):
             Note: One uses `add_data_row` or `add_data` but not both.  Adding a row after `add_data`
             removes the data.   Using `add_data` after `add_data_row` removes all previously added rows.
 
-            One adds
-            Calling this replaces the latest item -- only the latest will be included in the bundle on close.
-
         Args:
             row_dict (dict): A set of key: values to store in the bundle.  Values maybe literal types, file paths
             or file targets (from `bundle.make_file()`).
@@ -414,8 +415,13 @@ class Bundle(HyperFrameRecord):
         """
         assert(self.open and not self.closed)
         if self.data is not None:
-            _logger.warning("Disdat API add_data replacing existing data on bundle")
-        self.data = data
+            _logger.warning("Disdat API add_data_row replacing existing data on bundle")
+            self.data = None
+        if self.rows is None:
+            self.rows = [row_dict]
+        else:
+            self.rows.append(row_dict)
+
         return self
 
     def db_table(self, dsn, table_name, schema_name):
@@ -500,36 +506,6 @@ class Bundle(HyperFrameRecord):
 
         with target.temporary_path() as temp_path:
             shutil.copyfile(existing_file, temp_path)
-
-        return target
-
-    def xxx_add_file(self, filename):
-        """
-        Create a file-like object to write to called 'filename' and automatically add
-        it to the output bundle.  This is useful if your bundle only contains output files
-        and you don't wish to include any other information in your bundle.
-
-        The file will be placed in the output bundle directory.
-
-        Note: if you call `bundle.add_data()` it will overwrite any previous file adds.
-
-        Arguments:
-            filename (str,list,dict): filename to create in the bundle
-
-        Returns:
-            `luigi.LocalTarget` or `luigi.contrib.s3.S3Target`
-        """
-        assert (self.open and not self.closed)
-
-        target = PipeBase.filename_to_luigi_targets(self.local_dir, filename)
-
-        if self.data is None:
-            self.data = target
-        elif isinstance(self.data, list):
-            self.data.append(target)
-        else:
-            assert(isinstance(self.data, (luigi.LocalTarget, s3.S3Target)))
-            self.data = [self.data, target]
 
         return target
 

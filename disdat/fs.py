@@ -406,8 +406,6 @@ class DisdatFS(object):
                                                                          self._curr_context.get_local_name()))
 
         with api.Bundle(self._curr_context.get_local_name(), bundle_name, getpass.getuser()) as b:
-            rows = []
-
             if treat_file_as_bundle:
                 if not os.path.isfile(path):
                     print ("Disdat unable to add a directory as a bundle, please provide a .csv or .tsv file.")
@@ -415,12 +413,11 @@ class DisdatFS(object):
                 if str(path).endswith('.csv') or str(path).endswith('.tsv'):
                     bundle_df = pd.read_csv(path, sep=None) # sep=None means python parse engine detects sep
             else:
+                rows = []
                 if os.path.isfile(path):
-                    target = b.make_file("{}".format(os.path.basename(path)))
-                    with target.temporary_path() as temp_path:
-                        fcg_dict[fcg][h].to_parquet(temp_path, compression='snappy')
+                    rows.append(b.copy_in_file(path))
 
-                for root, dirs, files in os.walk(top, topdown=False):
+                for root, dirs, files in os.walk(path, topdown=True):
                     for name in files:
                         os.remove(os.path.join(root, name))
                     for name in dirs:
