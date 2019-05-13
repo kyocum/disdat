@@ -34,6 +34,7 @@ from __future__ import print_function
 
 import os
 import json
+import shutil
 
 import luigi
 from luigi.contrib import s3
@@ -141,6 +142,7 @@ class Bundle(HyperFrameRecord):
         self.closed = False
 
         self.input_data = None  # The df, array, dictionary the user wants to store
+        self.rows = None        # A list of dictionaries for incrementally building a bundle
 
         self.db_targets = []    # list of created db targets
         self.depends_on = []    # list of tuples (processing_name, uuid) of bundles on which this bundle depends
@@ -301,23 +303,6 @@ class Bundle(HyperFrameRecord):
         assert(self.closed and not self.open)
         return self.data
 
-    def add_data(self, data):
-        """ Add data to a bundle.   The bundle must be open and not closed.
-            One adds one data item to a bundle (dictionary, list, tuple, scalar, or dataframe).
-            Calling this replaces the latest item -- only the latest will be included in the bundle on close.
-
-        Args:
-            data (list|tuple|dict|scalar|`pandas.DataFrame`):
-
-        Returns:
-            self
-        """
-        assert(self.open and not self.closed)
-        if self.data is not None:
-            _logger.warning("Disdat API add_data replacing existing data on bundle")
-        self.data = data
-        return self
-
     def rm(self):
         """ Remove bundle from the current context associated with this bundle object
         Only remove this bundle with this uuid.
@@ -347,7 +332,7 @@ class Bundle(HyperFrameRecord):
         assert(self.closed and not self.open)
 
         if self.data_context.get_remote_object_dir() is None:
-            raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(self.data_context.get_repo_name(),
+            raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(self.data_context.get_remote_name(),
                                                                                           self.data_context.get_local_name()))
 
         fs.push(uuid=self.uuid, data_context=self.data_context)
@@ -383,6 +368,54 @@ class Bundle(HyperFrameRecord):
             _logger.warn("Unable to modify tags in a closed bundle.")
             return
         super(Bundle, self).add_tags(tags)
+        return self
+
+    def add_data(self, data):
+        """ Attach data to a bundle.   The bundle must be open and not closed.
+            One attaches one data item to a bundle (dictionary, list, tuple, scalar, or dataframe).
+            Calling this replaces the latest item -- only the latest will be included in the bundle on close.
+
+            Note: One uses `add_data_row` or `add_data` but not both.  Adding a row after `add_data`
+            removes the data.   Using `add_data` after `add_data_row` removes all previously added rows.
+
+        Args:
+            data (list|tuple|dict|scalar|`pandas.DataFrame`):
+
+        Returns:
+            self
+        """
+        assert(self.open and not self.closed)
+        if self.data is not None:
+            _logger.warning("Disdat API add_data replacing existing data on bundle")
+        if self.rows is not None:
+            _logger.warning("Disdat API add_data replacing incrementally added row data on bundle")
+            self.rows = None
+        self.data = data
+        return self
+
+    def add_data_row(self, row_dict):
+        """ Add a single 'row' of data to the bundle.   The bundle must be open and not closed.
+            This assumes that the bundle's data will be presented as a dataframe.
+            It assumes a single row described as a set of key: value pairs in a dictionary.
+            The union of these rows will be the bundle at close.
+
+            Note: One uses `add_data_row` or `add_data` but not both.  Adding a row after `add_data`
+            removes the data.   Using `add_data` after `add_data_row` removes all previously added rows.
+
+            One adds
+            Calling this replaces the latest item -- only the latest will be included in the bundle on close.
+
+        Args:
+            row_dict (dict): A set of key: values to store in the bundle.  Values maybe literal types, file paths
+            or file targets (from `bundle.make_file()`).
+
+        Returns:
+            self
+        """
+        assert(self.open and not self.closed)
+        if self.data is not None:
+            _logger.warning("Disdat API add_data replacing existing data on bundle")
+        self.data = data
         return self
 
     def db_table(self, dsn, table_name, schema_name):
@@ -432,12 +465,11 @@ class Bundle(HyperFrameRecord):
         return fqp
 
     def make_file(self, filename):
-        """
-        Create a file-like object to write to called 'filename'
+        """ Create a file target called "filename" that will exist in the bundle.  This is used when you have
+        data in memory and wish to write it to a file, e.g., create a parquet file.
 
-        The file will be placed in the output bundle directory.  However it won't be
-        recorded as part of the bundle unless the path or this target is placed
-        in the output.  I.e., `bundle.add_data(bundle.make_file("my_file"))`
+        To use, you must a.) write data into this file-like object (a 'target'), and b.) you must add this
+        target to the bundle via `bundle.add_data(bundle.make_file("my_file"))`
 
         Arguments:
             filename (str,list,dict): filename to create in the bundle
@@ -449,7 +481,29 @@ class Bundle(HyperFrameRecord):
 
         return PipeBase.filename_to_luigi_targets(self.local_dir, filename)
 
-    def add_file(self, filename):
+    def copy_in_file(self, existing_file):
+        """ This function copies the file 'existing_file' into the output bundle.  This is used when you have
+        an existing file on disk and wish to add it to the bundle.
+
+        To use, you must record this as part of the bundle with `bundle.add_data(bundle.copy_in_file("my_file"))`
+
+        Args:
+            existing_file (str): Path to an existing file
+
+        Returns:
+            `luigi.LocalTarget` or `luigi.s3.S3Target`
+
+        """
+        assert (self.open and not self.closed)
+
+        target = PipeBase.filename_to_luigi_targets(self.local_dir, existing_file)
+
+        with target.temporary_path() as temp_path:
+            shutil.copyfile(existing_file, temp_path)
+
+        return target
+
+    def xxx_add_file(self, filename):
         """
         Create a file-like object to write to called 'filename' and automatically add
         it to the output bundle.  This is useful if your bundle only contains output files
@@ -785,7 +839,7 @@ def push(local_context, bundle_name, tags=None, uuid=None):
     data_context = _get_context(local_context)
 
     if data_context.get_remote_object_dir() is None:
-        raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(data_context.get_repo_name(),
+        raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(data_context.get_remote_name(),
                                                                                       data_context.get_local_name()))
 
     fs.push(human_name=bundle_name, uuid=uuid, tags=tags, data_context=data_context)

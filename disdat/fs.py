@@ -30,14 +30,15 @@ from datetime import datetime
 from enum import Enum
 import shutil
 import collections
+import getpass
 from multiprocessing import Pool, cpu_count
 
-from luigi import retcodes
 import pandas as pd
 
 import disdat.hyperframe as hyperframe
 import disdat.common as common
 import disdat.utility.aws_s3 as aws_s3
+import disdat.api as api
 from disdat.data_context import DataContext
 from disdat.common import DisdatConfig
 from disdat import logger as _logger
@@ -356,7 +357,7 @@ class DisdatFS(object):
         if not self.in_context():
             return_strings.append('[None]')
         else:
-            return_strings.append("Disdat Context {}".format(data_context.get_repo_name()))
+            return_strings.append("Disdat Context {}".format(data_context.get_remote_name()))
             return_strings.append("On local branch {}".format(data_context.get_local_name()))
 
             hfrs = data_context.get_hframes(human_name=human_name, uuid=uuid, tags=tags)
@@ -376,20 +377,21 @@ class DisdatFS(object):
 
             return return_strings
 
-    def add(self, bundle_name, path_name, tags):
+    def add(self, bundle_name, path, tags, treat_file_as_bundle=False):
         """  Create bundle bundle_name given path path_name.
-        If path = directory, then create bundle with items in directory as a list of links
-        If path = file:
-            If file ends in .tsv | .csv, then treat as dataframe presented bundle
-            else: create bundle as single link to this file.
+        If path is a directory, then create bundle with items in directory as a list of links.
+        If path is a file:
+            If treat_file_as_bundle and ends in .tsv or .csv then treat as dataframe presented bundle.
+        else:
+            Create bundle as single link to this file.
 
         If bundle exists, create a new version with the same name.
 
-
         Args:
             bundle_name (str):  The human name for this new bundle
-            path_name (str):  The directory or file from which to create a bundle
+            path (str):  The directory or file from which to create a bundle
             tags (dict):  The set of tags to attach to this bundle
+            treat_file_as_bundle (bool): Whether to treat file as a bundle
 
         Returns:
             None
@@ -398,14 +400,54 @@ class DisdatFS(object):
         if not self.in_context():
             _logger.warning('Not in a data context')
             return
+
         _logger.debug('Adding file {} to bundle {} in context {}'.format(path_name,
                                                                          bundle_name,
-                                                                         self._curr_context.get_repo_name()))
+                                                                         self._curr_context.get_local_name()))
+
+        with api.Bundle(self._curr_context.get_local_name(), bundle_name, getpass.getuser()) as b:
+            rows = []
+
+            if treat_file_as_bundle:
+                if not os.path.isfile(path):
+                    print ("Disdat unable to add a directory as a bundle, please provide a .csv or .tsv file.")
+                    return
+                if str(path).endswith('.csv') or str(path).endswith('.tsv'):
+                    bundle_df = pd.read_csv(path, sep=None) # sep=None means python parse engine detects sep
+            else:
+                if os.path.isfile(path):
+                    target = b.make_file("{}".format(os.path.basename(path)))
+                    with target.temporary_path() as temp_path:
+                        fcg_dict[fcg][h].to_parquet(temp_path, compression='snappy')
+
+                for root, dirs, files in os.walk(top, topdown=False):
+                    for name in files:
+                        os.remove(os.path.join(root, name))
+                    for name in dirs:
+                        os.rmdir(os.path.join(root, name))
+                # read out all files in this path.
+
+
+
+            target = b.make_file("{}_{}_{}.parquet".format(name,fcg,h))
+
+            with target.temporary_path() as temp_path:
+                fcg_dict[fcg][h].to_parquet(temp_path, compression='snappy')
+            rows.append({'file':target, second_key:h,'forecast_group':fcg})
+
+            df = pd.DataFrame(rows)
+
+            b.add_data(df)
+
+
+
+
+
         input_path = path_name
         output_bundle = bundle_name
 
-        output_bundles = [(self.pipe_id(), self.pfs.get_path_cache(self).uuid)]
-        return output_bundles
+        #output_bundles = [(self.pipe_id(), self.pfs.get_path_cache(self).uuid)]
+        #return output_bundles
 
         bundle_processing_name, add_hf_uuid = self.bundle_outputs()[0]  # @UnusedVariable
         bundle_hframe_file = self.output()[PipeBase.HFRAME].path
@@ -450,9 +492,6 @@ class DisdatFS(object):
                                     presentation=presentation)
 
         self.pfs.get_curr_context().write_hframe(task_hfr)
-
-
-
 
     def get_latest_hframe(self, human_name, tags=None, getall=False, data_context=None):
         """
@@ -909,7 +948,7 @@ class DisdatFS(object):
                 return
             data_context = self.get_curr_context()
 
-        _logger.debug('Committing bundle {} in context {}'.format(bundle_name, data_context.get_repo_name()))
+        _logger.debug('Committing bundle {} in context {}'.format(bundle_name, data_context.get_remote_name()))
 
         if uuid is not None:
             hfr = self.get_hframe_by_uuid(uuid,
