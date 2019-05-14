@@ -142,12 +142,8 @@ class Bundle(HyperFrameRecord):
         self.open = False
         self.closed = False
 
-        self.input_data = None  # The df, array, dictionary the user wants to store
-        self.rows = None        # A list of dictionaries for incrementally building a bundle
-
-        self.db_targets = []    # list of created db targets
         self.depends_on = []    # list of tuples (processing_name, uuid) of bundles on which this bundle depends
-        self.data = None
+        self.data = None        # The df, array, dictionary the user wants to store
 
     """ Convenience accessors """
 
@@ -261,9 +257,6 @@ class Bundle(HyperFrameRecord):
 
         try:
 
-            if self.data is None:
-                self.data = pd.DataFrame(self.rows)
-
             presentation, frames = PipeBase.parse_return_val(self.uuid, self.data, self.data_context)
 
             self.add_frames(frames)
@@ -289,7 +282,7 @@ class Bundle(HyperFrameRecord):
 
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
-            PipeBase.rm_bundle_dir(self.local_dir, self.uuid, self.db_targets)
+            PipeBase.rm_bundle_dir(self.local_dir, self.uuid, []) # [] means no db-targets
             raise
 
         self.closed = True
@@ -391,41 +384,13 @@ class Bundle(HyperFrameRecord):
         assert(self.open and not self.closed)
         if self.data is not None:
             _logger.warning("Disdat API add_data replacing existing data on bundle")
-        if self.rows is not None:
-            _logger.warning("Disdat API add_data replacing incrementally added row data on bundle")
-            self.rows = None
         self.data = data
         return self
 
-    def add_data_row(self, row_dict):
-        """ Add a single 'row' of data to the bundle.   The bundle must be open and not closed.
-            This assumes that the bundle's data will be presented as a dataframe.
-            It assumes a single row described as a set of key: value pairs in a dictionary.
-            The union of these rows will be the bundle at close.
-
-            Note: One uses `add_data_row` or `add_data` but not both.  Adding a row after `add_data`
-            removes the data.   Using `add_data` after `add_data_row` removes all previously added rows.
-
-        Args:
-            row_dict (dict): A set of key: values to store in the bundle.  Values maybe literal types, file paths
-            or file targets (from `bundle.make_file()`).
-
-        Returns:
-            self
-        """
-        assert(self.open and not self.closed)
-        if self.data is not None:
-            _logger.warning("Disdat API add_data_row replacing existing data on bundle")
-            self.data = None
-        if self.rows is None:
-            self.rows = [row_dict]
-        else:
-            self.rows.append(row_dict)
-
-        return self
-
     def db_table(self, dsn, table_name, schema_name):
-        """
+        """ This is the way to allocate a db table reference one can place into a bundle.
+        Like `make_directory`, `make_file`, or `copy_in_file`, this returns a target object
+        that the user must add to their bundle.data before it is recorded in the bundle.
 
         Args:
             dsn (unicode):
@@ -438,9 +403,7 @@ class Bundle(HyperFrameRecord):
         """
         assert (self.open and not self.closed)
 
-        db_target = DBLink(None, dsn, table_name, schema_name, context=self.data_context)
-
-        self.db_targets.append(db_target)
+        db_target = DBLink(None, dsn, table_name, schema_name)
 
         return db_target
 

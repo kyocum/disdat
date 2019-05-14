@@ -26,6 +26,7 @@ import subprocess
 import luigi
 from six.moves import urllib
 from six.moves import configparser
+import six
 
 from disdat import resource
 import disdat.config
@@ -302,6 +303,9 @@ def make_project_image_name(setup_file_path):
     ]
 
     retval = do_subprocess_with_output(python_command).strip()
+
+    # If P3, this may be a byte array.   If P2, if not unicode, convert ...
+    retval = six.ensure_str(retval)
 
     return retval
 
