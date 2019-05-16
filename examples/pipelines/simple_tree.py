@@ -20,12 +20,6 @@ import luigi
 import logging
 from tree_leaves import B
 
-#import spacy
-#import os
-#spacy_model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "en_core_web_sm")
-#print("Loading spacy model at {}".format(spacy_model_path))
-#nlp = spacy.load(spacy_model_path)  # load package from a directory
-
 """
 SimpleTree
 
