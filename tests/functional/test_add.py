@@ -15,7 +15,7 @@
 #
 
 import disdat.api as api
-from common import TEST_CONTEXT
+from tests.functional.common import TEST_CONTEXT
 import os
 import hashlib
 import pandas as pd
@@ -37,7 +37,7 @@ def gen_checksums(path):
     return file_hashes
 
 
-def test_array(b_data, file_hashes):
+def check_array(b_data, file_hashes):
     """
 
     Args:
@@ -74,10 +74,10 @@ def test():
     api.add(TEST_CONTEXT, 'test_add_bundle', os.path.join(TEST_DATA_DIR, 'test_bundle_file.csv'), treat_file_as_bundle=True)
 
     b = api.get(TEST_CONTEXT, 'test_add_file')
-    test_array(b.data, file_hashes)
+    check_array(b.data, file_hashes)
 
     b = api.get(TEST_CONTEXT, 'test_add_dir')
-    test_array(b.data, file_hashes)
+    check_array(b.data, file_hashes)
 
     b = api.get(TEST_CONTEXT, 'test_add_bundle')
     assert(isinstance(b.data, pd.DataFrame))
