@@ -40,6 +40,7 @@ import json
 from sys import platform
 
 import docker
+import six
 import boto3_session_cache as b3
 from enum import Enum
 
@@ -125,6 +126,7 @@ def _run_local(cli, pipeline_setup_file, arglist, pipeline_class_name, backend):
 
         stdout = client.containers.run(pipeline_image_name, arglist, detach=False,
                                        environment=environment, init=True, stderr=True, volumes=volumes)
+        stdout = six.ensure_str(stdout)
         if cli: print(stdout)
         return stdout
     except docker.errors.ImageNotFound:

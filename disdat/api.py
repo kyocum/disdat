@@ -35,9 +35,9 @@ from __future__ import print_function
 import os
 import json
 import shutil
+import getpass
 
 import luigi
-from luigi.contrib import s3
 import pandas as pd
 
 import disdat.apply
@@ -418,14 +418,18 @@ class Bundle(HyperFrameRecord):
         See Pipe.create_output_dir()
 
         Arguments:
-            dir_name (str): The human readable name to a file reference
+            dir_name (str): Either a FQP or a basedir of a directory to appear in the bundle.  Neither should end in /
 
         Returns:
             str: A directory path managed by disdat
         """
         assert (self.open and not self.closed)
 
-        fqp = os.path.join(self.local_dir, dir_name)
+        basedir = os.path.basename(dir_name)
+
+        assert(basedir != '')
+
+        fqp = os.path.join(self.local_dir, basedir)
         try:
             os.makedirs(fqp)
         except IOError as why:
@@ -465,9 +469,12 @@ class Bundle(HyperFrameRecord):
         """
         assert (self.open and not self.closed)
 
-        target = PipeBase.filename_to_luigi_targets(self.local_dir, existing_file)
+        file_basename = os.path.basename(existing_file)
+
+        target = PipeBase.filename_to_luigi_targets(self.local_dir, file_basename)
 
         with target.temporary_path() as temp_path:
+            print("Trying to copy {} to {}".format(existing_file, temp_path))
             shutil.copyfile(existing_file, temp_path)
 
         return target
@@ -722,6 +729,70 @@ def rm(local_context, bundle_name=None, uuid=None, tags=None, rm_all=False, rm_o
 
     fs.rm(human_name=bundle_name, rm_all=rm_all, rm_old_only=rm_old_only,
           uuid=uuid, tags=tags, force=force, data_context=data_context)
+
+
+def add(local_context, bundle_name, path, tags=None, treat_file_as_bundle=False):
+    """  Create bundle bundle_name given path path_name.
+    If path is a directory, then create bundle with items in directory as a list of links.
+    If path is a file:
+        If treat_file_as_bundle and ends in .tsv or .csv then treat as dataframe presented bundle.
+    else:
+        Create bundle as single link to this file.
+
+    Creates a bundle that presents as a list of one or more files.
+
+    Args:
+        local_context (str): The local context in which to create this bundle
+        bundle_name (str):  The human name for this new bundle
+        path (str):  The directory or file from which to create a bundle
+        tags (dict):  The set of tags to attach to this bundle
+        treat_file_as_bundle (bool): Whether to treat file as a bundle
+
+    Returns:
+        Bundle
+    """
+
+    _logger.debug('Adding file {} to bundle {} in context {}'.format(path,
+                                                                     bundle_name,
+                                                                     local_context))
+
+    with Bundle(local_context, bundle_name, getpass.getuser()) as b:
+        if treat_file_as_bundle:
+            if not os.path.isfile(path):
+                print ("Disdat unable to add a directory as a bundle, please provide a .csv or .tsv file.")
+                return
+            if str(path).endswith('.csv') or str(path).endswith('.tsv'):
+                bundle_df = pd.read_csv(path, sep=None) # sep=None means python parse engine detects sep
+                b.add_data(bundle_df)
+            else:
+                print ("Disdat can only add tsv/csv files as bundles, please provide a .csv or .tsv file.")
+        else:
+            file_list = []
+            assert(os.path.exists(path))
+            if os.path.isfile(path):
+                thing = b.copy_in_file(path)
+                file_list.append(thing)
+            else:
+                basepath = path
+                for root, dirs, files in os.walk(path, topdown=True):
+                    # create a directory at root
+                    # /x/y/z/fileA
+                    # /x/y/z/a/fileB
+                    dst_basepath = root.replace(basepath, '')
+                    if dst_basepath == '':
+                        dst_basepath = b.local_dir
+                    else:
+                        dst_basepath = b.make_directory(dst_basepath)
+                    for name in files:
+                        dst_fullpath = os.path.join(dst_basepath, name)
+                        src_fullpath = os.path.join(root,name)
+                        shutil.copyfile(src_fullpath, dst_fullpath)
+                        file_list.append(dst_fullpath)
+            b.add_data(file_list)
+        if tags is not None and len(tags)>0:
+            b.add_tags(tags)
+
+    return b
 
 
 def cat(local_context, bundle_name):

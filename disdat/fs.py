@@ -30,7 +30,6 @@ from datetime import datetime
 from enum import Enum
 import shutil
 import collections
-import getpass
 from multiprocessing import Pool, cpu_count
 
 import pandas as pd
@@ -38,7 +37,6 @@ import pandas as pd
 import disdat.hyperframe as hyperframe
 import disdat.common as common
 import disdat.utility.aws_s3 as aws_s3
-import disdat.api as api
 from disdat.data_context import DataContext
 from disdat.common import DisdatConfig
 from disdat import logger as _logger
@@ -48,7 +46,6 @@ PipeCacheEntry = collections.namedtuple('PipeCacheEntry', 'instance uuid path re
 
 CONTEXTS = ['DEFAULT']
 META_FS_FILE = 'fs.json'
-
 
 ObjectTypes = Enum('ObjectTypes', 'bundle atom')
 ObjectState = Enum('ObjectState', 'present removed')
@@ -377,65 +374,6 @@ class DisdatFS(object):
 
             return return_strings
 
-    def add(self, bundle_name, path, tags=None, treat_file_as_bundle=False):
-        """  Create bundle bundle_name given path path_name.
-        If path is a directory, then create bundle with items in directory as a list of links.
-        If path is a file:
-            If treat_file_as_bundle and ends in .tsv or .csv then treat as dataframe presented bundle.
-        else:
-            Create bundle as single link to this file.
-
-        Creates a bundle that presents as a list of one or more files.
-
-        Args:
-            bundle_name (str):  The human name for this new bundle
-            path (str):  The directory or file from which to create a bundle
-            tags (dict):  The set of tags to attach to this bundle
-            treat_file_as_bundle (bool): Whether to treat file as a bundle
-
-        Returns:
-            None
-        """
-
-        if not self.in_context():
-            _logger.warning('Not in a data context')
-            return
-
-        _logger.debug('Adding file {} to bundle {} in context {}'.format(path,
-                                                                         bundle_name,
-                                                                         self._curr_context.get_local_name()))
-
-        with api.Bundle(self._curr_context.get_local_name(), bundle_name, getpass.getuser()) as b:
-            if treat_file_as_bundle:
-                if not os.path.isfile(path):
-                    print ("Disdat unable to add a directory as a bundle, please provide a .csv or .tsv file.")
-                    return
-                if str(path).endswith('.csv') or str(path).endswith('.tsv'):
-                    bundle_df = pd.read_csv(path, sep=None) # sep=None means python parse engine detects sep
-            else:
-                file_list = []
-                if os.path.isfile(path):
-                    file_list.append(b.copy_in_file(path))
-                else:
-                    basepath = os.path.dirname(path)
-                    bundle_basepath = b.make_directory
-                    for root, dirs, files in os.walk(path, topdown=True):
-                        # create a directory at root
-                        # /x/y/z/fileA
-                        # /x/y/z/a/fileB
-                        dst_basepath = root.replace(basepath, '')
-                        print ("dest_dir {}".format(dst_basepath))
-                        dst_fullpath = b.make_directory(dst_basepath)
-                        for name in files:
-                            dst_fullpath = os.path.join(dst_basepath,name)
-                            src_fullpath = os.path.join(root,name)
-                            shutil.copyfile(src_fullpath, dst_fullpath)
-                            file_list.append(dst_fullpath)
-            b.add_data(file_list)
-            if tags is not None:
-                b.add_tags(tags)
-
-        return
 
     def get_latest_hframe(self, human_name, tags=None, getall=False, data_context=None):
         """
@@ -1569,11 +1507,6 @@ def _branch(fs, args):
         fs.branch(args.context)
 
 
-def _add(fs, args):
-
-    fs.add(args.bundle, args.path_name, tags=common.parse_args_tags(args.tag))
-
-
 def _commit(fs, args):
     fs.commit(args.bundle, common.parse_args_tags(args.tag), uuid=args.uuid)
 
@@ -1691,6 +1624,7 @@ def _cat(fs, args):
             # else default print the object
             print(result)
 
+
 def _status(fs, args):
     for f in fs.status(args.bundle):
         print(f)
@@ -1723,14 +1657,6 @@ def init_fs_cl(subparsers):
         type=str,
         help='Switch contexts to "<local context>".')
     switch_p.set_defaults(func=lambda args: fs.switch(args.context))
-
-    # add
-    add_p = subparsers.add_parser('add', description='Create a bundle from a .csv, .tsv, or a directory of files.')
-    add_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
-                       help="Set one or more tags: 'dsdt add -t authoritative:True -t version:0.7.1'")
-    add_p.add_argument('bundle', type=str, help='The destination bundle in the current context')
-    add_p.add_argument('path_name', type=str, help='File or directory of files to add to the bundle', action='store')
-    add_p.set_defaults(func=lambda args: _add(fs, args))
 
     # commit
     commit_p = subparsers.add_parser('commit', description='Commit most recent bundle of name <bundle>.')
@@ -1781,7 +1707,7 @@ def init_fs_cl(subparsers):
     cat_p = subparsers.add_parser('cat')
     cat_p.add_argument('bundle', type=str, nargs='?', default=None, help='The bundle name in the current context')
     cat_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
-                      help="Having a specific tag: 'dsdt ls -t committed:True -t version:0.7.1'")
+                       help="Having a specific tag: 'dsdt ls -t committed:True -t version:0.7.1'")
     cat_p.add_argument('-f', '--file', type=str,
                        help="Save output dataframe as csv without index to specified file")
     cat_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to cat')
