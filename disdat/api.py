@@ -34,9 +34,11 @@ from __future__ import print_function
 
 import os
 import json
+import shutil
+import getpass
 
 import luigi
-from luigi.contrib import s3
+import pandas as pd
 
 import disdat.apply
 import disdat.run
@@ -140,11 +142,8 @@ class Bundle(HyperFrameRecord):
         self.open = False
         self.closed = False
 
-        self.input_data = None  # The df, array, dictionary the user wants to store
-
-        self.db_targets = []    # list of created db targets
         self.depends_on = []    # list of tuples (processing_name, uuid) of bundles on which this bundle depends
-        self.data = None
+        self.data = None        # The df, array, dictionary the user wants to store
 
     """ Convenience accessors """
 
@@ -283,7 +282,7 @@ class Bundle(HyperFrameRecord):
 
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
-            PipeBase.rm_bundle_dir(self.local_dir, self.uuid, self.db_targets)
+            PipeBase.rm_bundle_dir(self.local_dir, self.uuid, []) # [] means no db-targets
             raise
 
         self.closed = True
@@ -300,23 +299,6 @@ class Bundle(HyperFrameRecord):
         """
         assert(self.closed and not self.open)
         return self.data
-
-    def add_data(self, data):
-        """ Add data to a bundle.   The bundle must be open and not closed.
-            One adds one data item to a bundle (dictionary, list, tuple, scalar, or dataframe).
-            Calling this replaces the latest item -- only the latest will be included in the bundle on close.
-
-        Args:
-            data (list|tuple|dict|scalar|`pandas.DataFrame`):
-
-        Returns:
-            self
-        """
-        assert(self.open and not self.closed)
-        if self.data is not None:
-            _logger.warning("Disdat API add_data replacing existing data on bundle")
-        self.data = data
-        return self
 
     def rm(self):
         """ Remove bundle from the current context associated with this bundle object
@@ -347,7 +329,7 @@ class Bundle(HyperFrameRecord):
         assert(self.closed and not self.open)
 
         if self.data_context.get_remote_object_dir() is None:
-            raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(self.data_context.get_repo_name(),
+            raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(self.data_context.get_remote_name(),
                                                                                           self.data_context.get_local_name()))
 
         fs.push(uuid=self.uuid, data_context=self.data_context)
@@ -385,8 +367,30 @@ class Bundle(HyperFrameRecord):
         super(Bundle, self).add_tags(tags)
         return self
 
-    def db_table(self, dsn, table_name, schema_name):
+    def add_data(self, data):
+        """ Attach data to a bundle.   The bundle must be open and not closed.
+            One attaches one data item to a bundle (dictionary, list, tuple, scalar, or dataframe).
+            Calling this replaces the latest item -- only the latest will be included in the bundle on close.
+
+            Note: One uses `add_data_row` or `add_data` but not both.  Adding a row after `add_data`
+            removes the data.   Using `add_data` after `add_data_row` removes all previously added rows.
+
+        Args:
+            data (list|tuple|dict|scalar|`pandas.DataFrame`):
+
+        Returns:
+            self
         """
+        assert(self.open and not self.closed)
+        if self.data is not None:
+            _logger.warning("Disdat API add_data replacing existing data on bundle")
+        self.data = data
+        return self
+
+    def db_table(self, dsn, table_name, schema_name):
+        """ This is the way to allocate a db table reference one can place into a bundle.
+        Like `make_directory`, `make_file`, or `copy_in_file`, this returns a target object
+        that the user must add to their bundle.data before it is recorded in the bundle.
 
         Args:
             dsn (unicode):
@@ -399,9 +403,7 @@ class Bundle(HyperFrameRecord):
         """
         assert (self.open and not self.closed)
 
-        db_target = DBLink(None, dsn, table_name, schema_name, context=self.data_context)
-
-        self.db_targets.append(db_target)
+        db_target = DBLink(None, dsn, table_name, schema_name)
 
         return db_target
 
@@ -416,14 +418,18 @@ class Bundle(HyperFrameRecord):
         See Pipe.create_output_dir()
 
         Arguments:
-            dir_name (str): The human readable name to a file reference
+            dir_name (str): Either a FQP or a basedir of a directory to appear in the bundle.  Neither should end in /
 
         Returns:
             str: A directory path managed by disdat
         """
         assert (self.open and not self.closed)
 
-        fqp = os.path.join(self.local_dir, dir_name)
+        basedir = os.path.basename(dir_name)
+
+        assert(basedir != '')
+
+        fqp = os.path.join(self.local_dir, basedir)
         try:
             os.makedirs(fqp)
         except IOError as why:
@@ -432,12 +438,11 @@ class Bundle(HyperFrameRecord):
         return fqp
 
     def make_file(self, filename):
-        """
-        Create a file-like object to write to called 'filename'
+        """ Create a file target called "filename" that will exist in the bundle.  This is used when you have
+        data in memory and wish to write it to a file, e.g., create a parquet file.
 
-        The file will be placed in the output bundle directory.  However it won't be
-        recorded as part of the bundle unless the path or this target is placed
-        in the output.  I.e., `bundle.add_data(bundle.make_file("my_file"))`
+        To use, you must a.) write data into this file-like object (a 'target'), and b.) you must add this
+        target to the bundle via `bundle.add_data(bundle.make_file("my_file"))`
 
         Arguments:
             filename (str,list,dict): filename to create in the bundle
@@ -449,33 +454,28 @@ class Bundle(HyperFrameRecord):
 
         return PipeBase.filename_to_luigi_targets(self.local_dir, filename)
 
-    def add_file(self, filename):
-        """
-        Create a file-like object to write to called 'filename' and automatically add
-        it to the output bundle.  This is useful if your bundle only contains output files
-        and you don't wish to include any other information in your bundle.
+    def copy_in_file(self, existing_file):
+        """ This function copies the file 'existing_file' into the output bundle.  This is used when you have
+        an existing file on disk and wish to add it to the bundle.
 
-        The file will be placed in the output bundle directory.
+        To use, you must record this as part of the bundle with `bundle.add_data(bundle.copy_in_file("my_file"))`
 
-        Note: if you call `bundle.add_data()` it will overwrite any previous file adds.
-
-        Arguments:
-            filename (str,list,dict): filename to create in the bundle
+        Args:
+            existing_file (str): Path to an existing file
 
         Returns:
-            `luigi.LocalTarget` or `luigi.contrib.s3.S3Target`
+            `luigi.LocalTarget` or `luigi.s3.S3Target`
+
         """
         assert (self.open and not self.closed)
 
-        target = PipeBase.filename_to_luigi_targets(self.local_dir, filename)
+        file_basename = os.path.basename(existing_file)
 
-        if self.data is None:
-            self.data = target
-        elif isinstance(self.data, list):
-            self.data.append(target)
-        else:
-            assert(isinstance(self.data, (luigi.LocalTarget, s3.S3Target)))
-            self.data = [self.data, target]
+        target = PipeBase.filename_to_luigi_targets(self.local_dir, file_basename)
+
+        with target.temporary_path() as temp_path:
+            print("Trying to copy {} to {}".format(existing_file, temp_path))
+            shutil.copyfile(existing_file, temp_path)
 
         return target
 
@@ -731,6 +731,70 @@ def rm(local_context, bundle_name=None, uuid=None, tags=None, rm_all=False, rm_o
           uuid=uuid, tags=tags, force=force, data_context=data_context)
 
 
+def add(local_context, bundle_name, path, tags=None, treat_file_as_bundle=False):
+    """  Create bundle bundle_name given path path_name.
+    If path is a directory, then create bundle with items in directory as a list of links.
+    If path is a file:
+        If treat_file_as_bundle and ends in .tsv or .csv then treat as dataframe presented bundle.
+    else:
+        Create bundle as single link to this file.
+
+    Creates a bundle that presents as a list of one or more files.
+
+    Args:
+        local_context (str): The local context in which to create this bundle
+        bundle_name (str):  The human name for this new bundle
+        path (str):  The directory or file from which to create a bundle
+        tags (dict):  The set of tags to attach to this bundle
+        treat_file_as_bundle (bool): Whether to treat file as a bundle
+
+    Returns:
+        Bundle
+    """
+
+    _logger.debug('Adding file {} to bundle {} in context {}'.format(path,
+                                                                     bundle_name,
+                                                                     local_context))
+
+    with Bundle(local_context, bundle_name, getpass.getuser()) as b:
+        if treat_file_as_bundle:
+            if not os.path.isfile(path):
+                print ("Disdat unable to add a directory as a bundle, please provide a .csv or .tsv file.")
+                return
+            if str(path).endswith('.csv') or str(path).endswith('.tsv'):
+                bundle_df = pd.read_csv(path, sep=None) # sep=None means python parse engine detects sep
+                b.add_data(bundle_df)
+            else:
+                print ("Disdat can only add tsv/csv files as bundles, please provide a .csv or .tsv file.")
+        else:
+            file_list = []
+            assert(os.path.exists(path))
+            if os.path.isfile(path):
+                thing = b.copy_in_file(path)
+                file_list.append(thing)
+            else:
+                basepath = path
+                for root, dirs, files in os.walk(path, topdown=True):
+                    # create a directory at root
+                    # /x/y/z/fileA
+                    # /x/y/z/a/fileB
+                    dst_basepath = root.replace(basepath, '')
+                    if dst_basepath == '':
+                        dst_basepath = b.local_dir
+                    else:
+                        dst_basepath = b.make_directory(dst_basepath)
+                    for name in files:
+                        dst_fullpath = os.path.join(dst_basepath, name)
+                        src_fullpath = os.path.join(root,name)
+                        shutil.copyfile(src_fullpath, dst_fullpath)
+                        file_list.append(dst_fullpath)
+            b.add_data(file_list)
+        if tags is not None and len(tags)>0:
+            b.add_tags(tags)
+
+    return b
+
+
 def cat(local_context, bundle_name):
     """Get dataframe representation of bundle
 
@@ -785,7 +849,7 @@ def push(local_context, bundle_name, tags=None, uuid=None):
     data_context = _get_context(local_context)
 
     if data_context.get_remote_object_dir() is None:
-        raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(data_context.get_repo_name(),
+        raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(data_context.get_remote_name(),
                                                                                       data_context.get_local_name()))
 
     fs.push(human_name=bundle_name, uuid=uuid, tags=tags, data_context=data_context)

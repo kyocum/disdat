@@ -285,7 +285,7 @@ class DataContext(object):
             return None
         return os.path.join(self.remote_ctxt_url, self.remote_ctxt, constants._MANAGED_OBJECTS)
 
-    def get_repo_name(self):
+    def get_remote_name(self):
         return self.remote_ctxt
 
     def get_local_name(self):

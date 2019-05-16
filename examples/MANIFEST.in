@@ -1,0 +1,1 @@
+recursive-include pipelines/en_core_web_sm *

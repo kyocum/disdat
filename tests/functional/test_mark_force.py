@@ -17,9 +17,8 @@
 import luigi
 from disdat.pipe import PipeTask
 import disdat.api as api
+from tests.functional.common import TEST_CONTEXT
 
-
-TEST_CONTEXT = '_test_context_'
 TEST_NAME    = 'test_bundle'
 
 
