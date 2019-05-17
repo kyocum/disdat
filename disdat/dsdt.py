@@ -16,7 +16,7 @@
 #
 
 """
-dsdt
+Disdat
 
 Distributed data (dsdt) command line utility for working with data science pipelines.
 
@@ -27,7 +27,7 @@ import logging
 import sys
 import os
 
-from disdat import apply  # @ReservedAssignment
+from disdat import apply
 from disdat import dockerize
 from disdat import run
 from disdat.fs import init_fs_cl
@@ -98,13 +98,14 @@ def main():
                          help="Input bundle tags: '-it authoritative:True -it version:0.7.1'")
     apply_p.add_argument('-ot', '--output-tag', nargs=1, type=str, action='append',
                          help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'")
-    apply_p.add_argument("output_bundle", type=str, help="Name of destination bundle.  '-' means default output bundle.")
-    apply_p.add_argument("pipe_cls", type=str, help="User-defined transform, e.g., module.PipeClass")
-    apply_p.add_argument("--local", action='store_true', help="Run the class locally (even if dockered)")
-    apply_p.add_argument("--force", action='store_true', help="If there are dependencies, force re-computation.")
-    apply_p.add_argument("--incremental-push", action='store_true', help="Commit and push each task's bundle as it is produced to the remote.")
-    apply_p.add_argument("--incremental-pull", action='store_true', help="Localize bundles as they are needed by downstream tasks from the remote.")
-    apply_p.add_argument("params", type=str,  nargs=argparse.REMAINDER,
+    apply_p.add_argument('-o', '--output-bundle', type=str, default='-',
+                         help="Name output bundle: '-o my.output.bundle'.  Default name is '<TaskName>_<param_hash>'")
+    apply_p.add_argument('--local', action='store_true', help="Run the class locally (even if dockered)")
+    apply_p.add_argument('-f', '--force', action='store_true', help="If there are dependencies, force re-computation.")
+    apply_p.add_argument('--incremental-push', action='store_true', help="Commit and push each task's bundle as it is produced to the remote.")
+    apply_p.add_argument('--incremental-pull', action='store_true', help="Localize bundles as they are needed by downstream tasks from the remote.")
+    apply_p.add_argument('pipe_cls', type=str, help="User-defined transform, e.g., module.PipeClass")
+    apply_p.add_argument('params', type=str,  nargs=argparse.REMAINDER,
                          help="Optional set of parameters for this pipe '--parameter value'")
     apply_p.set_defaults(func=lambda args: _apply(args))
 
