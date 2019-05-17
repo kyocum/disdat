@@ -489,7 +489,6 @@ class Bundle(HyperFrameRecord):
         target = PipeBase.filename_to_luigi_targets(self.local_dir, file_basename)
 
         with target.temporary_path() as temp_path:
-            print("Trying to copy {} to {}".format(existing_file, temp_path))
             shutil.copyfile(existing_file, temp_path)
 
         return target

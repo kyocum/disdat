@@ -18,6 +18,7 @@ import inspect
 import collections
 
 import luigi
+import six
 from six.moves import urllib
 import numpy as np
 import pandas as pd
@@ -392,6 +393,29 @@ class PipeBase(object):
 
         """
 
+        possible_scalar_types = (
+            int,
+            float,
+            str,
+            bool,
+            np.bool_,
+            np.int8,
+            np.int16,
+            np.int32,
+            np.int64,
+            np.uint8,
+            np.uint16,
+            np.uint32,
+            np.uint64,
+            np.float16,
+            np.float32,
+            np.float64,
+            six.binary_type,
+            six.text_type,
+            np.unicode_,
+            np.string_
+        )
+
         frames = []
 
         managed_path = os.path.join(data_context.get_object_dir(), hfid)
@@ -418,6 +442,8 @@ class PipeBase(object):
             presentation = hyperframe_pb2.ROW
             for k, v in val.items():
                 if not isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, collections.Sequence)):
+                    # assuming this is a scalar
+                    assert isinstance(v, possible_scalar_types), 'Disdat requires dictionary values to be one of {} not {}'.format(possible_scalar_types, type(v))
                     frames.append(DataContext.convert_scalar2frame(hfid, k, v, managed_path))
                 else:
                     assert isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, collections.Sequence))
