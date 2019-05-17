@@ -43,7 +43,7 @@ def test_independent_context():
     api.context(context_1_name)
     api.context(context_2_name)
 
-    api.apply(context_1_name, '-', 'ContextTest')
+    api.apply(context_1_name, 'ContextTest')
 
     assert len(api.search(context_1_name)) == 1, 'Only one bundle should be in context one'
     assert len(api.search(context_2_name)) == 0, 'Context two should be empty'

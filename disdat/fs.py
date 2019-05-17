@@ -244,6 +244,35 @@ class DisdatFS(object):
             state_dict = {'_mangled_curr_context_name': self._mangled_curr_context_name}
             json_file.write(json.dumps(state_dict))
 
+    def reload_all_contexts(self):
+        """ The set of available contexts can change, so this is a refresh hook.
+        This happens if you use the API, then someone uses the CLI out-of-band.
+
+        Returns:
+            None
+        """
+        self.__all_contexts = DataContext.load()
+        return
+
+    def reload_context(self, target_context):
+        """ If a particular context is not available, load if it exists
+
+        This happens if you use the API, then someone uses the CLI out-of-band.
+
+        Returns:
+            None
+        """
+
+        context = DataContext.load([target_context])
+
+        if len(context) == 0:
+            self.__all_contexts.pop(target_context, None)
+            return None
+
+        assert len(context) == 1
+        self.__all_contexts[target_context] = context[0]
+        return context[0]
+
     def in_context(self):
         """
         Are we currently in a valid context?
@@ -373,7 +402,6 @@ class DisdatFS(object):
                     return_strings.append("Removing latest bundle {}".format(hfrs[0].to_string()))
 
             return return_strings
-
 
     def get_latest_hframe(self, human_name, tags=None, getall=False, data_context=None):
         """
@@ -560,10 +588,10 @@ class DisdatFS(object):
         Given a bundle name and optional uuid, return the object that was saved in the bundle
 
         Args:
-            human_name (str):
-            uuid (str):
-            tags (:dict):
-            file (str): output file
+            human_name (str): The bundle name
+            uuid (str):  The bundle UUID
+            tags (:dict): A dictionary of `str`:`str`
+            file (str): An optional output file to which to write this bundle.
             data_context (`disdat.data_context.DataContext`):
 
         Returns:

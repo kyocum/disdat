@@ -74,4 +74,4 @@ class SimpleNLP(PipeTask):
 
 
 if __name__ == "__main__":
-    api.apply('examples', 'SimpleNLP.example.output', 'SimpleNLP')
+    api.apply('examples', 'SimpleNLP')

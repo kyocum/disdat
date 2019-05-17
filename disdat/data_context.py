@@ -224,17 +224,18 @@ class DataContext(object):
             json_file.write(json.dumps(save_dict))
 
     @staticmethod
-    def load():
+    def load(target_contexts=[]):
         """
         Load the data contexts described at meta_dir.  Each of these is a "remote."
         Args:
-            local_ctxt_dir: Directory of contexts, e.g., ~/.disdat
+            target_contexts (list(str)): If not None, try to load just this context.
 
         Returns:
             (dict) of 'name':context pairs.
 
         """
         ctxt_dir = DisdatConfig.instance().get_context_dir()
+
         if ctxt_dir is None:
             raise Exception("Unable to load context without a metadata directory argument")
 
@@ -243,6 +244,9 @@ class DataContext(object):
         files = glob.glob(os.path.join(ctxt_dir, '*'))
 
         for ctxt in files:
+            if len(target_contexts) > 0 and ctxt not in target_contexts:
+                continue
+
             #_logger.debug("Loading context {}...".format(ctxt))
             meta_file = os.path.join(ctxt_dir, ctxt, META_CTXT_FILE)
 

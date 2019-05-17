@@ -68,4 +68,4 @@ class Average(PipeTask):
 
 
 if __name__ == "__main__":
-    api.apply('examples', '-', 'Average', params={})
+    api.apply('examples', 'Average', params={})

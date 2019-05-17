@@ -360,8 +360,32 @@ def make_run_command(
         workers,
         pipeline_params
 ):
+    """ Create a list of args.  Note that for execution via run, we always set
+    --output-bundle, even though it is optional.   The CLI and API will place a '-'
+    if the user does not specify it, which means use the default output bundle name.  Here
+    we make sure to pass it through.
+
+    Args:
+        output_bundle:
+        output_bundle_uuid:
+        pipe_cls:
+        remote:
+        context:
+        input_tags:
+        output_tags:
+        force:
+        no_pull:
+        no_push:
+        no_push_int:
+        workers:
+        pipeline_params:
+
+    Returns:
+
+    """
     args = [
         '--output-bundle-uuid ', output_bundle_uuid,
+        '--output-bundle', output_bundle,
         '--remote', remote,
         '--branch', context,
         '--workers', str(workers),
@@ -382,7 +406,6 @@ def make_run_command(
         for next_tag in output_tags:
             args += ['--output-tag', next_tag]
 
-    args += [output_bundle]
     return [x.strip() for x in args + pipeline_params]
 
 

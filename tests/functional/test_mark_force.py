@@ -29,7 +29,7 @@ def test():
     """
 
     def run_and_get(name, do_ext=False):
-        api.apply(TEST_CONTEXT, '-', 'A_2', params={'set_ext_dep': do_ext})
+        api.apply(TEST_CONTEXT, 'A_2', params={'set_ext_dep': do_ext})
         b = api.get(TEST_CONTEXT, 'B')
         print ("Run {}: b.creation_date {} b.uuid {}".format(name, b.creation_date, b.uuid))
         return b

@@ -525,6 +525,7 @@ def add_arg_parser(parsers):
         help='An optional batch execution back-end to use',
     )
     run_p.add_argument(
+        "-f",
         "--force",
         action='store_true',
         help="If there are dependencies, force re-computation."
@@ -587,8 +588,9 @@ def add_arg_parser(parsers):
     run_p.add_argument('-ot', '--output-tag', nargs=1, type=str, action='append',
                        help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'",
                        dest='output_tags')
+    run_p.add_argument('-o', '--output-bundle', type=str, default='-',
+                       help="Name output bundle: '-o my.output.bundle'.  Default name is '<TaskName>_<param_hash>'")
     run_p.add_argument("pipeline_root", type=str, help="Root of the Python source tree containing the user-defined transform; must have a setuptools-style setup.py file")
-    run_p.add_argument("output_bundle", type=str, help="Name of destination bundle.  '-' means default output bundle.")
     run_p.add_argument("pipe_cls", type=str, help="User-defined transform, e.g., module.PipeClass")
     run_p.add_argument("pipeline_args", type=str,  nargs=argparse.REMAINDER,
                        help="Optional set of parameters for this pipe '--parameter value'")

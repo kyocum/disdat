@@ -112,4 +112,4 @@ class Download(pipe.PipeTask):
 
 
 if __name__ == "__main__":
-    api.apply('examples', '-', 'Download', params={'input_url': './download.py'})
+    api.apply('examples', 'Download', params={'input_url': './download.py'})

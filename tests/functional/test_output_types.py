@@ -50,7 +50,7 @@ class IntTask(PipeTask):
 def test_int_task():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT, '-', 'IntTask')
+    api.apply(TEST_CONTEXT, 'IntTask')
     data = api.get(TEST_CONTEXT, 'int_task').data
 
     assert data == 1, 'Data did not match output'
@@ -69,7 +69,7 @@ class StringTask(PipeTask):
 def test_string_task():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT, '-', 'StringTask')
+    api.apply(TEST_CONTEXT, 'StringTask')
     data = api.get(TEST_CONTEXT, 'string_task').data
 
     assert data == 'output', 'Data did not match output'
@@ -88,7 +88,7 @@ class FloatTask(PipeTask):
 def test_float_task():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT, '-', 'FloatTask')
+    api.apply(TEST_CONTEXT, 'FloatTask')
     data = api.get(TEST_CONTEXT, 'float_task').data
 
     assert data == 2.5, 'Data did not match output'
@@ -107,7 +107,7 @@ class ListTask(PipeTask):
 def test_list_task():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT, '-', 'ListTask')
+    api.apply(TEST_CONTEXT, 'ListTask')
     data = api.get(TEST_CONTEXT, 'list_task').data
 
     assert np.array_equal(data, [1, 2, 3]), 'Data did not match output'
@@ -128,7 +128,7 @@ class DataFrameTask(PipeTask):
 def test_df_task():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT, '-', 'DataFrameTask')
+    api.apply(TEST_CONTEXT, 'DataFrameTask')
     data = api.get(TEST_CONTEXT, 'df_task').data
 
     df = pd.DataFrame()
@@ -154,7 +154,7 @@ class FileTask(PipeTask):
 def test_file_task():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT, '-', 'FileTask')
+    api.apply(TEST_CONTEXT, 'FileTask')
     output_path = api.get(TEST_CONTEXT, 'file_task').data
 
     with open(output_path) as f:
@@ -164,29 +164,29 @@ def test_file_task():
     assert type(output_path )== str, 'Data is not path'
     assert len(api.search(TEST_CONTEXT)) == 1, 'Only one bundle should be present'
 
-# Does not support dict return type
-# class DictTask(PipeTask):
-#     def pipe_requires(self, pipeline_input=None):
-#         self.set_bundle_name('dict_task')
-#
-#     def pipe_run(self, pipeline_input=None):
-#         return {
-#             'hello': 'world'
-#         }
-#
-#
-# def test_dict_task():
-#     setup()
-#     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
-#
-#     api.apply(TEST_CONTEXT, '-', '-', 'DictTask')
-#     data = api.get(TEST_CONTEXT, 'dict_task').data
-#
-#     assert data == {
-#         'hello': 'world'
-#     }, 'Data did not match output'
-#     assert type(data) == dict, 'Data is not dict'
-#     assert len(api.search(TEST_CONTEXT)) == 1, 'Only one bundle should be present'
+
+class DictTask(PipeTask):
+    def pipe_requires(self, pipeline_input=None):
+        self.set_bundle_name('dict_task')
+
+    def pipe_run(self, pipeline_input=None):
+        return {
+            'hello': ['world']
+        }
+
+
+def test_dict_task():
+    setup()
+    assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
+
+    api.apply(TEST_CONTEXT, 'DictTask')
+    data = api.get(TEST_CONTEXT, 'dict_task').data
+
+    assert data == {
+    'hello': ['world']
+    }, 'Data did not match output'
+    assert type(data) == dict, 'Data is not dict'
+    assert len(api.search(TEST_CONTEXT)) == 1, 'Only one bundle should be present'
 
 
 if __name__ == '__main__':
