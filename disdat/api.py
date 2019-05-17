@@ -57,6 +57,9 @@ def _get_fs():
     """ Initializing FS, which needs a config.
     These are both singletons.
 
+    TODO: Do we need the config instance here?  Most calls in fs / dockerize
+    TODO: explicitly ask for an instance anyhow.
+
     Returns:
         `fs.DisdatFS`
 
