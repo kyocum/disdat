@@ -7,8 +7,8 @@ setup(
     include_package_data=True,
     install_requires=[
         'luigi',
-        #'spacy',
+        'spacy',
         'pandas==0.20.3',
-        #'tensorflow',
+        'tensorflow',
     ],
 )

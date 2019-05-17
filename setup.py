@@ -116,6 +116,10 @@ setup(
     # for example:
     # $ pip install -e '.[dev, rel]'
     extras_require={
+        'examples': [
+            'spacy',
+            'tensorflow',
+        ],
         'dev': [
             'pytest',
             'ipython<6.0',
