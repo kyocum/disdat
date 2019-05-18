@@ -1,3 +1,4 @@
+from __future__ import print_function
 #
 # Copyright 2017 Human Longevity, Inc.
 #
@@ -14,6 +15,7 @@
 # limitations under the License.
 #
 
+from builtins import range
 from disdat.pipe import PipeTask
 import disdat.api as api
 import tensorflow as tf
@@ -184,7 +186,7 @@ class Train(PipeTask):
     def pipe_run(self, input_gzs=None):
         """        """
 
-        print "Beginning training . . . "
+        print("Beginning training . . . ")
 
         # Bring the data in as an mnist tutorial dataset
         mnist = convert_to_data_sets(input_gzs, one_hot=True)
@@ -204,7 +206,7 @@ class Train(PipeTask):
             save_dir = os.path.join(self.get_output_dir(), 'MNIST')
             saver.save(sess, os.path.join(save_dir, 'MNIST_tf_model'))
 
-        print "End training."
+        print("End training.")
 
         # Note 1: When returning a dictionary, disdat requires you to use a sequence
         # in the value.
