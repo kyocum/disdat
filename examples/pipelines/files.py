@@ -125,4 +125,4 @@ class ReadFiles(PipeTask):
 
 
 if __name__ == "__main__":
-    api.apply('examples', '-', 'ReadFiles', params={'num_luigi_files':5})
+    api.apply('examples', 'ReadFiles', params={'num_luigi_files':5})

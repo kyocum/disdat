@@ -41,7 +41,7 @@ def test():
 
     api.context(TEST_CONTEXT)
 
-    api.apply(TEST_CONTEXT, '-', 'DataMaker', params={'int_array': '[1000,2000,3000]'})
+    api.apply(TEST_CONTEXT, 'DataMaker', params={'int_array': '[1000,2000,3000]'})
 
     b = api.get(TEST_CONTEXT, 'PreMaker_auf_datamaker')
 
@@ -49,7 +49,7 @@ def test():
 
     b.rm()
 
-    api.apply(TEST_CONTEXT, '-', 'Root_1')
+    api.apply(TEST_CONTEXT, 'Root_1')
 
     b = api.get(TEST_CONTEXT, 'PreMaker_auf_root')
 

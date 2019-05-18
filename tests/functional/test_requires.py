@@ -38,5 +38,5 @@ class a(Bizarre):
 
 class b(Bizarre):
     def pipe_requires(self):
-        self.add_dependency('something',a,{})
+        self.add_dependency('something', a, {})
 
