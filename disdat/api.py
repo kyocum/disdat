@@ -1090,7 +1090,3 @@ def dockerize(setup_dir,
                              )
 
     return retval
-
-
-if __name__ == '__main__':
-    b = get('careops5','tto_model_discovery')

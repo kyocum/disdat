@@ -8,7 +8,7 @@ setup(
     install_requires=[
         'luigi',
         'spacy',
-        'pandas==0.20.3',
+        'pandas<=0.24.2',
         'tensorflow',
     ],
 )
