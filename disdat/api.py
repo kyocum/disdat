@@ -786,39 +786,45 @@ def add(local_context, bundle_name, path, tags=None, treat_file_as_bundle=False)
                                                                      bundle_name,
                                                                      local_context))
 
+    # Ensure path exists before creating bundle
+    assert os.path.exists(path), "Disdat cannot find file at path: {}".format(path)
+
     with Bundle(local_context, bundle_name, getpass.getuser()) as b:
+
         if treat_file_as_bundle:
-            if not os.path.isfile(path):
-                print ("Disdat unable to add a directory as a bundle, please provide a .csv or .tsv file.")
-                return
-            if str(path).endswith('.csv') or str(path).endswith('.tsv'):
-                bundle_df = pd.read_csv(path, sep=None) # sep=None means python parse engine detects sep
-                b.add_data(bundle_df)
-            else:
-                print ("Disdat can only add tsv/csv files as bundles, please provide a .csv or .tsv file.")
+            # Make sure file is .csv or .tsv
+            assert str(path).endswith(('.csv', '.tsv')), 'Disdat can only add tsv/csv files as bundles, please ' \
+                                                             'provide a .csv or .tsv file.'
+
+            bundle_df = pd.read_csv(path, sep=None)  # sep=None means python parse engine detects sep
+            b.add_data(bundle_df)
+
+            if tags is not None and len(tags) > 0:
+                b.add_tags(tags)
+            return
+
+        file_list = []
+        if os.path.isfile(path):
+            thing = b.copy_in_file(path)
+            file_list.append(thing)
         else:
-            file_list = []
-            assert(os.path.exists(path))
-            if os.path.isfile(path):
-                thing = b.copy_in_file(path)
-                file_list.append(thing)
-            else:
-                basepath = path
-                for root, dirs, files in os.walk(path, topdown=True):
-                    # create a directory at root
-                    # /x/y/z/fileA
-                    # /x/y/z/a/fileB
-                    dst_basepath = root.replace(basepath, '')
-                    if dst_basepath == '':
-                        dst_basepath = b.local_dir
-                    else:
-                        dst_basepath = b.make_directory(dst_basepath)
-                    for name in files:
-                        dst_fullpath = os.path.join(dst_basepath, name)
-                        src_fullpath = os.path.join(root,name)
-                        shutil.copyfile(src_fullpath, dst_fullpath)
-                        file_list.append(dst_fullpath)
-            b.add_data(file_list)
+            basepath = path
+            for root, dirs, files in os.walk(path, topdown=True):
+                # create a directory at root
+                # /x/y/z/fileA
+                # /x/y/z/a/fileB
+                dst_basepath = root.replace(basepath, '')
+                if dst_basepath == '':
+                    dst_basepath = b.local_dir
+                else:
+                    dst_basepath = b.make_directory(dst_basepath)
+                for name in files:
+                    dst_fullpath = os.path.join(dst_basepath, name)
+                    src_fullpath = os.path.join(root,name)
+                    shutil.copyfile(src_fullpath, dst_fullpath)
+                    file_list.append(dst_fullpath)
+        b.add_data(file_list)
+
         if tags is not None and len(tags)>0:
             b.add_tags(tags)
 
