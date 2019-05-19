@@ -249,7 +249,3 @@ def test_data_as_bundle_not_csv(tmpdir):
     assert api.get(TEST_CONTEXT, 'test_file_as_bundle_txt_file') is None, 'Bundle should not exist'
 
     api.delete_context(TEST_CONTEXT)
-
-
-if __name__ == "__main__":
-    test_data_as_bundle_not_csv('/tmp/')
