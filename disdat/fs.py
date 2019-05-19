@@ -32,7 +32,6 @@ import shutil
 import collections
 from multiprocessing import Pool, cpu_count
 
-from luigi import retcodes
 import pandas as pd
 
 import disdat.hyperframe as hyperframe
@@ -47,7 +46,6 @@ PipeCacheEntry = collections.namedtuple('PipeCacheEntry', 'instance uuid path re
 
 CONTEXTS = ['DEFAULT']
 META_FS_FILE = 'fs.json'
-
 
 ObjectTypes = Enum('ObjectTypes', 'bundle atom')
 ObjectState = Enum('ObjectState', 'present removed')
@@ -246,6 +244,35 @@ class DisdatFS(object):
             state_dict = {'_mangled_curr_context_name': self._mangled_curr_context_name}
             json_file.write(json.dumps(state_dict))
 
+    def reload_all_contexts(self):
+        """ The set of available contexts can change, so this is a refresh hook.
+        This happens if you use the API, then someone uses the CLI out-of-band.
+
+        Returns:
+            None
+        """
+        self.__all_contexts = DataContext.load()
+        return
+
+    def reload_context(self, target_context):
+        """ If a particular context is not available, load if it exists
+
+        This happens if you use the API, then someone uses the CLI out-of-band.
+
+        Returns:
+            None
+        """
+
+        context = DataContext.load([target_context])
+
+        if len(context) == 0:
+            self.__all_contexts.pop(target_context, None)
+            return None
+
+        assert len(context) == 1
+        self.__all_contexts[target_context] = context[0]
+        return context[0]
+
     def in_context(self):
         """
         Are we currently in a valid context?
@@ -356,7 +383,7 @@ class DisdatFS(object):
         if not self.in_context():
             return_strings.append('[None]')
         else:
-            return_strings.append("Disdat Context {}".format(data_context.get_repo_name()))
+            return_strings.append("Disdat Context {}".format(data_context.get_remote_name()))
             return_strings.append("On local branch {}".format(data_context.get_local_name()))
 
             hfrs = data_context.get_hframes(human_name=human_name, uuid=uuid, tags=tags)
@@ -375,45 +402,6 @@ class DisdatFS(object):
                     return_strings.append("Removing latest bundle {}".format(hfrs[0].to_string()))
 
             return return_strings
-
-    def add(self, bundle_name, path_name, tags):
-        """  Create bundle bundle_name given path path_name.
-        The path may point to a file or a csv/tsv file.  If a file, create a simple bundle
-        with a single link.  Otherwise create a bundle with the data in the csv/tsv file.
-        The presentation is set to dataframe for these bundle creations.
-
-        If bundle exists, create a new version with the same name.
-
-        Args:
-            bundle_name (str):
-            path_name (str):
-            tags (dict):
-
-        Returns:
-
-        """
-        import disdat.add  # Note, FS->AddTask->PipeBase->FS, import cycle.
-
-        if not self.in_context():
-            _logger.warning('Not in a data context')
-            return
-        _logger.debug('Adding file {} to bundle {} in context {}'.format(path_name,
-                                                                         bundle_name,
-                                                                         self._curr_context.get_repo_name()))
-
-        # we only make the instance to add the output bundle -- it MUST have the same args as args below!
-        add_pipe = disdat.add.AddTask(path_name, bundle_name, tags)
-
-        self.new_output_hframe(add_pipe, is_left_edge_task=False)
-
-        args = [disdat.add.AddTask.task_family,
-                '--local-scheduler',
-                '--input-path', path_name,
-                '--output-bundle', bundle_name,
-                '--tags', json.dumps(tags)
-                ]
-
-        retcodes.run_with_retcodes(args)
 
     def get_latest_hframe(self, human_name, tags=None, getall=False, data_context=None):
         """
@@ -600,10 +588,10 @@ class DisdatFS(object):
         Given a bundle name and optional uuid, return the object that was saved in the bundle
 
         Args:
-            human_name (str):
-            uuid (str):
-            tags (:dict):
-            file (str): output file
+            human_name (str): The bundle name
+            uuid (str):  The bundle UUID
+            tags (:dict): A dictionary of `str`:`str`
+            file (str): An optional output file to which to write this bundle.
             data_context (`disdat.data_context.DataContext`):
 
         Returns:
@@ -721,9 +709,9 @@ class DisdatFS(object):
                 if self._curr_context is not None and self._curr_context is ctxt:
                     cprint("*", "white", end='')
                     cprint("\t{}".format(ctxt_name), "green", end='')
-                    cprint("\t[{}@{}]".format(ctxt.remote_ctxt, self._curr_context.get_remote_object_dir()))
+                    cprint("\t[{}@{}]".format(ctxt.remote_ctxt, self._curr_context.remote_ctxt_url))
                 else:
-                    print("\t{}\t[{}@{}]".format(ctxt.local_ctxt, ctxt.remote_ctxt, ctxt.get_remote_object_dir()))
+                    print("\t{}\t[{}@{}]".format(ctxt.local_ctxt, ctxt.remote_ctxt, ctxt.remote_ctxt_url))
             return 0
 
         remote_context, local_context = DisdatFS._parse_fq_context_name(fq_context_name)
@@ -870,7 +858,7 @@ class DisdatFS(object):
                 return
             data_context = self.get_curr_context()
 
-        _logger.debug('Committing bundle {} in context {}'.format(bundle_name, data_context.get_repo_name()))
+        _logger.debug('Committing bundle {} in context {}'.format(bundle_name, data_context.get_remote_name()))
 
         if uuid is not None:
             hfr = self.get_hframe_by_uuid(uuid,
@@ -1346,12 +1334,17 @@ class DisdatFS(object):
 
         _logger.debug("Fast Pull Pool using {} processes.".format(cpu_count()))
 
+        _logger.info("Fast Pull synchronizing with remote context {}@{}".format(data_context.remote_ctxt,
+                                                                                   data_context.remote_ctxt_url))
+
         remote_s3_object_dir = data_context.get_remote_object_dir()
         s3_bucket, remote_obj_dir = aws_s3.split_s3_url(remote_s3_object_dir)
         all_objects = aws_s3.ls_s3_url_objects(remote_s3_object_dir)
 
         if not localize:
             all_objects = [obj for obj in all_objects if 'frame.pb' in obj.key]
+
+        fetch_count = 0
 
         multiple_results = []
         for s3_obj in all_objects:
@@ -1361,9 +1354,12 @@ class DisdatFS(object):
             local_uuid_dir = os.path.join(data_context.get_object_dir(), obj_suffix_dir)
             local_object_path = os.path.join(local_uuid_dir, obj_basename)
             if not os.path.exists(local_object_path):
+                fetch_count += 1
                 multiple_results.append(pool.apply_async(aws_s3.get_s3_key,
                                                          (s3_bucket,s3_obj.key,local_object_path)))
         pool.close()
+
+        _logger.info("Fast pull fetching {} objects...".format(fetch_count))
 
         results = [res.get(timeout=MAX_WAIT) for res in multiple_results]
 
@@ -1539,11 +1535,6 @@ def _branch(fs, args):
         fs.branch(args.context)
 
 
-def _add(fs, args):
-
-    fs.add(args.bundle, args.path_name, tags=common.parse_args_tags(args.tag))
-
-
 def _commit(fs, args):
     fs.commit(args.bundle, common.parse_args_tags(args.tag), uuid=args.uuid)
 
@@ -1661,6 +1652,7 @@ def _cat(fs, args):
             # else default print the object
             print(result)
 
+
 def _status(fs, args):
     for f in fs.status(args.bundle):
         print(f)
@@ -1693,14 +1685,6 @@ def init_fs_cl(subparsers):
         type=str,
         help='Switch contexts to "<local context>".')
     switch_p.set_defaults(func=lambda args: fs.switch(args.context))
-
-    # add
-    add_p = subparsers.add_parser('add', description='Create a bundle from a .csv, .tsv, or a directory of files.')
-    add_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
-                       help="Set one or more tags: 'dsdt add -t authoritative:True -t version:0.7.1'")
-    add_p.add_argument('bundle', type=str, help='The destination bundle in the current context')
-    add_p.add_argument('path_name', type=str, help='File or directory of files to add to the bundle', action='store')
-    add_p.set_defaults(func=lambda args: _add(fs, args))
 
     # commit
     commit_p = subparsers.add_parser('commit', description='Commit most recent bundle of name <bundle>.')
@@ -1751,7 +1735,7 @@ def init_fs_cl(subparsers):
     cat_p = subparsers.add_parser('cat')
     cat_p.add_argument('bundle', type=str, nargs='?', default=None, help='The bundle name in the current context')
     cat_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
-                      help="Having a specific tag: 'dsdt ls -t committed:True -t version:0.7.1'")
+                       help="Having a specific tag: 'dsdt ls -t committed:True -t version:0.7.1'")
     cat_p.add_argument('-f', '--file', type=str,
                        help="Save output dataframe as csv without index to specified file")
     cat_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to cat')

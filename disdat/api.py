@@ -34,9 +34,11 @@ from __future__ import print_function
 
 import os
 import json
+import shutil
+import getpass
 
 import luigi
-from luigi.contrib import s3
+import pandas as pd
 
 import disdat.apply
 import disdat.run
@@ -50,9 +52,21 @@ from disdat.run import Backend, run_entry
 from disdat.dockerize import dockerize_entry
 from disdat import logger as _logger
 
-disdat.fs.DisdatConfig.instance()
 
-fs = disdat.fs.DisdatFS()
+def _get_fs():
+    """ Initializing FS, which needs a config.
+    These are both singletons.
+
+    TODO: Do we need the config instance here?  Most calls in fs / dockerize
+    TODO: explicitly ask for an instance anyhow.
+
+    Returns:
+        `fs.DisdatFS`
+
+    """
+    disdat.fs.DisdatConfig.instance()
+
+    return disdat.fs.DisdatFS()
 
 
 def set_aws_profile(aws_profile):
@@ -127,8 +141,10 @@ class Bundle(HyperFrameRecord):
             name (str): Human name for this bundle
         """
 
+        self.fs = _get_fs()
+
         try:
-            self.data_context = fs.get_context(local_context)
+            self.data_context = self.fs.get_context(local_context)
         except Exception as e:
             _logger.error("Unable to allocate bundle in context: {} ".format(local_context, e))
             return
@@ -141,11 +157,8 @@ class Bundle(HyperFrameRecord):
         self.open = False
         self.closed = False
 
-        self.input_data = None  # The df, array, dictionary the user wants to store
-
-        self.db_targets = []    # list of created db targets
         self.depends_on = []    # list of tuples (processing_name, uuid) of bundles on which this bundle depends
-        self.data = None
+        self.data = None        # The df, array, dictionary the user wants to store
 
     """ Convenience accessors """
 
@@ -238,6 +251,7 @@ class Bundle(HyperFrameRecord):
             _logger.warn("Bundle is already open.")
             return
         elif not self.closed:
+
             self.local_dir, self.pb.uuid, self.remote_dir = self.data_context.make_managed_path()
             self.open = True
         else:
@@ -283,7 +297,7 @@ class Bundle(HyperFrameRecord):
 
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
-            PipeBase.rm_bundle_dir(self.local_dir, self.uuid, self.db_targets)
+            PipeBase.rm_bundle_dir(self.local_dir, self.uuid, []) # [] means no db-targets
             raise
 
         self.closed = True
@@ -301,30 +315,13 @@ class Bundle(HyperFrameRecord):
         assert(self.closed and not self.open)
         return self.data
 
-    def add_data(self, data):
-        """ Add data to a bundle.   The bundle must be open and not closed.
-            One adds one data item to a bundle (dictionary, list, tuple, scalar, or dataframe).
-            Calling this replaces the latest item -- only the latest will be included in the bundle on close.
-
-        Args:
-            data (list|tuple|dict|scalar|`pandas.DataFrame`):
-
-        Returns:
-            self
-        """
-        assert(self.open and not self.closed)
-        if self.data is not None:
-            _logger.warning("Disdat API add_data replacing existing data on bundle")
-        self.data = data
-        return self
-
     def rm(self):
         """ Remove bundle from the current context associated with this bundle object
         Only remove this bundle with this uuid.
         This only makes sense if the bundle is closed.
         """
         assert(self.closed and not self.open)
-        fs.rm(uuid=self.uuid, data_context=self.data_context)
+        self.fs.rm(uuid=self.uuid, data_context=self.data_context)
         return self
 
     def commit(self):
@@ -333,7 +330,7 @@ class Bundle(HyperFrameRecord):
         Returns:
             self
         """
-        fs.commit(None, None, uuid=self.uuid, data_context=self.data_context)
+        self.fs.commit(None, None, uuid=self.uuid, data_context=self.data_context)
         return self
 
     def push(self):
@@ -347,10 +344,10 @@ class Bundle(HyperFrameRecord):
         assert(self.closed and not self.open)
 
         if self.data_context.get_remote_object_dir() is None:
-            raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(self.data_context.get_repo_name(),
+            raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(self.data_context.get_remote_name(),
                                                                                           self.data_context.get_local_name()))
 
-        fs.push(uuid=self.uuid, data_context=self.data_context)
+        self.fs.push(uuid=self.uuid, data_context=self.data_context)
 
         return self
 
@@ -361,7 +358,7 @@ class Bundle(HyperFrameRecord):
 
         """
         assert( (not self.open and not self.closed) or (not self.open and self.closed) )
-        fs.pull(uuid=self.uuid, localize=localize, data_context=self.data_context)
+        self.fs.pull(uuid=self.uuid, localize=localize, data_context=self.data_context)
         if localize:
             assert self.is_presentable()
             self.data = self.data_context.present_hfr(self) # actualize link urls
@@ -385,8 +382,30 @@ class Bundle(HyperFrameRecord):
         super(Bundle, self).add_tags(tags)
         return self
 
-    def db_table(self, dsn, table_name, schema_name):
+    def add_data(self, data):
+        """ Attach data to a bundle.   The bundle must be open and not closed.
+            One attaches one data item to a bundle (dictionary, list, tuple, scalar, or dataframe).
+            Calling this replaces the latest item -- only the latest will be included in the bundle on close.
+
+            Note: One uses `add_data_row` or `add_data` but not both.  Adding a row after `add_data`
+            removes the data.   Using `add_data` after `add_data_row` removes all previously added rows.
+
+        Args:
+            data (list|tuple|dict|scalar|`pandas.DataFrame`):
+
+        Returns:
+            self
         """
+        assert(self.open and not self.closed)
+        if self.data is not None:
+            _logger.warning("Disdat API add_data replacing existing data on bundle")
+        self.data = data
+        return self
+
+    def db_table(self, dsn, table_name, schema_name):
+        """ This is the way to allocate a db table reference one can place into a bundle.
+        Like `make_directory`, `make_file`, or `copy_in_file`, this returns a target object
+        that the user must add to their bundle.data before it is recorded in the bundle.
 
         Args:
             dsn (unicode):
@@ -399,9 +418,7 @@ class Bundle(HyperFrameRecord):
         """
         assert (self.open and not self.closed)
 
-        db_target = DBLink(None, dsn, table_name, schema_name, context=self.data_context)
-
-        self.db_targets.append(db_target)
+        db_target = DBLink(None, dsn, table_name, schema_name)
 
         return db_target
 
@@ -416,14 +433,18 @@ class Bundle(HyperFrameRecord):
         See Pipe.create_output_dir()
 
         Arguments:
-            dir_name (str): The human readable name to a file reference
+            dir_name (str): Either a FQP or a basedir of a directory to appear in the bundle.  Neither should end in /
 
         Returns:
             str: A directory path managed by disdat
         """
         assert (self.open and not self.closed)
 
-        fqp = os.path.join(self.local_dir, dir_name)
+        basedir = os.path.basename(dir_name)
+
+        assert(basedir != '')
+
+        fqp = os.path.join(self.local_dir, basedir)
         try:
             os.makedirs(fqp)
         except IOError as why:
@@ -432,12 +453,11 @@ class Bundle(HyperFrameRecord):
         return fqp
 
     def make_file(self, filename):
-        """
-        Create a file-like object to write to called 'filename'
+        """ Create a file target called "filename" that will exist in the bundle.  This is used when you have
+        data in memory and wish to write it to a file, e.g., create a parquet file.
 
-        The file will be placed in the output bundle directory.  However it won't be
-        recorded as part of the bundle unless the path or this target is placed
-        in the output.  I.e., `bundle.add_data(bundle.make_file("my_file"))`
+        To use, you must a.) write data into this file-like object (a 'target'), and b.) you must add this
+        target to the bundle via `bundle.add_data(bundle.make_file("my_file"))`
 
         Arguments:
             filename (str,list,dict): filename to create in the bundle
@@ -449,33 +469,27 @@ class Bundle(HyperFrameRecord):
 
         return PipeBase.filename_to_luigi_targets(self.local_dir, filename)
 
-    def add_file(self, filename):
-        """
-        Create a file-like object to write to called 'filename' and automatically add
-        it to the output bundle.  This is useful if your bundle only contains output files
-        and you don't wish to include any other information in your bundle.
+    def copy_in_file(self, existing_file):
+        """ This function copies the file 'existing_file' into the output bundle.  This is used when you have
+        an existing file on disk and wish to add it to the bundle.
 
-        The file will be placed in the output bundle directory.
+        To use, you must record this as part of the bundle with `bundle.add_data(bundle.copy_in_file("my_file"))`
 
-        Note: if you call `bundle.add_data()` it will overwrite any previous file adds.
-
-        Arguments:
-            filename (str,list,dict): filename to create in the bundle
+        Args:
+            existing_file (str): Path to an existing file
 
         Returns:
-            `luigi.LocalTarget` or `luigi.contrib.s3.S3Target`
+            `luigi.LocalTarget` or `luigi.s3.S3Target`
+
         """
         assert (self.open and not self.closed)
 
-        target = PipeBase.filename_to_luigi_targets(self.local_dir, filename)
+        file_basename = os.path.basename(existing_file)
 
-        if self.data is None:
-            self.data = target
-        elif isinstance(self.data, list):
-            self.data.append(target)
-        else:
-            assert(isinstance(self.data, (luigi.LocalTarget, s3.S3Target)))
-            self.data = [self.data, target]
+        target = PipeBase.filename_to_luigi_targets(self.local_dir, file_basename)
+
+        with target.temporary_path() as temp_path:
+            shutil.copyfile(existing_file, temp_path)
 
         return target
 
@@ -517,7 +531,13 @@ def _get_context(context_name):
         (`disdat.data_context.DataContext`)
     """
 
+    fs = _get_fs()
+
     data_context = fs.get_context(context_name)
+
+    if data_context is None:
+        # Try once to see if needs to be loaded
+        data_context = fs.reload_context(context_name)
 
     if data_context is None:
         error_msg = "Unable to perform operation: could not find context {}".format(context_name)
@@ -529,6 +549,8 @@ def _get_context(context_name):
 
 def current_context():
     """ Return the current context name (not object) """
+
+    fs = _get_fs()
 
     try:
         return fs.get_curr_context().get_local_name()
@@ -545,6 +567,8 @@ def ls_contexts():
 
     """
     # TODO: have the fs object provide a wrapper function
+    fs = _get_fs()
+    fs.reload_all_contexts()
     return list(fs._all_contexts.keys())
 
 
@@ -557,21 +581,22 @@ def context(context_name):
     Returns:
         (int) : 0 if successfully created branch, 1 if branch exists
     """
-
+    fs = _get_fs()
     return fs.branch(context_name)
 
 
 def delete_context(context_name, remote=False, force=False):
-    """ Delete a context
+    """ Delete a local context.  Will not delete any data if there is a remote attached.
 
     Args:
-        context_name (str): <remote context>/<local context> or <local context>
+        context_name (str):  The name of the local context to delete.
         remote (bool): Delete remote context as well, force must be True
         force (bool): Force deletion if dirty
 
     Returns:
         None
     """
+    fs = _get_fs()
     fs.delete_branch(context_name, remote=remote, force=force)
 
 
@@ -580,22 +605,27 @@ def switch(context_name):
     This changes the current default context used by the CLI commands.
 
     Args:
-        context_name(str): <remote context>/<local context> or <local context>
+        context_name (str):  The name of the local context to switch into.
 
     Returns:
         None
     """
+    fs = _get_fs()
     fs.switch(context_name)
 
 
 def remote(local_context, remote_context, remote_url, force=False):
-    """ Add a remote to local_context
+    """ Add a remote to local_context.
+
+    Note that this local context may already have a remote bound.   This means that it might have
+    references to bundles that have not been localized (file references will be 's3:`).  In this case
+    you must set `force` to be True.
 
     Args:
-        local_context (str): <remote context>/<local context> or <local context>
-        remote_context (str):
-        remote_url (str):
-        force (bool):
+        local_context (str):  The name of the local context to which to add the remote.
+        remote_context (str):  The name of the remote context.
+        remote_url (str): The S3 path that holds the contexts, e.g., s3://disdat-prod/beta/
+        force (bool): If this local context already has a remote, you must set force=True
 
     Returns:
         None
@@ -616,22 +646,20 @@ def remote(local_context, remote_context, remote_url, force=False):
 def search(local_context, search_name=None, search_tags=None,
            is_committed=None, find_intermediates=False, find_roots=False,
            before=None, after=None):
-    """ Search for bundle in a context.
+    """ Search for bundle in a local context.
     Allow for searching by human name, is_committed, is intermediate or is root task output, and tags.
 
     At this time the SQL interface in disdat.fs does not allow searching for entries without particular tags.
 
-    So we loop through results to ensure we get the right results.
-
     Args:
-        local_context (str): <remote context>/<local context> or <local context>
+        local_context (str): The name of the local context to search.
         search_name: May be None.  Interpret as a simple regex (one kleene star)
         search_tags (bool): A set of key:values the bundles must have
         is_committed (bool): If None (default): ignore committed, If True return committed, If False return uncommitted
         find_intermediates (bool):  Results must be intermediates
         find_roots (bool): Results must be final outputs
-        before (str): bundles <= "12-1-2009" or "12-1-2009 12:13:42"
-        after (str): bundles >= "12-1-2009" or "12-1-2009 12:13:42"
+        before (str): Return bundles <= "12-1-2009" or "12-1-2009 12:13:42"
+        after (str): Return bundles >= "12-1-2009" or "12-1-2009 12:13:42"
 
     Returns:
         [](Bundle): List of API bundle objects
@@ -676,22 +704,19 @@ def search(local_context, search_name=None, search_tags=None,
 
 
 def get(local_context, bundle_name, uuid=None, tags=None):
-    """ Get bundle from local context, with name, uuid, and tags.
-    Return a Bundle object that contains both the hyperframe as well
-    as a reference to a dataframe representation.
-
-    This is a deconstructed fs.cat() call.
+    """ Retrieve the latest (by date) bundle from local context, with name, uuid, and tags.
 
     Args:
-        local_context: <remote context>/<local context> or <local context>
-        bundle_name:
-        uuid:
-        tags:
+        local_context (str):  The name of the local context to search.
+        bundle_name (str):  The human bundle name to find.
+        uuid (str):  The UUID to return.  Trumps `bundle_name`
+        tags (dict):  The tags the bundle must have.
 
     Returns:
         `api.Bundle`
-
     """
+
+    fs = _get_fs()
 
     data_context = _get_context(local_context)
 
@@ -710,10 +735,12 @@ def get(local_context, bundle_name, uuid=None, tags=None):
 
 
 def rm(local_context, bundle_name=None, uuid=None, tags=None, rm_all=False, rm_old_only=False, force=False):
-    """ Delete a bundle
+    """ Delete a bundle with a certain name, uuid, or tags.  By default removes the most recent bundle.
+    Otherwise one may specify `rm_all=True` to remove all bundles, or `rm_old_only=True` to remove
+    all bundles but the most recent.
 
     Args:
-        local_context (str): Local context name
+        local_context (str): Local context name from which to remove the bundle
         bundle_name (str): Optional human-given name for the bundle
         uuid (str): Optional UUID for the bundle to remove.  Trumps bundle_name argument if both given
         tags (dict(str:str)): Optional dictionary of tags that must be present on bundle to remove
@@ -722,8 +749,10 @@ def rm(local_context, bundle_name=None, uuid=None, tags=None, rm_all=False, rm_o
         force (bool): If a db-link exists and it is the latest on the remote DB, force remove. Default False.
 
     Returns:
-
+        None
     """
+
+    fs = _get_fs()
 
     data_context = _get_context(local_context)
 
@@ -731,17 +760,84 @@ def rm(local_context, bundle_name=None, uuid=None, tags=None, rm_all=False, rm_o
           uuid=uuid, tags=tags, force=force, data_context=data_context)
 
 
-def cat(local_context, bundle_name):
-    """Get dataframe representation of bundle
+def add(local_context, bundle_name, path, tags=None, treat_file_as_bundle=False):
+    """  Create bundle bundle_name given path path_name.
+
+    If path is a directory, then create bundle with items in directory as a list of links.
+    If path is a file:
+        If treat_file_as_bundle and ends in .tsv or .csv then treat as dataframe presented bundle.
+    else:
+        Create bundle as single link to this file.
+
+    Creates a bundle that presents as a list of one or more files.
 
     Args:
-        local_context: <remote context>/<local context> or <local context>
-        bundle_name: The human name of bundle to get df from
+        local_context (str): The local context in which to create this bundle
+        bundle_name (str):  The human name for this new bundle
+        path (str):  The directory or file from which to create a bundle
+        tags (dict):  The set of tags to attach to this bundle
+        treat_file_as_bundle (bool): Whether to treat file as a bundle
 
     Returns:
-        (`pandas.DataFrame`)
+        `api.Bundle`
+    """
+
+    _logger.debug('Adding file {} to bundle {} in context {}'.format(path,
+                                                                     bundle_name,
+                                                                     local_context))
+
+    with Bundle(local_context, bundle_name, getpass.getuser()) as b:
+        if treat_file_as_bundle:
+            if not os.path.isfile(path):
+                print ("Disdat unable to add a directory as a bundle, please provide a .csv or .tsv file.")
+                return
+            if str(path).endswith('.csv') or str(path).endswith('.tsv'):
+                bundle_df = pd.read_csv(path, sep=None) # sep=None means python parse engine detects sep
+                b.add_data(bundle_df)
+            else:
+                print ("Disdat can only add tsv/csv files as bundles, please provide a .csv or .tsv file.")
+        else:
+            file_list = []
+            assert(os.path.exists(path))
+            if os.path.isfile(path):
+                thing = b.copy_in_file(path)
+                file_list.append(thing)
+            else:
+                basepath = path
+                for root, dirs, files in os.walk(path, topdown=True):
+                    # create a directory at root
+                    # /x/y/z/fileA
+                    # /x/y/z/a/fileB
+                    dst_basepath = root.replace(basepath, '')
+                    if dst_basepath == '':
+                        dst_basepath = b.local_dir
+                    else:
+                        dst_basepath = b.make_directory(dst_basepath)
+                    for name in files:
+                        dst_fullpath = os.path.join(dst_basepath, name)
+                        src_fullpath = os.path.join(root,name)
+                        shutil.copyfile(src_fullpath, dst_fullpath)
+                        file_list.append(dst_fullpath)
+            b.add_data(file_list)
+        if tags is not None and len(tags)>0:
+            b.add_tags(tags)
+
+    return b
+
+
+def cat(local_context, bundle_name):
+    """Retrieve the data representation of the latest bundle with name `bundle_name`
+
+    Args:
+        local_context (str): The name of the local context from which to get bundle
+        bundle_name (str): The human name of bundle
+
+    Returns:
+        Object: The presentation data type with which this bundle was created.
 
     """
+
+    fs = _get_fs()
 
     data_context = _get_context(local_context)
 
@@ -749,15 +845,22 @@ def cat(local_context, bundle_name):
 
 
 def commit(local_context, bundle_name, tags=None, uuid=None):
-    """ Commit bundle in this local context.  Call commit on the bundle
-    object after it has been closed / saved.
+    """ Commit bundle in this local context.  This adds a special `committed` tag
+    to the bundle, allowing it to be pushed to a remote.   This also removes the bundle
+    from the "uncommitted history" limit.  One can have as many versions of committed bundles
+    as they wish, but only N uncommitted bundles.
 
     Args:
-        local_context (str): <remote context>/<local context> or <local context>
+        local_context (str): The local context in which the bundle exists
         bundle_name (str): The human name of the bundle to commit
-        tags (dict(str:str)): Optional dictionary of tags with which to find bundle.
-        uuid (str): UUID of the bundle to commit.
+        tags (dict(str:str)): Optional dictionary of tags with which to find bundle
+        uuid (str): UUID of the bundle to commit
+
+    Returns:
+        None
     """
+
+    fs = _get_fs()
 
     data_context = _get_context(local_context)
 
@@ -771,21 +874,22 @@ def push(local_context, bundle_name, tags=None, uuid=None):
     """ Push a bundle to a remote repository.
 
     Args:
-        local_context (str): <remote context>/<local context> or <local context>
+        local_context (str):  The local context to push to (must have a remote).
         bundle_name (str): human name of the bundle to push or None (if using uuid)
-        tags (dict): Tags that bundle should have
-        uuid (str): Optional UUID of the bundle to push.  If specified with bundle_name, UUID takes precedence.
+        tags (dict): Tags the bundle must have
+        uuid (str): Optional UUID of the bundle to push.  UUID takes precedence over bundle name
 
     Returns:
         None
 
     """
-    _logger.debug('disdat.api.push on bundle \'{}\''.format(bundle_name))
+
+    fs = _get_fs()
 
     data_context = _get_context(local_context)
 
     if data_context.get_remote_object_dir() is None:
-        raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(data_context.get_repo_name(),
+        raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(data_context.get_remote_name(),
                                                                                       data_context.get_local_name()))
 
     fs.push(human_name=bundle_name, uuid=uuid, tags=tags, data_context=data_context)
@@ -794,33 +898,36 @@ def push(local_context, bundle_name, tags=None, uuid=None):
 def pull(local_context, bundle_name=None, uuid=None, localize=False):
     """ Pull bundles from the remote context into this local context.
     If there is no remote context associated with this context, then this is
-    a no-op.  fs.pull will raise UserWarning if there is no local or remote context.
+    a no-op.  fs.pull will raise UserWarning if there is no remote context.
 
     Args:
-        local_context (str): <remote context>/<local context> or <local context>
-        bundle_name (str):
-        uuid (str):
+        local_context (str): The local context whose remote the bundle will be pulled
+        bundle_name (str): An optional human bundle name
+        uuid (str): An optional bundle UUID
         localize (bool): Whether to bring linked files directly into bundle directory
 
     Returns:
-        Bundle:
+        None
     """
+
+    fs = _get_fs()
 
     data_context = _get_context(local_context)
 
     fs.pull(human_name=bundle_name, uuid=uuid, localize=localize, data_context=data_context)
 
 
-def apply(local_context, output_bundle, transform,
+def apply(local_context, transform, output_bundle='-',
           input_tags=None, output_tags=None, force=False, params=None,
           output_bundle_uuid=None, central_scheduler=False, workers=1,
           incremental_push=False, incremental_pull=False):
-    """ Execute a pipeline locally
+    """ Execute a Disdat pipeline natively on the local machine.   Note that `api.run` will execute
+    a Disdat pipeline that has been dockerized (either locally or remotely on AWS Batch or AWS Sagemaker)
 
     Args:
-        local_context:
-        output_bundle:
-        transform:
+        local_context (str):  The name of the local context in which the pipeline will run in the container
+        transform (str): The name of the Disdat Pipe class, typically `<package>.<module>.<class>`
+        output_bundle (str):  The name of the output bundle.  Defaults to `<task_name>_<param_hash>`
         input_tags: optional tags dictionary for selecting input bundle
         output_tags: optional tags dictionary to tag output bundle
         force: Force re-running this transform, default False
@@ -832,6 +939,7 @@ def apply(local_context, output_bundle, transform,
         incremental_pull (bool): localize bundles from remote as they are required by downstream tasks
 
     Returns:
+        result (int):  0 success, >0 if issue
 
     """
 
@@ -870,9 +978,10 @@ def apply(local_context, output_bundle, transform,
 
 def run(local_context,
         remote_context,
-        output_bundle,
+        setup_dir,
         pipe_cls,
         pipeline_args,
+        output_bundle='-',
         remote=None,
         backend=Backend.default(),
         input_tags=None,
@@ -891,9 +1000,10 @@ def run(local_context,
     _run() finds out whether we have a
 
     Args:
-        local_context (str):  The local context in which the pipeline will run in the container
+        local_context (str):  The name of the local context in which the pipeline will run in the container
         remote_context (str): The remote context to pull / push bundles during execution
-        output_bundle (str): human name of output bundle
+        setup_dir (str): The directory that contains the setup.py holding the requirements for any pipelines
+        output_bundle (str): The human name of output bundle
         pipe_cls (str): The pkg.module.class of the root of the pipeline DAG
         pipeline_args (dict): Dictionary of the parameters of the root task
         remote (str): The remote's S3 path
@@ -924,6 +1034,7 @@ def run(local_context,
     context = "{}/{}".format(remote_context, local_context) # remote_name/local_name
 
     retval = run_entry(output_bundle=output_bundle,
+                       pipeline_root=setup_dir,
                        pipeline_args=pipeline_arg_list,
                        pipe_cls=pipe_cls,
                        backend=backend,
@@ -946,7 +1057,6 @@ def run(local_context,
 
 
 def dockerize(setup_dir,
-              pipe_cls,
               config_dir=None,
               build=True,
               push=False,
@@ -960,7 +1070,6 @@ def dockerize(setup_dir,
 
     Args:
         setup_dir (str): The directory that contains the setup.py holding the requirements for any pipelines
-        pipe_cls (str): The package.module.class string of the pipeline root.
         config_dir (str): The directory containing the configuration of .deb packages
         build (bool): If False, just copy files into the Docker build context without building image.
         push (bool):  Push the container to the repository
@@ -971,17 +1080,13 @@ def dockerize(setup_dir,
 
     """
 
-    retval = dockerize_entry(pipe_root=setup_dir,
-                             pipe_cls=pipe_cls,
+    retval = dockerize_entry(pipeline_root=setup_dir,
                              config_dir=config_dir,
                              os_type=None,
                              os_version=None,
                              build=build,
                              push=push,
-                             sagemaker=sagemaker)
+                             sagemaker=sagemaker
+                             )
 
     return retval
-
-
-if __name__ == '__main__':
-    b = get('careops5','tto_model_discovery')

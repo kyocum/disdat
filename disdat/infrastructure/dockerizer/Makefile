@@ -39,13 +39,10 @@ ifeq ($(DOCKER_CONTEXT_TEMPLATE), )
 $(error DOCKER_CONTEXT_TEMPLATE variable not set or invalid)
 endif
 
-# The source root and class name of the pipeline to run
+# The source root of the pipeline to run
 PIPELINE_ROOT := $(shell echo $(PIPELINE_ROOT) | sed 's/\/*$$//')
 ifeq ($(PIPELINE_ROOT), )
 $(error PIPELINE_ROOT variable not set or invalid)
-endif
-ifeq ($(PIPELINE_CLASS), )
-$(error PIPELINE_CLASS variable not set)
 endif
 
 # Declare the base operating system to use
@@ -141,7 +138,6 @@ build-02: $(DOCKER_CONTEXT) $(DOCKER_CONTEXT)/config $(DOCKER_CONTEXT)/pipeline
 		--build-arg OS_NAME=$(OS_NAME) \
 		--build-arg IMAGE_LAYER=$(IMAGE_01_LAYER) \
 		--build-arg PIPELINE_ROOT=$(IMAGE_PIPELINE_ROOT) \
-		--build-arg PIPELINE_CLASS=$(PIPELINE_CLASS) \
 		--file $(DOCKER_CONTEXT)/Dockerfiles/02-user.dockerfile \
 		--tag $(PIPELINE_IMAGE_NAME) \
 		$(DOCKER_CONTEXT)

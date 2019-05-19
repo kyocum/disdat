@@ -18,7 +18,7 @@ from disdat.pipe import PipeTask
 import disdat.api as api
 import luigi
 import logging
-from tree_leaves import B
+from pipelines.tree_leaves import B
 
 """
 SimpleTree
@@ -88,4 +88,4 @@ class SimpleTree(PipeTask):
 
 
 if __name__ == "__main__":
-    api.apply('examples', 'SimpleTree.example.output', 'SimpleTree')
+    api.apply('examples', 'SimpleTree')

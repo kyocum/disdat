@@ -74,4 +74,4 @@ class DFDup(PipeTask):
 
 
 if __name__ == "__main__":
-    api.apply('examples', '-', 'DFDup', params={})
+    api.apply('examples', 'DFDup', params={})
