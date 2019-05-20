@@ -805,25 +805,26 @@ def add(local_context, bundle_name, path, tags=None, treat_file_as_bundle=False)
                 thing = b.copy_in_file(path)
                 file_list.append(thing)
             else:
-                basepath = path
+                base_path = path
                 for root, dirs, files in os.walk(path, topdown=True):
                     # create a directory at root
                     # /x/y/z/fileA
                     # /x/y/z/a/fileB
-                    dst_basepath = root.replace(basepath, '')
-                    if dst_basepath == '':
-                        dst_basepath = b.local_dir
+                    dst_base_path = root.replace(base_path, '')
+                    if dst_base_path == '':
+                        dst_base_path = b.local_dir
                     else:
-                        dst_basepath = b.make_directory(dst_basepath)
+                        dst_base_path = b.make_directory(dst_base_path)
                     for name in files:
-                        dst_fullpath = os.path.join(dst_basepath, name)
-                        src_fullpath = os.path.join(root,name)
-                        shutil.copyfile(src_fullpath, dst_fullpath)
-                        file_list.append(dst_fullpath)
+                        dst_full_path = os.path.join(dst_base_path, name)
+                        src_full_path = os.path.join(root,name)
+                        shutil.copyfile(src_full_path, dst_full_path)
+                        file_list.append(dst_full_path)
             b.add_data(file_list)
 
-        if tags is not None and len(tags)>0:
+        if tags is not None and len(tags) > 0:
             b.add_tags(tags)
+        return b
 
 
 def cat(local_context, bundle_name):
