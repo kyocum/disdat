@@ -19,30 +19,8 @@ from disdat.pipe import PipeTask
 import disdat.api as api
 from tests.functional.common import init_project
 
-"""
-Demo Pipeline
+from tests.functional.common import TEST_CONTEXT
 
-Simple pipeline of two stages.  First stage GenData creates an array.  Second stage
-Average reads array and returns an average.
-
-This examples shows:
-1.) A simple single upstream dependency
-2.) How to return an ndarray
-3.) Uses self.set_bundle_name(<name>) to declare the bundle name for the GenData task
-
-Pre Execution:
-$export PYTHONPATH=$DISDAT_HOME/disdat/examples/pipelines
-$dsdt context examples; dsdt switch examples
-
-Execution:
-$python ./demo_pipeline.py
-or:
-$dsdt apply - - demo_pipeline.Average
-
-"""
-
-
-TEST_CONTEXT = '_test_context_'
 TEST_NAME    = 'test_bundle'
 
 
@@ -66,7 +44,7 @@ def test(tmpdir):
 
     result = None
     try:
-        result = api.apply(TEST_CONTEXT, 'test_api_exit', 'Root2', params={}, force=True, workers=2)
+        result = api.apply(TEST_CONTEXT, 'Root2', output_bundle='test_api_exit', params={}, force=True, workers=2)
     except Exception as e:
         print ("Got exception {} result {} ".format(e, e.result))
         assert(e.result['did_work'])

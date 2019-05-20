@@ -1,0 +1,3 @@
+,bool,filepaths,s3paths,somefloats,someints,somestr
+0,True,file:///Users/kyocum/Code/disdat/tests/data/testfiles/A,s3://landsat-pds/c1/L8/233/248/LC08_L1TP_233248_20170525_20170614_01_T1/LC08_L1TP_233248_20170525_20170614_01_T1_thumb_large.jpg,-0.446732696204,7,dagxmyptkh
+1,True,file:///Users/kyocum/Code/disdat/tests/data/testfiles/B,s3://landsat-pds/c1/L8/233/248/LC08_L1TP_233248_20170525_20170614_01_T1/LC08_L1TP_233248_20170525_20170614_01_T1_MTL.txt,0.115149633935,8,uwvmcmbjpg

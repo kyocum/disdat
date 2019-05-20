@@ -1,7 +1,22 @@
-import os
+#
+# Copyright 2017 Human Longevity, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 
 from disdat.pipe import PipeTask
 import disdat.api as api
+
 from tests.functional.common import init_project
 
 
@@ -36,7 +51,7 @@ def test_independent_context(tmpdir):
     api.context(context_1_name)
     api.context(context_2_name)
 
-    api.apply(context_1_name, '-', 'ContextTest')
+    api.apply(context_1_name, 'ContextTest')
 
     assert len(api.search(context_1_name)) == 1, 'Only one bundle should be in context one'
     assert len(api.search(context_2_name)) == 0, 'Context two should be empty'

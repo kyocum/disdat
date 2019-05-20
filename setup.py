@@ -96,15 +96,13 @@ setup(
     # your project is installed.  If >=, means it worked with the base version.
     # If <= means higher versions broke something.
 
-    install_requires=['python-dateutil<2.7', # python-dateutil<2.7.0,>=2.1 is required by set(['botocore']), 2.7 broke things on March 12, 2018
-                      'boto3>=1.7.19',
+    install_requires=['boto3>=1.7.19',
                       'boto3-session-cache',
                       'termcolor',
-                      'docker>=2.5.1', # >=2.5.1 (was up to 3.5.0
-                      'python-daemon<=2.1.2', # 2.2.0 breaks on docutils.core
-                      'luigi<=2.7.5', # 2.7.6 uses python-daemon 2.2.0 which breaks on docutils.core
-                      'pandas<=0.23.4', #
-                      'numpy<=1.14.5',  # just for pandas 0.23.4 so it doesn't use 1.15.0 and spill warnings.
+                      'docker>=2.5.1',
+                      'luigi<=2.8.5',
+                      'pandas<=0.24.2',
+                      'numpy<=1.16.3',
                       'enum34>=',
                       'sqlalchemy>=',
                       'protobuf>=3.3.0', # 3.6.0
@@ -116,6 +114,10 @@ setup(
     # for example:
     # $ pip install -e '.[dev, rel]'
     extras_require={
+        'examples': [
+            'spacy',
+            'tensorflow',
+        ],
         'dev': [
             'pytest',
             'ipython<6.0',

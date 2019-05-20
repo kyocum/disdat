@@ -222,8 +222,8 @@ def run_disdat_container(args):
 
     try:
         result = disdat.api.apply(args.branch,
-                                  args.output_bundle,
                                   args.pipeline,
+                                  output_bundle=args.output_bundle,
                                   input_tags=input_tags,
                                   output_tags=output_tags,
                                   params=pipeline_args,
@@ -357,14 +357,16 @@ def main(input_args):
         help='UUID for the output bundle (default is for apply to generate a UUID)',
     )
     pipeline_parser.add_argument(
+        '-o',
+        '--output-bundle',
+        type=str,
+        default='-',
+        help="Name output bundle: '-o my.output.bundle'.  Default name is '<TaskName>_<param_hash>'"
+    )
+    pipeline_parser.add_argument(
         '--force',
         action='store_true',
         help='Force recomputation of all pipe dependencies (default is to recompute dependencies with changed inputs or code)',
-    )
-    pipeline_parser.add_argument(
-        'output_bundle',
-        type=str,
-        help='Name for the output bundle',
     )
     pipeline_parser.add_argument(
         "pipeline_args",
