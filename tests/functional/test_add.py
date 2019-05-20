@@ -112,8 +112,11 @@ def test_add_directory(tmpdir):
     df = pd.DataFrame({'a': [1, 2, 3], 'b': [4, 5, 6]})
     df.to_csv(test_csv_path)
 
+    deeper_directory = os.path.join(str(tmpdir), 'deep_dir')
+    os.mkdir(deeper_directory)
+
     # Create test .txt file
-    test_text_path = os.path.join(str(tmpdir), 'test.txt')
+    test_text_path = os.path.join(deeper_directory, 'test.txt')
     with open(test_text_path, 'w') as f:
         f.write('Hello!')
 
