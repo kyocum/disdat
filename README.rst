@@ -2,7 +2,11 @@
 .. figure:: ./docs/DisdatTitleFig.jpg
    :alt: Disdat Logo
    :align: center
-
+  
+  
+.. image:: https://badge.fury.io/py/disdat.svg
+    :target: https://badge.fury.io/py/disdat
+    
 Disdat is a Python (2.7 / 3.6) package for data versioning and pipeline authoring that allows data scientists to create,
 share, and track data products.  Disdat organizes data into *bundles*, collections of literal values and files --
 bundles are the unit at which data is versioned and shared.   Disdat pipelines automatically create bundles, making
