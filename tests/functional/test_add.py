@@ -108,7 +108,8 @@ def test_add_directory(tmpdir):
     api.context(TEST_CONTEXT)
 
     # Create test .csv file
-    test_csv_path = os.path.join(str(tmpdir), 'test.csv')
+    test_csv_name = 'test.csv'
+    test_csv_path = os.path.join(str(tmpdir), test_csv_name)
     df = pd.DataFrame({'a': [1, 2, 3], 'b': [4, 5, 6]})
     df.to_csv(test_csv_path)
 
@@ -116,25 +117,56 @@ def test_add_directory(tmpdir):
     os.mkdir(deeper_directory)
 
     # Create test .txt file
-    test_text_path = os.path.join(deeper_directory, 'test.txt')
-    with open(test_text_path, 'w') as f:
+    test_text_name1 = 'test.txt'
+    test_text_path1 = os.path.join(deeper_directory, test_text_name1)
+    with open(test_text_path1, 'w') as f:
         f.write('Hello!')
+
+    test_text_name2 = 'test2.txt'
+    test_text_path2 = os.path.join(deeper_directory,test_text_name2)
+    with open(test_text_path2, 'w') as f:
+        f.write('World!')
+
+    third_directory = os.path.join(deeper_directory, 'third')
+    os.mkdir(third_directory)
+
+    test_text_name3 = 'test3.txt'
+    test_text_path3 = os.path.join(third_directory, test_text_name3)
+    with open(test_text_path3, 'w') as f:
+        f.write('Third Hello!')
+
+    test_text_name4 = 'test4.txt'
+    test_text_path4 = os.path.join(third_directory, test_text_name4)
+    with open(test_text_path4, 'w') as f:
+        f.write('Third World!')
 
     # Assert files exist
     assert os.path.exists(test_csv_path)
-    assert os.path.exists(test_text_path)
+    assert os.path.exists(test_text_path1)
+    assert os.path.exists(test_text_path2)
+    assert os.path.exists(test_text_path3)
+    assert os.path.exists(test_text_path4)
 
-    local_paths = [test_csv_path, test_text_path]
+
+    # Make path lookup
+    path_dict = {
+        test_csv_name: test_csv_path,
+        test_text_name1: test_text_path1,
+        test_text_name2: test_text_path2,
+        test_text_name3: test_text_path3,
+        test_text_name4: test_text_path4,
+    }
 
     # Add the directory to the bundle
     api.add(TEST_CONTEXT, 'test_directory', str(tmpdir))
 
     # Assert check sums are the same
     b = api.get(TEST_CONTEXT, 'test_directory')
-    files = zip(b.data, local_paths)
-    for f in files:
-        bundle_file, local_file = f
-        assert get_hash(bundle_file) == get_hash(local_file), 'Hashes do not match'
+    for f in b.data:
+        bundle_file_name = f.split('/')[-1]
+        local_path = path_dict[bundle_file_name]
+
+        assert get_hash(f) == get_hash(local_path), 'Hashes do not match'
 
     # Add the directory to the bundle with tags
     tag = {'test': 'tag'}
@@ -142,10 +174,11 @@ def test_add_directory(tmpdir):
 
     # Assert check sums are the same
     b = api.get(TEST_CONTEXT, 'test_directory')
-    files = zip(b.data, local_paths)
-    for f in files:
-        bundle_file, local_file = f
-        assert get_hash(bundle_file) == get_hash(local_file), 'Hashes do not match'
+    for f in b.data:
+        bundle_file_name = f.split('/')[-1]
+        local_path = path_dict[bundle_file_name]
+
+        assert get_hash(f) == get_hash(local_path), 'Hashes do not match'
 
     assert b.tags == tag, 'Tags do not match'
     api.delete_context(TEST_CONTEXT)
