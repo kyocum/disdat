@@ -36,6 +36,7 @@ import os
 import json
 import shutil
 import getpass
+import errno
 
 import luigi
 import pandas as pd
@@ -433,22 +434,31 @@ class Bundle(HyperFrameRecord):
         See Pipe.create_output_dir()
 
         Arguments:
-            dir_name (str): Either a FQP or a basedir of a directory to appear in the bundle.  Neither should end in /
+            dir_name (str): Either a FQP (prefix is the bundle path) or a basedir of a directory to appear in the bundle.  Neither should end in /
 
         Returns:
             str: A directory path managed by disdat
         """
         assert (self.open and not self.closed)
 
-        basedir = os.path.basename(dir_name)
+        # remove the prefix iff it exists
+        dst_base_path = dir_name.replace(self.local_dir, '')
 
-        assert(basedir != '')
+        # if the user erroneously passes in the directory of the bundle, return same
+        if dst_base_path == '':
+            return self.local_dir
 
-        fqp = os.path.join(self.local_dir, basedir)
+        fqp = os.path.join(self.local_dir, dst_base_path.lstrip('/'))
         try:
             os.makedirs(fqp)
+        except OSError as why:
+            if not why.errno == errno.EEXIST:
+                _logger.error("Creating directory in bundle directory failed errno {}".format(why.strerror))
+                raise
+            # else directory exists is OK and fall through
         except IOError as why:
-            _logger.error("Creating directory in bundle directory failed:".format(why))
+            _logger.error("Creating directory in bundle directory failed {}".format(why))
+            raise
 
         return fqp
 
