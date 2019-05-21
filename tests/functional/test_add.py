@@ -103,59 +103,73 @@ def test_single_file(tmpdir):
 
 
 def test_add_directory(tmpdir):
-
     # Create Context
     api.context(TEST_CONTEXT)
 
-    # Create test .csv file
+    # Directory Structure
+    # - test.csv
+    # - second/test_1.txt
+    # - second/test_2.txt
+    # - second/third/test_3.txt
+    # - second/third/test_4.txt
+    level_1 = ''
+
+    level_2 = os.path.join(level_1, 'second')
+    os.mkdir(os.path.join(str(tmpdir), level_2))
+
+    level_3 = os.path.join(level_2, 'third')
+    os.mkdir(os.path.join(str(tmpdir), level_3))
+
+    # Dictionary to hold paths
+    path_dict = {}
+
+    # Create files and save paths
     test_csv_name = 'test.csv'
-    test_csv_path = os.path.join(str(tmpdir), test_csv_name)
+    test_csv_path = os.path.join(level_1, test_csv_name)
+    test_csv_abs_path = os.path.join(str(tmpdir), test_csv_path)
     df = pd.DataFrame({'a': [1, 2, 3], 'b': [4, 5, 6]})
-    df.to_csv(test_csv_path)
+    df.to_csv(test_csv_abs_path)
 
-    deeper_directory = os.path.join(str(tmpdir), 'deep_dir')
-    os.mkdir(deeper_directory)
+    path_dict[test_csv_name] = (test_csv_abs_path, test_csv_path.split('/'))
 
-    # Create test .txt file
-    test_text_name1 = 'test.txt'
-    test_text_path1 = os.path.join(deeper_directory, test_text_name1)
-    with open(test_text_path1, 'w') as f:
+    test_text_1_name = 'test_1.txt'
+    test_text_1_path = os.path.join(level_2, test_text_1_name)
+    test_text_name_1_abs_path = os.path.join(str(tmpdir), test_text_1_path)
+    with open(test_text_name_1_abs_path, 'w') as f:
         f.write('Hello!')
 
-    test_text_name2 = 'test2.txt'
-    test_text_path2 = os.path.join(deeper_directory,test_text_name2)
-    with open(test_text_path2, 'w') as f:
-        f.write('World!')
+    path_dict[test_text_1_name] = (test_text_name_1_abs_path, test_text_1_path.split('/'))
 
-    third_directory = os.path.join(deeper_directory, 'third')
-    os.mkdir(third_directory)
+    test_text_2_name = 'test_2.txt'
+    test_text_2_path = os.path.join(level_2, test_text_2_name)
+    test_text_name_2_abs_path = os.path.join(str(tmpdir), test_text_2_path)
+    with open(test_text_name_2_abs_path, 'w') as f:
+        f.write('Hello!')
 
-    test_text_name3 = 'test3.txt'
-    test_text_path3 = os.path.join(third_directory, test_text_name3)
-    with open(test_text_path3, 'w') as f:
+    path_dict[test_text_2_name] = (test_text_name_2_abs_path, test_text_2_path.split('/'))
+
+    test_text_3_name = 'test_3.txt'
+    test_text_3_path = os.path.join(level_3, test_text_3_name)
+    test_text_name_3_abs_path = os.path.join(str(tmpdir), test_text_3_path)
+    with open(test_text_name_3_abs_path, 'w') as f:
         f.write('Third Hello!')
 
-    test_text_name4 = 'test4.txt'
-    test_text_path4 = os.path.join(third_directory, test_text_name4)
-    with open(test_text_path4, 'w') as f:
+    path_dict[test_text_3_name] = (test_text_name_3_abs_path, test_text_3_path.split('/'))
+
+    test_text_4_name = 'test_4.txt'
+    test_text_4_path = os.path.join(level_3, test_text_4_name)
+    test_text_name_4_abs_path = os.path.join(str(tmpdir), test_text_4_path)
+    with open(test_text_name_4_abs_path, 'w') as f:
         f.write('Third World!')
 
+    path_dict[test_text_4_name] = (test_text_name_4_abs_path, test_text_4_path.split('/'))
+
     # Assert files exist
-    assert os.path.exists(test_csv_path)
-    assert os.path.exists(test_text_path1)
-    assert os.path.exists(test_text_path2)
-    assert os.path.exists(test_text_path3)
-    assert os.path.exists(test_text_path4)
-
-
-    # Make path lookup
-    path_dict = {
-        test_csv_name: test_csv_path,
-        test_text_name1: test_text_path1,
-        test_text_name2: test_text_path2,
-        test_text_name3: test_text_path3,
-        test_text_name4: test_text_path4,
-    }
+    assert os.path.exists(test_csv_abs_path)
+    assert os.path.exists(test_text_name_1_abs_path)
+    assert os.path.exists(test_text_name_2_abs_path)
+    assert os.path.exists(test_text_name_3_abs_path)
+    assert os.path.exists(test_text_name_4_abs_path)
 
     # Add the directory to the bundle
     api.add(TEST_CONTEXT, 'test_directory', str(tmpdir))
@@ -164,9 +178,15 @@ def test_add_directory(tmpdir):
     b = api.get(TEST_CONTEXT, 'test_directory')
     for f in b.data:
         bundle_file_name = f.split('/')[-1]
-        local_path = path_dict[bundle_file_name]
+        local_abs_path, local_split_path = path_dict[bundle_file_name]
 
-        assert get_hash(f) == get_hash(local_path), 'Hashes do not match'
+        # Make sure paths match
+        assert get_hash(f) == get_hash(local_abs_path), 'Hashes do not match'
+
+        bundle_path = os.path.join(*f.split('/')[-len(local_split_path):])
+        local_path = os.path.join(*local_split_path)
+
+        assert local_path == bundle_path, 'Bundle should have the same directory structure'
 
     # Add the directory to the bundle with tags
     tag = {'test': 'tag'}
@@ -176,11 +196,20 @@ def test_add_directory(tmpdir):
     b = api.get(TEST_CONTEXT, 'test_directory')
     for f in b.data:
         bundle_file_name = f.split('/')[-1]
-        local_path = path_dict[bundle_file_name]
+        local_abs_path, local_split_path = path_dict[bundle_file_name]
 
-        assert get_hash(f) == get_hash(local_path), 'Hashes do not match'
+        # Make sure paths match
+        assert get_hash(f) == get_hash(local_abs_path), 'Hashes do not match'
 
+        # Make sure directory structure stays the same
+        local_path = os.path.join(*local_split_path)
+        bundle_path = os.path.join(*f.split('/')[-len(local_split_path):])
+
+        assert local_path == bundle_path, 'Bundle should have the same directory structure'
+
+    # Make sure tags exist
     assert b.tags == tag, 'Tags do not match'
+
     api.delete_context(TEST_CONTEXT)
 
 
