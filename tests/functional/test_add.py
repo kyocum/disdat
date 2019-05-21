@@ -127,16 +127,34 @@ def test_add_directory(tmpdir):
     with open(test_text_path2, 'w') as f:
         f.write('World!')
 
+    third_directory = os.path.join(deeper_directory, 'third')
+    os.mkdir(third_directory)
+
+    test_text_name3 = 'test3.txt'
+    test_text_path3 = os.path.join(third_directory, test_text_name3)
+    with open(test_text_path3, 'w') as f:
+        f.write('Third Hello!')
+
+    test_text_name4 = 'test4.txt'
+    test_text_path4 = os.path.join(third_directory, test_text_name4)
+    with open(test_text_path4, 'w') as f:
+        f.write('Third World!')
+
     # Assert files exist
     assert os.path.exists(test_csv_path)
     assert os.path.exists(test_text_path1)
     assert os.path.exists(test_text_path2)
+    assert os.path.exists(test_text_path3)
+    assert os.path.exists(test_text_path4)
+
 
     # Make path lookup
     path_dict = {
         test_csv_name: test_csv_path,
         test_text_name1: test_text_path1,
-        test_text_name2: test_text_path2
+        test_text_name2: test_text_path2,
+        test_text_name3: test_text_path3,
+        test_text_name4: test_text_path4,
     }
 
     # Add the directory to the bundle
