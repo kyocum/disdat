@@ -9,10 +9,7 @@
     
 Disdat is a Python (2.7 / 3.6) package for data versioning and pipeline authoring that allows data scientists to create,
 share, and track data products.  Disdat organizes data into *bundles*, collections of literal values and files --
-bundles are the unit at which data is versioned and shared.   Disdat pipelines automatically create bundles, making
-it easy to produce and then share the latest outputs with other users.  Instead of lengthy email conversations with
-multiple file attachments, searching through Slack for the most recent S3 file path, users can instead
-``dsdt pull awesome_data`` to get the latest 'awesome_data.'
+bundles are the unit at which data is versioned and shared.   Disdat provides an *API* for creating, finding, and publishing bundles to cloud storage (e.g., AWS S3).  Disdat uses this API to instrument Spotify's Luigi, so you can build pipelines that automatically create bundles, making it easy to share the latest outputs with other users and pipelines.  Instead of lengthy email conversations with multiple file attachments, searching through Slack for the most recent S3 file path, users can instead ``dsdt pull awesome_data`` to get the latest 'awesome_data.'
 
 In addition, Disdat can 'dockerize' pipelines into containers that run locally, on AWS Batch, or on AWS SageMaker.   Whether running as a container or running the pipeline natively, Disdat manages the data produced by your pipeline so you don't have to.  Instead of having to find new names for the same logical dataset, e.g., "the-most-recent-today-with-the-latest-fix.csv" , Disdat manages the outputs in your local FS or S3 for you.  
 
@@ -20,41 +17,31 @@ In addition, Disdat can 'dockerize' pipelines into containers that run locally, 
 Getting Started
 ---------------
 
-Disdat includes both an API and a CLI (command-line interface).  To install both into your Python environment:
+Disdat includes both an API and a CLI (command-line interface).  To install both into a new Python environment:
 
 .. code-block:: console
     
+    $ mkvirtualenv disdat
     $ pip install disdat
 
-At this point you can start using Disdat to author and share pipelines and data sets.  Check that you're running at least this version:
-
-.. code-block:: console
-
-    $ dsdt --version
-    Running Disdat version 0.7.1rc0
-
-Install for developers
-----------------------
-
-Clone the disdat code repository and create a virtual environment in which to develop:
-
-.. code-block:: console
-
-    $ git clone git@github.com:kyocum/disdat.git
-
-Install disdat
+Or if you want to use the latest from code repository: 
 
 .. code-block:: console
 
     $ mkvirtualenv disdat
+    $ git clone git@github.com:kyocum/disdat.git
     $ cd disdat
     $ pip install -e .
+    
 
-Execute disdat:
+Next we will initialize Disdat.   This sets up a directory on your local machine to store bundles.   After this point you can start using Disdat to author and share pipelines and data sets.  Check that you're running at least this version:
 
 .. code-block:: console
 
-    $ dsdt -h
+    $ dsdt init
+    $ dsdt --version
+    Running Disdat version 0.8.2rc0
+
 
 Tutorial
 --------
@@ -92,13 +79,6 @@ some publicly available files on s3.
 
 
 Great!  You've created your first data context and bundle.  In the tutorial we'll look at how you can use a bundle as an input to a pipeline, and how you can push/pull your bundles to/from AWS S3 to share data with colleagues.
-
-Other Documentation
--------------------
-
-For an overview of bundles, contexts, the CLI, and pipelines please look at this overview of the
-`Disdat architecture <https://docs.google.com/document/d/1Egw0KoEF6-L-dPK5nSKqMJXQwAVrAmpY2lkLNar6MY4/edit?usp=sharing>`_.
-
 
 Background
 ----------
