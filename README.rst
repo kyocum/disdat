@@ -63,8 +63,7 @@ you will track and share.  Finally, switch into that context.   The commands ``d
     $ dsdt switch mycontext
 
 Now let's add some data.  Disdat wraps up collections of literals and files into a *bundle*.   You can make bundles
-from files, directories, or csv/tsv files.   We'll add `hello_data.csv <examples/hello_data.csv>`_, which contains different literals and
-some publicly available files on s3.
+from files, directories, or csv/tsv files.   We'll add `hello_data.csv <examples/hello_data.csv>`_.   First we will just add the csv file as any regular file. 
 
 .. code-block:: console
 
@@ -72,8 +71,19 @@ some publicly available files on s3.
     $ dsdt ls -v
     NAME                	PROC_NAME           	OWNER     	DATE              	COMMITTED 	TAGS
     my.first.bundle     	AddTask_examples_hel	kyocum    	01-16-18 07:17:37 	False
-    $ dsdt cat my.first.bundle
-                                                                                                                                                    s3paths  someints  somefloats  bool     somestr
+    $ dsdt cat my.first.bundle   
+    ['/Users/kyocum/.disdat/context/examples/objects/92adb579-80ac-4a1c-af82-93ae1dc11f20/hello_data.csv']
+
+Great!  You've created bundle that just contains one file, `hello_data.csv`.  Now lets treat that csv as a bundle that contains different literals and some publicly available files on s3.   
+
+.. code-block:: console
+
+    $ dsdt add -i my.second.bundle examples/hello_data.csv
+    $ dsdt ls -v
+    NAME                	PROC_NAME           	OWNER     	DATE              	COMMITTED 	TAGS
+    my.first.bundle     	AddTask_examples_hel	kyocum    	01-16-18 07:17:37 	False
+    $ dsdt cat my.second.bundle   
+    s3paths  someints  somefloats  bool     somestr
     0  file:///Users/kyocum/.disdat/context/mycontext/objects/43b153db-14a2-45f4-91b0-a0280525c588/LC08_L1TP_233248_20170525_20170614_01_T1_thumb_large.jpg  7        -0.446733    True  dagxmyptkh
     1  file:///Users/kyocum/.disdat/context/mycontext/objects/43b153db-14a2-45f4-91b0-a0280525c588/LC08_L1TP_233248_20170525_20170614_01_T1_MTL.txt          8         0.115150    True  uwvmcmbjpg
 
