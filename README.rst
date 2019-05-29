@@ -32,6 +32,7 @@ Or if you want to use the latest from code repository:
     $ git clone git@github.com:kyocum/disdat.git
     $ cd disdat
     $ pip install -e .
+    $ ./build-dist.sh
     
 
 Next we will initialize Disdat.   This sets up a directory on your local machine to store bundles.   After this point you can start using Disdat to author and share pipelines and data sets.  Check that you're running at least this version:
@@ -58,7 +59,6 @@ you will track and share.  Finally, switch into that context.   The commands ``d
 
 .. code-block:: console
 
-    $ dsdt init
     $ dsdt context mycontext
     $ dsdt switch mycontext
 
