@@ -388,8 +388,7 @@ def make_run_command(
         '--output-bundle', output_bundle,
         '--remote', remote,
         '--branch', context,
-        '--workers', str(workers),
-        '--pipeline', str(pipe_cls)
+        '--workers', str(workers)
     ]
     if no_pull:
         args += ['--no-pull']
@@ -405,6 +404,8 @@ def make_run_command(
     if len(output_tags) > 0:
         for next_tag in output_tags:
             args += ['--output-tag', next_tag]
+
+    args += [str(pipe_cls)]  # The one required argument to the entrypoint
 
     return [x.strip() for x in args + pipeline_params]
 
