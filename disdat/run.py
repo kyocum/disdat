@@ -69,14 +69,13 @@ class Backend(Enum):
         return [i.name for i in list(Backend)]
 
 
-def _run_local(cli, pipeline_setup_file, arglist, pipeline_class_name, backend):
+def _run_local(cli, pipeline_setup_file, arglist, backend):
     """
     Run container locally or run sagemaker container locally
     Args:
         cli (bool): Whether we were called from the CLI or API
         pipeline_setup_file (str): The FQ path to the setup.py used to dockerize the pipeline.
         arglist:
-        pipeline_class_name:
         backend:
 
     Returns:
@@ -315,7 +314,7 @@ def _sagemaker_hyperparameters_from_arglist(arglist):
     return {'arglist': json.dumps(arglist)}
 
 
-def _run_aws_sagemaker(arglist, fq_repository_name, job_name, pipeline_class_name):
+def _run_aws_sagemaker(arglist, fq_repository_name, job_name):
     """
     Runs a training job on AWS SageMaker.  This uses the default machine type
     in the disdat.cfg file.
@@ -324,7 +323,6 @@ def _run_aws_sagemaker(arglist, fq_repository_name, job_name, pipeline_class_nam
         arglist:
         fq_repository_name (str): fully qualified repository name
         job_name:  instance job name
-        pipeline_class_name: The package.module.class Disdat task we are executing.
 
     Returns:
         TrainingJobArn (str)
@@ -503,11 +501,10 @@ def _run(
 
             retval = _run_aws_sagemaker(arglist,
                                         fq_repository_name,
-                                        job_name,
-                                        pipe_cls)
+                                        job_name)
 
     elif backend == Backend.Local or backend == Backend.LocalSageMaker:
-        retval = _run_local(cli, pipeline_setup_file, arglist, pipe_cls, backend)
+        retval = _run_local(cli, pipeline_setup_file, arglist, backend)
 
     else:
         raise ValueError('Got unrecognized job backend \'{}\': Expected {}'.format(backend, Backend.options()))

@@ -313,13 +313,6 @@ def main(input_args):
     )
 
     pipeline_parser = parser.add_argument_group('pipe arguments')
-    pipeline_parser.add_argument(
-        '--pipeline',
-        default=None,
-        type=str,
-        required=True,
-        help=add_argument_help_string('Name of the pipeline class to run'),
-    )
 
     pipeline_parser.add_argument(
         '--branch',
@@ -356,6 +349,7 @@ def main(input_args):
         type=str,
         help='UUID for the output bundle (default is for apply to generate a UUID)',
     )
+
     pipeline_parser.add_argument(
         '-o',
         '--output-bundle',
@@ -363,11 +357,20 @@ def main(input_args):
         default='-',
         help="Name output bundle: '-o my.output.bundle'.  Default name is '<TaskName>_<param_hash>'"
     )
+
     pipeline_parser.add_argument(
         '--force',
         action='store_true',
         help='Force recomputation of all pipe dependencies (default is to recompute dependencies with changed inputs or code)',
     )
+
+    pipeline_parser.add_argument(
+        'pipeline',
+        default=None,
+        type=str,
+        help=add_argument_help_string("Name of the pipeline class to run, e.g., 'package.module.ClassName'"),
+    )
+
     pipeline_parser.add_argument(
         "pipeline_args",
         nargs=argparse.REMAINDER,
