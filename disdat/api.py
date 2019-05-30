@@ -33,6 +33,7 @@ Author: Kenneth Yocum
 from __future__ import print_function
 
 import os
+import sys
 import json
 import shutil
 import getpass
@@ -45,7 +46,8 @@ import disdat.apply
 import disdat.run
 import disdat.fs
 import disdat.common as common
-from disdat.pipe_base import PipeBase, get_pipe_version
+from disdat.pipe_base import PipeBase
+from disdat.fs import DisdatFS
 from disdat.db_link import DBLink
 from disdat.pipe import PipeTask
 from disdat.hyperframe import HyperFrameRecord, LineageRecord
@@ -279,7 +281,8 @@ class Bundle(HyperFrameRecord):
 
             self.pb.presentation = presentation
 
-            cv = get_pipe_version(BundleWrapperTask)
+            pipeline_path = os.path.dirname(sys.modules[BundleWrapperTask.__module__].__file__)
+            cv = DisdatFS().get_pipe_version(pipeline_path)
 
             lr = LineageRecord(hframe_name=self._set_processing_name(), # <--- setting processing name
                                hframe_uuid=self.uuid,

@@ -31,6 +31,7 @@ from enum import Enum
 import shutil
 import collections
 from multiprocessing import Pool, cpu_count
+import subprocess
 
 import pandas as pd
 
@@ -41,14 +42,71 @@ from disdat.data_context import DataContext
 from disdat.common import DisdatConfig
 from disdat import logger as _logger
 
-
 PipeCacheEntry = collections.namedtuple('PipeCacheEntry', 'instance uuid path rerun is_left_edge_task')
+CodeVersion = collections.namedtuple('CodeVersion', 'semver hash tstamp branch url dirty')
 
 CONTEXTS = ['DEFAULT']
 META_FS_FILE = 'fs.json'
 
 ObjectTypes = Enum('ObjectTypes', 'bundle atom')
 ObjectState = Enum('ObjectState', 'present removed')
+
+def _run_git_cmd(git_dir, git_cmd, get_output=False):
+    '''Run a git command in a local git repository.
+
+    :param git_dir: A path within a local git repository, i.e. it may be a
+        subdirectory within the repository.
+    :param git_cmd: The git command string to run, i.e., everything that
+        would follow after :code:`git` on the command line.
+    :param get_output: If :code:`True`, return the command standard output
+        as a string; default is to return the command exit code.
+    '''
+
+    verbose = False
+
+    cmd = ['git', '-C', git_dir] + git_cmd.split()
+    if verbose: _logger.debug('Running git command {}'.format(cmd))
+    if get_output:
+        try:
+            with open(os.devnull, 'w') as null_file:
+                output = subprocess.check_output(cmd, stderr=null_file)
+        except subprocess.CalledProcessError as e:
+            _logger.error("Failed to run git command {}: Got exit code {}".format(cmd, e.returncode))
+            return e.returncode
+    else:
+        with open(os.devnull, 'w') as null_file:
+            output = subprocess.call(cmd, stdout=null_file, stderr=null_file)
+    return output
+
+
+def determine_pipe_version(pipe_root):
+    """
+    Given a pipe file path, return the repo status. If they are set, use the environment variables,
+    otherwise run the git commands.
+
+
+    Args:
+        pipe_root: path to the root of the pipeline
+
+    Returns:
+        CodeVersion: populated object with the git hash, branch, fetch url, last updated date
+        and "dirty" status. A pipeline is considered to be dirty if there are modified files
+        which haven't been checked in yet.
+    """
+
+    _logger.debug(f"PIPELINE_GIT_HASH = {os.environ.get('PIPELINE_GIT_HASH')}  cli hash = {_run_git_cmd(pipe_root, 'rev-parse --short HEAD',  get_output=True)}")
+    _logger.debug(f"git_branch = {os.environ.get('PIPELINE_GIT_BRANCH')}")
+
+    git_hash = os.getenv('PIPELINE_GIT_HASH', _run_git_cmd(pipe_root, 'rev-parse --short HEAD',  get_output=True)).rstrip()
+    git_branch = os.getenv('PIPELINE_GIT_BRANCH', _run_git_cmd(pipe_root, 'rev-parse --abbrev-ref HEAD',  get_output=True)).rstrip()
+    git_fetch_url = os.getenv('PIPELINE_GIT_FETCH_URL', _run_git_cmd(pipe_root, 'config --get remote.origin.url',  get_output=True)).rstrip()
+    git_timestamp = os.getenv('PIPELINE_GIT_TIMESTAMP', _run_git_cmd(pipe_root, 'log -1 --pretty=format:%aI',  get_output=True)).rstrip()
+    git_dirty = bool(os.getenv('GIT_DIRTY', _run_git_cmd(pipe_root, 'diff --name-only',  get_output=True)))
+    
+    obj_version = CodeVersion(semver="0.1.0", hash=git_hash, tstamp=git_timestamp, branch=git_branch,
+                              url=git_fetch_url, dirty=git_dirty)
+
+    return obj_version
 
 
 class DisdatFS(object):
@@ -68,6 +126,50 @@ class DisdatFS(object):
     __metaclass__ = common.SingletonType
 
     task_path_cache = {}  ## [<pipe/luigi task id>] -> PipeCacheEntry(instance, directory, re-run)
+    current_pipe_version = None
+
+    @staticmethod
+    def get_pipe_version(pipe_root):
+        """
+        Given a pipeline root path, return the status of the repo. The git status will be
+        stored on the FS singleton so it doesn't need to be calculated each time this
+        getter function is called.
+
+        Args:
+            pipe_root:
+
+        Returns:
+            CodeVersion: populated object with the git hash, branch, fetch url, last updated date
+            and "dirty" status. A pipeline is considered to be dirty if there are modified files
+            which haven't been checked in yet.
+        """
+
+        # return the pipe version if we already have it
+        if DisdatFS.current_pipe_version is not None:
+            return DisdatFS.current_pipe_version
+
+        pipe_version = determine_pipe_version(pipe_root)
+
+        # set this so we don't need to calculate it each time
+        DisdatFS.put_pipe_version(pipe_version)
+
+        _logger.debug(f"pipe_root = {pipe_root} pipe_version = {pipe_version}")
+
+        return pipe_version
+
+    @staticmethod
+    def put_pipe_version(pipe_version):
+        """
+        Sets current pipe version
+
+        Args:
+            pipe_version:
+        """
+        DisdatFS.current_pipe_version = pipe_version
+
+    @staticmethod
+    def clear_pipe_version():
+        DisdatFS.current_pipe_version = None
 
     @staticmethod
     def clear_path_cache():

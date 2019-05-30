@@ -11,6 +11,7 @@ from __future__ import print_function
 
 from abc import ABCMeta, abstractmethod
 import os
+import sys
 import shutil
 import getpass
 import subprocess
@@ -32,83 +33,6 @@ from disdat import logger as _logger
 
 
 CodeVersion = collections.namedtuple('CodeVersion', 'semver hash tstamp branch url dirty')
-
-
-def _run_git_cmd(git_dir, git_cmd, get_output=False):
-    '''Run a git command in a local git repository.
-
-    :param git_dir: A path within a local git repository, i.e. it may be a
-        subdirectory within the repository.
-    :param git_cmd: The git command string to run, i.e., everything that
-        would follow after :code:`git` on the command line.
-    :param get_output: If :code:`True`, return the command standard output
-        as a string; default is to return the command exit code.
-    '''
-
-    verbose = False
-
-    cmd = ['git', '-C', git_dir] + git_cmd.split()
-    if verbose: _logger.debug('Running git command {}'.format(cmd))
-    if get_output:
-        try:
-            with open(os.devnull, 'w') as null_file:
-                output = subprocess.check_output(cmd, stderr=null_file)
-        except subprocess.CalledProcessError as e:
-            _logger.error("Failed to run git command {}: Got exit code {}".format(cmd, e.returncode))
-            return e.returncode
-    else:
-        with open(os.devnull, 'w') as null_file:
-            output = subprocess.call(cmd, stdout=null_file, stderr=null_file)
-    return output
-
-
-def get_pipe_version(pipe_instance):
-    """Get a pipe version record.
-
-    Args:
-        pipe_instance: An instance of a pipe class.
-
-    Returns:
-        rtype: a code:`CodeVersion` named tuple
-    """
-    source_file = inspect.getsourcefile(pipe_instance.__class__)
-    git_dir = os.path.dirname(source_file)
-
-    # ls-files will verify both that a source file is located in a local
-    # git repository and that it is under version control.
-    # TODO I bet this STILL doesn't work with git add.
-    git_ls_files_cmd = 'ls-files --error-unmatch {}'.format(source_file)
-    if _run_git_cmd(git_dir, git_ls_files_cmd) == 0:
-        # Get the hash and date of the last commit for the pipe.
-        git_tight_hash_cmd = 'log -n 1 --pretty=format:"%h;%aI" -- {}'.format(source_file)
-        git_tight_hash_result = _run_git_cmd(git_dir, git_tight_hash_cmd, get_output=True).split(';'.encode('utf8'))
-        if len(git_tight_hash_result) == 2:
-            tight_hash, tight_date = git_tight_hash_result
-
-            git_tight_dirty_cmd = 'diff-index --name-only HEAD -- {}'.format(source_file)
-            tight_dirty = len(_run_git_cmd(git_dir, git_tight_dirty_cmd, get_output=True)) > 0
-
-            git_curr_branch_cmd = 'rev-parse --abbrev-ref HEAD'
-            curr_branch = _run_git_cmd(git_dir, git_curr_branch_cmd, get_output=True).rstrip()
-
-            git_fetch_url_cmd = 'config --get remote.origin.url'
-            fetch_url = _run_git_cmd(git_dir, git_fetch_url_cmd, get_output=True).rstrip()
-
-            obj_version = CodeVersion(semver="0.1.0", hash=tight_hash, tstamp=tight_date, branch=curr_branch, url=fetch_url, dirty=tight_dirty)
-        elif len(git_tight_hash_result) == 1 and git_tight_hash_result[0] == '':
-            # git has the file but does not have a hash for the file,
-            # which means that the file is a newly git-added file.
-            # TODO: fake a hash, use date == now()
-            _logger.warning('{}.{}: Source file {} added but not committed to git repository'.format(pipe_instance.__module__, pipe_instance.__class__.__name__, source_file))
-            obj_version = CodeVersion(semver="0.1.0", hash='', tstamp='', branch='', url='', dirty=True)
-        else:
-            raise ValueError("Got invalid git hash: expected either a hash;date or a blank, got {}".format(git_tight_hash_result))
-    else:
-        _logger.warning('{}.{}: Source file {} not under git version control'.format(pipe_instance.__module__, pipe_instance.__class__.__name__, source_file))
-        # TODO: fake a hash, use date == now()
-        obj_version = CodeVersion(semver="0.1.0", hash='', tstamp='', branch='', url='', dirty=True)
-
-    return obj_version
 
 
 class PipeBase(object):
@@ -229,7 +153,8 @@ class PipeBase(object):
         """
 
         # Grab code version and path cache entry -- only called if we ran
-        cv = get_pipe_version(class_to_version)
+        pipeline_path = os.path.dirname(sys.modules[class_to_version.__module__].__file__)
+        cv = DisdatFS().get_pipe_version(pipeline_path)
 
         lr = LineageRecord(hframe_name=processing_name,
                            hframe_uuid=output_bundle_uuid,

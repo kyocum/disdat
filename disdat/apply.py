@@ -28,6 +28,7 @@ from __future__ import print_function
 import sys
 import json
 import collections
+import os
 
 from luigi import build, worker
 
@@ -99,6 +100,11 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
                                       pipe_cls, input_tags, output_tags, force,
                                       data_context, incremental_push, incremental_pull)
 
+    # get versioning information for entire pipeline
+    users_root_task = reexecute_dag.deps()[0]
+    pipeline_path = os.path.dirname(sys.modules[users_root_task.__module__].__file__)
+    fs.DisdatFS().get_pipe_version(pipeline_path)
+
     did_work = resolve_workflow_bundles(reexecute_dag, data_context)
 
     # At this point the path cache should be full of existing or new UUIDs.
@@ -120,7 +126,8 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
 
     success = build([reexecute_dag], local_scheduler=not central_scheduler, workers=workers)
 
-    # After running a pipeline, blow away our path cache.  Needed if we're run twice in the same process.
+    # After running a pipeline, blow away our path cache and git hash. Needed if we're run twice in the same process.
+    fs.DisdatFS().clear_pipe_version()
     fs.DisdatFS().clear_path_cache()
 
     return {'success': success, 'did_work': did_work}
@@ -305,7 +312,9 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         return regen_bundle
 
     # 3.) Lineage record exists -- if new code, re-run
-    current_version = pipe_base.get_pipe_version(pipe)
+    pipeline_path = os.path.dirname(sys.modules[pipe.__module__].__file__)
+    current_version = fs.DisdatFS().get_pipe_version(pipeline_path)
+
     if different_code_versions(current_version, lng):
         if verbose: print("resolve_bundle: New code version, getting new output bundle.\n")
         pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
