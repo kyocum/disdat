@@ -90,6 +90,10 @@ Great!  You've created bundle that just contains one file, `hello_data.csv`.  No
 
 Great!  You've created your first data context and bundle.  In the tutorial we'll look at how you can use a bundle as an input to a pipeline, and how you can push/pull your bundles to/from AWS S3 to share data with colleagues.
 
+Questions?
+----------
+Feel free to post an isue and join our Slack channel `here <https://join.slack.com/t/disdatworkspace/shared_invite/enQtNjUzMDcxMzc2ODU1LWJhMzgzYWYzYjFlMzQxOTc5NzcyMzFhOTU4YjlkNDYwN2FmOGVkZTNmZjBlMzk3ZjAxZjNhYjc2YzcxNjg4N2Q>`_!
+
 Background
 ----------
 
