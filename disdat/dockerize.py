@@ -195,7 +195,7 @@ def dockerize(pipeline_root,
             'GIT_DIRTY={}'.format(pipe_version.dirty),
         ]
 
-        _logger.debug(f"pipeline root = {pipeline_root} build command = {build_command}")
+        _logger.debug("pipeline root = {} build command = {}".format(pipeline_root, build_command))
 
         if config_dir is not None:
             build_command.append('CONFIG_ROOT={}'.format(config_dir))

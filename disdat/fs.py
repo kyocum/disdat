@@ -94,8 +94,9 @@ def determine_pipe_version(pipe_root):
         which haven't been checked in yet.
     """
 
-    _logger.debug(f"PIPELINE_GIT_HASH = {os.environ.get('PIPELINE_GIT_HASH')}  cli hash = {_run_git_cmd(pipe_root, 'rev-parse --short HEAD',  get_output=True)}")
-    _logger.debug(f"git_branch = {os.environ.get('PIPELINE_GIT_BRANCH')}")
+    _logger.debug("PIPELINE_GIT_HASH = {}  cli hash = {}".format(os.environ.get('PIPELINE_GIT_HASH'),
+                                                                 _run_git_cmd(pipe_root, 'rev-parse --short HEAD', get_output=True)))
+    _logger.debug("git_branch = {os.environ.get('PIPELINE_GIT_BRANCH')}")
 
     git_hash = os.getenv('PIPELINE_GIT_HASH', _run_git_cmd(pipe_root, 'rev-parse --short HEAD',  get_output=True)).rstrip()
     git_branch = os.getenv('PIPELINE_GIT_BRANCH', _run_git_cmd(pipe_root, 'rev-parse --abbrev-ref HEAD',  get_output=True)).rstrip()
@@ -153,7 +154,7 @@ class DisdatFS(object):
         # set this so we don't need to calculate it each time
         DisdatFS.put_pipe_version(pipe_version)
 
-        _logger.debug(f"pipe_root = {pipe_root} pipe_version = {pipe_version}")
+        _logger.debug("pipe_root = {} pipe_version = {}".format(pipe_root, pipe_version))
 
         return pipe_version
 

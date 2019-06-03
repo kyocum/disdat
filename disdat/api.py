@@ -182,12 +182,16 @@ class Bundle(HyperFrameRecord):
         return self.pb.uuid
 
     @property
+    def tags(self):
+        return self.tag_dict
+
+    @property
     def creation_date(self):
         return self.pb.lineage.creation_date
 
     @property
-    def tags(self):
-        return self.tag_dict
+    def lineage(self):
+        return self.pb.lineage
 
     @property
     def params(self):
@@ -714,6 +718,33 @@ def search(local_context, search_name=None, search_tags=None,
         results.append(bundle)
 
     return results
+
+
+def lineage(local_context, uuid):
+    """ Return lineage information for a bundle uuid in a local context.
+    Shortcut: `api.lineage(<uuid>)` is equivalent to `api.search(uuid=<uuid>)[0].lineage`
+
+    Args:
+        local_context (str): The name of the local context to search.
+        uuid (str): The UUID of the bundle in question
+
+    Returns:
+        [](Bundle): List of API bundle objects
+    """
+
+    data_context = _get_context(local_context)
+
+    hfr = data_context.get_hframes(uuid=uuid)
+
+    if hfr is None or len(hfr) == 0:
+        return None
+
+    assert(len(hfr) == 1)
+
+    b = Bundle(local_context, 'unknown')
+    b.fill_from_hfr(hfr[0])
+
+    return b.lineage
 
 
 def get(local_context, bundle_name, uuid=None, tags=None):
