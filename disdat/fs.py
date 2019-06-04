@@ -51,6 +51,7 @@ META_FS_FILE = 'fs.json'
 ObjectTypes = Enum('ObjectTypes', 'bundle atom')
 ObjectState = Enum('ObjectState', 'present removed')
 
+
 def _run_git_cmd(git_dir, git_cmd, get_output=False):
     '''Run a git command in a local git repository.
 
@@ -98,7 +99,7 @@ def determine_pipe_version(pipe_root):
                                                                  _run_git_cmd(pipe_root, 'rev-parse --short HEAD', get_output=True)))
     _logger.debug("git_branch = {os.environ.get('PIPELINE_GIT_BRANCH')}")
 
-    git_hash = os.getenv('PIPELINE_GIT_HASH', _run_git_cmd(pipe_root, 'rev-parse --short HEAD',  get_output=True)).rstrip()
+    git_hash = os.getenv('PIPELINE_GIT_HASH', _run_git_cmd(pipe_root, 'rev-parse HEAD',  get_output=True)).rstrip()
     git_branch = os.getenv('PIPELINE_GIT_BRANCH', _run_git_cmd(pipe_root, 'rev-parse --abbrev-ref HEAD',  get_output=True)).rstrip()
     git_fetch_url = os.getenv('PIPELINE_GIT_FETCH_URL', _run_git_cmd(pipe_root, 'config --get remote.origin.url',  get_output=True)).rstrip()
     git_timestamp = os.getenv('PIPELINE_GIT_TIMESTAMP', _run_git_cmd(pipe_root, 'log -1 --pretty=format:%aI',  get_output=True)).rstrip()
@@ -1594,7 +1595,11 @@ class DisdatFS(object):
             None
         """
 
-        self.get_curr_context().bind_remote_ctxt(remote_context, s3_url, force=force)
+        ctxt_obj = self.get_curr_context()
+
+        assert(ctxt_obj is not None, "Disdat must be in a context to use 'remote'")
+
+        ctxt_obj.bind_remote_ctxt(remote_context, s3_url, force=force)
 
     def status(self, human_name):
         """
@@ -1744,7 +1749,7 @@ def _cat(fs, args):
     result = fs.cat(args.bundle, uuid=args.uuid, tags=common.parse_args_tags(args.tag), file=args.file)
 
     if result is None:
-        print("dsdt cat found no bundle with name {}".format(args.bundle))
+        print("Disdat cat found no bundle with name {} or uuid {}".format(args.bundle, args.uuid))
     else:
 
         if isinstance(result, pd.DataFrame):

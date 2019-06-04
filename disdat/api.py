@@ -720,31 +720,70 @@ def search(local_context, search_name=None, search_tags=None,
     return results
 
 
-def lineage(local_context, uuid):
-    """ Return lineage information for a bundle uuid in a local context.
+def _lineage_single(ctxt_obj, uuid):
+    """ Helper function to return lineage information for a single bundle uuid in a local context.
     Shortcut: `api.lineage(<uuid>)` is equivalent to `api.search(uuid=<uuid>)[0].lineage`
 
     Args:
-        local_context (str): The name of the local context to search.
+        ctxt_obj (`data_context.DataContext`): The context in which the bundle lives.
         uuid (str): The UUID of the bundle in question
 
     Returns:
-        [](Bundle): List of API bundle objects
+        `hyperframe_pb2.Lineage`: Python ProtoBuf object representing lineage
+
     """
 
-    data_context = _get_context(local_context)
-
-    hfr = data_context.get_hframes(uuid=uuid)
+    hfr = ctxt_obj.get_hframes(uuid=uuid)
 
     if hfr is None or len(hfr) == 0:
         return None
 
     assert(len(hfr) == 1)
 
-    b = Bundle(local_context, 'unknown')
+    b = Bundle(ctxt_obj.get_local_name(), 'unknown')
     b.fill_from_hfr(hfr[0])
 
     return b.lineage
+
+
+def lineage(local_context, uuid, max_depth=None):
+    """ Return lineage information from a bundle uuid in a local context.
+    This will follow in a breadth-first manner the lineage information.
+    Shortcut: `api.lineage(<uuid>)` is equivalent to `api.search(uuid=<uuid>)[0].lineage`
+
+    Args:
+        local_context (str): The context in which the bundle lives.
+        uuid (str): The UUID of the bundle in question
+        max_depth (int): Maximum depth returned in search of lineage objects.  Default None is unbounded.
+
+    Returns:
+        list(`hyperframe_pb2.Lineage`): List of Protocol Buffer Lineage objects in BFS order
+    """
+
+    ctxt_obj = _get_context(local_context)
+
+    l = _lineage_single(ctxt_obj, uuid)
+
+    frontier = []  # BFS (depth, uuid, lineage)
+
+    found = []     # Return [(depth, uuid, lineage),...]
+
+    depth = 0      # Current depth of BFS
+
+    while l is not None:
+        if max_depth is not None and depth > max_depth:
+            break
+        found.append((depth, l.hframe_uuid, l))
+        frontier.extend([(depth + 1, deps.hframe_uuid, _lineage_single(ctxt_obj, deps.hframe_uuid)) for deps in l.depends_on])
+        l = None
+        while len(frontier) > 0:
+            depth, uuid, l = frontier.pop(0)
+            if l is None:
+                found.append((depth, uuid, None))  # not found locally
+                continue
+            else:
+                break
+    return found
 
 
 def get(local_context, bundle_name, uuid=None, tags=None):

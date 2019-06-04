@@ -40,23 +40,15 @@ def _lineage(args):
 
     ctxt = fs._curr_context.get_local_name()
 
-    l = api.lineage(ctxt, args.uuid)
-    frontier = []
-    depth = 0
-    while l is not None:
-        if depth > args.depth:
-            break
-        print ("------ DEPTH {} ----- LEN FRONTIER({})".format(depth, len(frontier)))
-        print(l)
-        frontier.extend([(depth + 1, deps.hframe_uuid, api.lineage(ctxt, deps.hframe_uuid)) for deps in l.depends_on])
-        l = None
-        while len(frontier) > 0:
-            depth, uuid, l = frontier.pop(0)
-            if l is None:
-                print("Could not find lineage for uuid {}".format(uuid))
-                continue
-            else:
-                break
+    # (depth, uuid, lineage)
+    lin_tuples = api.lineage(ctxt, args.uuid, args.depth)
+
+    for (d,uuid,l) in lin_tuples:
+        print ("------ DEPTH {} ----- ".format(d))
+        if l is None:
+            print("No lineage found for UUID {}".format(uuid))
+        else:
+            print(l)
 
     return
 
