@@ -384,7 +384,7 @@ def select_hfr_db(engine_g, uuid=None, owner=None, human_name=None,
 
     s = text("SELECT {} FROM {} {} {} {} {}".format(select, pb_cls.table_name, sub_q, where, groupby, orderby))
 
-    #print "Query {}".format(s)
+    #print ("Query {}".format(s))
 
     with engine_g.connect() as conn:
         result = conn.execute(s)
@@ -1053,6 +1053,12 @@ class HyperFrameRecord(PBObject):
 
     def _write_row(self):
         """
+
+        NOTE: We record creation_date in lineage pb as a float as seconds from epoch (time.time()
+        But we record as a date in the db as a UTC timezone.  No matter where it was made, it will
+        be ordered in queries (latest bundle) by UTC time.  But we display to user with a time.localtime(ts)
+        conversion.
+
         Returns:
              Dictionary of key columns (from _create_table) and values.
         """
@@ -1065,7 +1071,7 @@ class HyperFrameRecord(PBObject):
              'owner': self.pb.owner,
              'human_name': self.pb.human_name,
              'processing_name': self.pb.processing_name,
-             'creation_date': datetime.fromtimestamp(self.pb.lineage.creation_date),
+             'creation_date': datetime.utcfromtimestamp(self.pb.lineage.creation_date),
              'state': self.state,
              'pb': self.pb.SerializeToString()})
 
@@ -1262,20 +1268,23 @@ class LineageRecord(PBObject):
     def __init__(self, hframe_name=None, hframe_uuid=None,
                  code_repo=None, code_name=None, code_semver=None,
                  code_hash=None, code_branch=None,
-                 creation_date=None, depends_on=None):
+                 creation_date=None, depends_on=None,
+                 start_ts=0, stop_ts=0):
         """
         LineageRecord -- a collection of information about how this bundle was created.
 
-        params
-        :hframe_name    -  name of this bundle
-        :bundle_uuid -  the uuid of this bundle in the objectrecord
-        :code_repo      -  git repo where code exists
-        :code_name      -  module.class
-        :code_semver    -  semver from code_version
-        :code_hash      -  githash from code_version
-        :code_branch    -  name of branch
-        :creation_date  -  Time this bundle was created
-        :depends_on = array[ (hframe_name, version uuid), ... ]
+        Args:
+            hframe_name: name of this bundle
+            bundle_uuid: the uuid of this bundle in the objectrecord
+            code_repo: git repo where code exists
+            code_name: module.class
+            code_semver: semver from code_version
+            code_hash: githash from code_version
+            code_branch: name of branch
+            creation_date: Time this bundle was created
+            depends_on (list): array[ (hframe_name, version uuid), ... ]
+            start_ts (float): timestamp of task start
+            stop_ts (float): timestamp of task stop
 
         returns:
             LineageRecord
@@ -1290,6 +1299,13 @@ class LineageRecord(PBObject):
         self.pb.code_semver = code_semver
         self.pb.code_hash = code_hash
         self.pb.code_branch = code_branch
+        self.pb.start_time = start_ts
+        self.pb.stop_time = stop_ts
+
+        # NOTE: We record creation_date in lineage pb as a float as seconds from epoch (time.time())
+        # But we record as a date in the db as a UTC timezone.  No matter where it was made, it will
+        # be ordered in queries (latest bundle) by UTC time.  But we display to user with a time.localtime(ts)
+        # conversion.
 
         if creation_date is None:
             creation_date = time.time()
@@ -1328,6 +1344,12 @@ class LineageRecord(PBObject):
 
     def _write_row(self):
         """
+
+        NOTE: We record creation_date in lineage pb as a float as seconds from epoch (time.time()
+        But we record as a date in the db as a UTC timezone.  No matter where it was made, it will
+        be ordered in queries (latest bundle) by UTC time.  But we display to user with a time.localtime(ts)
+        conversion.
+
         :return: dictionary of key columns (from _create_table) and values.
         """
         assert(self.pb is not None)
@@ -1338,7 +1360,7 @@ class LineageRecord(PBObject):
                 'hframe_name': self.pb.hframe_name,
                 'code_repo': self.pb.code_repo,
                 'code_hash': self.pb.code_hash,
-                'creation_date': datetime.fromtimestamp(self.pb.creation_date),
+                'creation_date': datetime.utcfromtimestamp(self.pb.creation_date),
                 'state': self.state,
                 'pb': self.pb.SerializeToString()}
 

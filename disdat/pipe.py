@@ -37,6 +37,8 @@ import json
 import six
 
 import luigi
+from datetime import datetime
+import time
 
 from disdat.pipe_base import PipeBase
 from disdat.db_link import DBLink
@@ -264,7 +266,9 @@ class PipeTask(luigi.Task, PipeBase):
         assert(pce is not None)
 
         try:
+            start = time.time() #P3 datetime.now().timestamp()
             user_rtn_val = self.pipe_run(**kwargs)
+            stop =  time.time() #P3 datetime.now().timestamp()
         except Exception as error:
             """ If user's pipe fails for any reason, remove bundle dir and raise """
             try:
@@ -275,7 +279,18 @@ class PipeTask(luigi.Task, PipeBase):
             raise
 
         try:
-            hfr = PipeBase.parse_pipe_return_val(pce.uuid, user_rtn_val, self.data_context, self)
+            presentation, frames = PipeBase.parse_return_val(pce.uuid, user_rtn_val, self.data_context)
+
+            hfr = PipeBase.make_hframe(frames,
+                                       pce.uuid,
+                                       self.bundle_inputs(),
+                                       self.pipeline_id(),
+                                       self.pipe_id(),
+                                       self,
+                                       start_ts=start,
+                                       stop_ts=stop,
+                                       tags={"presentable": "True"},
+                                       presentation=presentation)
 
             # Add Luigi Task parameters -- Only add the class parameters.  These are Disdat special params.
             self.user_tags.update(self._get_subcls_params(self))
