@@ -32,6 +32,7 @@ Or if you want to use the latest from code repository:
     $ git clone git@github.com:kyocum/disdat.git
     $ cd disdat
     $ pip install -e .
+    $ ./build-dist.sh
     
 
 Next we will initialize Disdat.   This sets up a directory on your local machine to store bundles.   After this point you can start using Disdat to author and share pipelines and data sets.  Check that you're running at least this version:
@@ -58,13 +59,11 @@ you will track and share.  Finally, switch into that context.   The commands ``d
 
 .. code-block:: console
 
-    $ dsdt init
     $ dsdt context mycontext
     $ dsdt switch mycontext
 
 Now let's add some data.  Disdat wraps up collections of literals and files into a *bundle*.   You can make bundles
-from files, directories, or csv/tsv files.   We'll add `hello_data.csv <examples/hello_data.csv>`_, which contains different literals and
-some publicly available files on s3.
+from files, directories, or csv/tsv files.   We'll add `hello_data.csv <examples/hello_data.csv>`_.   First we will just add the csv file as any regular file. 
 
 .. code-block:: console
 
@@ -72,13 +71,28 @@ some publicly available files on s3.
     $ dsdt ls -v
     NAME                	PROC_NAME           	OWNER     	DATE              	COMMITTED 	TAGS
     my.first.bundle     	AddTask_examples_hel	kyocum    	01-16-18 07:17:37 	False
-    $ dsdt cat my.first.bundle
-                                                                                                                                                    s3paths  someints  somefloats  bool     somestr
+    $ dsdt cat my.first.bundle   
+    ['/Users/kyocum/.disdat/context/examples/objects/92adb579-80ac-4a1c-af82-93ae1dc11f20/hello_data.csv']
+
+Great!  You've created bundle that just contains one file, `hello_data.csv`.  Now lets treat that csv as a bundle that contains different literals and some publicly available files on s3.   
+
+.. code-block:: console
+
+    $ dsdt add -i my.second.bundle examples/hello_data.csv
+    $ dsdt ls -v
+    NAME                	PROC_NAME           	OWNER     	DATE              	COMMITTED 	TAGS
+    my.first.bundle     	AddTask_examples_hel	kyocum    	01-16-18 07:17:37 	False
+    $ dsdt cat my.second.bundle   
+    s3paths  someints  somefloats  bool     somestr
     0  file:///Users/kyocum/.disdat/context/mycontext/objects/43b153db-14a2-45f4-91b0-a0280525c588/LC08_L1TP_233248_20170525_20170614_01_T1_thumb_large.jpg  7        -0.446733    True  dagxmyptkh
     1  file:///Users/kyocum/.disdat/context/mycontext/objects/43b153db-14a2-45f4-91b0-a0280525c588/LC08_L1TP_233248_20170525_20170614_01_T1_MTL.txt          8         0.115150    True  uwvmcmbjpg
 
 
 Great!  You've created your first data context and bundle.  In the tutorial we'll look at how you can use a bundle as an input to a pipeline, and how you can push/pull your bundles to/from AWS S3 to share data with colleagues.
+
+Questions?
+----------
+Feel free to post an isue and join our Slack channel `here <https://join.slack.com/t/disdatworkspace/shared_invite/enQtNjUzMDcxMzc2ODU1LWJhMzgzYWYzYjFlMzQxOTc5NzcyMzFhOTU4YjlkNDYwN2FmOGVkZTNmZjBlMzk3ZjAxZjNhYjc2YzcxNjg4N2Q>`_!
 
 Background
 ----------

@@ -33,6 +33,7 @@ Author: Kenneth Yocum
 from __future__ import print_function
 
 import os
+import sys
 import json
 import shutil
 import getpass
@@ -45,7 +46,8 @@ import disdat.apply
 import disdat.run
 import disdat.fs
 import disdat.common as common
-from disdat.pipe_base import PipeBase, get_pipe_version
+from disdat.pipe_base import PipeBase
+from disdat.fs import DisdatFS
 from disdat.db_link import DBLink
 from disdat.pipe import PipeTask
 from disdat.hyperframe import HyperFrameRecord, LineageRecord
@@ -180,12 +182,16 @@ class Bundle(HyperFrameRecord):
         return self.pb.uuid
 
     @property
+    def tags(self):
+        return self.tag_dict
+
+    @property
     def creation_date(self):
         return self.pb.lineage.creation_date
 
     @property
-    def tags(self):
-        return self.tag_dict
+    def lineage(self):
+        return self.pb.lineage
 
     @property
     def params(self):
@@ -279,7 +285,8 @@ class Bundle(HyperFrameRecord):
 
             self.pb.presentation = presentation
 
-            cv = get_pipe_version(BundleWrapperTask)
+            pipeline_path = os.path.dirname(sys.modules[BundleWrapperTask.__module__].__file__)
+            cv = DisdatFS().get_pipe_version(pipeline_path)
 
             lr = LineageRecord(hframe_name=self._set_processing_name(), # <--- setting processing name
                                hframe_uuid=self.uuid,
@@ -711,6 +718,72 @@ def search(local_context, search_name=None, search_tags=None,
         results.append(bundle)
 
     return results
+
+
+def _lineage_single(ctxt_obj, uuid):
+    """ Helper function to return lineage information for a single bundle uuid in a local context.
+    Shortcut: `api.lineage(<uuid>)` is equivalent to `api.search(uuid=<uuid>)[0].lineage`
+
+    Args:
+        ctxt_obj (`data_context.DataContext`): The context in which the bundle lives.
+        uuid (str): The UUID of the bundle in question
+
+    Returns:
+        `hyperframe_pb2.Lineage`: Python ProtoBuf object representing lineage
+
+    """
+
+    hfr = ctxt_obj.get_hframes(uuid=uuid)
+
+    if hfr is None or len(hfr) == 0:
+        return None
+
+    assert(len(hfr) == 1)
+
+    b = Bundle(ctxt_obj.get_local_name(), 'unknown')
+    b.fill_from_hfr(hfr[0])
+
+    return b.lineage
+
+
+def lineage(local_context, uuid, max_depth=None):
+    """ Return lineage information from a bundle uuid in a local context.
+    This will follow in a breadth-first manner the lineage information.
+    Shortcut: `api.lineage(<uuid>)` is equivalent to `api.search(uuid=<uuid>)[0].lineage`
+
+    Args:
+        local_context (str): The context in which the bundle lives.
+        uuid (str): The UUID of the bundle in question
+        max_depth (int): Maximum depth returned in search of lineage objects.  Default None is unbounded.
+
+    Returns:
+        list(`hyperframe_pb2.Lineage`): List of Protocol Buffer Lineage objects in BFS order
+    """
+
+    ctxt_obj = _get_context(local_context)
+
+    l = _lineage_single(ctxt_obj, uuid)
+
+    frontier = []  # BFS (depth, uuid, lineage)
+
+    found = []     # Return [(depth, uuid, lineage),...]
+
+    depth = 0      # Current depth of BFS
+
+    while l is not None:
+        if max_depth is not None and depth > max_depth:
+            break
+        found.append((depth, l.hframe_uuid, l))
+        frontier.extend([(depth + 1, deps.hframe_uuid, _lineage_single(ctxt_obj, deps.hframe_uuid)) for deps in l.depends_on])
+        l = None
+        while len(frontier) > 0:
+            depth, uuid, l = frontier.pop(0)
+            if l is None:
+                found.append((depth, uuid, None))  # not found locally
+                continue
+            else:
+                break
+    return found
 
 
 def get(local_context, bundle_name, uuid=None, tags=None):

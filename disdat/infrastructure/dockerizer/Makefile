@@ -138,6 +138,11 @@ build-02: $(DOCKER_CONTEXT) $(DOCKER_CONTEXT)/config $(DOCKER_CONTEXT)/pipeline
 		--build-arg OS_NAME=$(OS_NAME) \
 		--build-arg IMAGE_LAYER=$(IMAGE_01_LAYER) \
 		--build-arg PIPELINE_ROOT=$(IMAGE_PIPELINE_ROOT) \
+		--build-arg GIT_HASH=$(GIT_HASH) \
+		--build-arg GIT_BRANCH=$(GIT_BRANCH) \
+		--build-arg GIT_FETCH_URL=$(GIT_FETCH_URL) \
+		--build-arg GIT_TIMESTAMP=$(GIT_TIMESTAMP) \
+		--build-arg GIT_DIRTY=$(GIT_DIRTY) \
 		--file $(DOCKER_CONTEXT)/Dockerfiles/02-user.dockerfile \
 		--tag $(PIPELINE_IMAGE_NAME) \
 		$(DOCKER_CONTEXT)
