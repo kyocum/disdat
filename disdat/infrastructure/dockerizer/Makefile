@@ -187,7 +187,7 @@ $(DOCKER_CONTEXT)/disdat: $(DOCKER_CONTEXT) $(shell find $(DISDAT_ROOT)/disdat -
 $(DOCKER_CONTEXT)/pipeline: $(DOCKER_CONTEXT) $(shell find $(PIPELINE_ROOT) -not -path '*/\.*' -type f)
 	@echo "----- Copying pipeline $(PIPELINE_ROOT)"
 	cd $(PIPELINE_ROOT); \
-	    python $(PIPELINE_ROOT)/setup.py sdist --dist-dir $@; cd -
+	    python setup.py sdist --dist-dir $@; cd -
 	@touch $@
 
 

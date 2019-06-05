@@ -338,10 +338,11 @@ def make_sagemaker_project_repository_name(docker_repository_prefix, setup_file_
 
 def get_run_command_parameters(pfs):
     remote = pfs.get_curr_context().remote_ctxt_url
-    if remote is None:
-        raise ValueError
-    remote = remote.replace('/{}'.format(DISDAT_CONTEXT_DIR), '')
-    local_ctxt = "{}/{}".format(pfs.get_curr_context().remote_ctxt, pfs.get_curr_context().local_ctxt)
+    if remote is not None:
+        remote = remote.replace('/{}'.format(DISDAT_CONTEXT_DIR), '')
+        local_ctxt = "{}/{}".format(pfs.get_curr_context().remote_ctxt, pfs.get_curr_context().local_ctxt)
+    else:
+        local_ctxt = "{}".format(pfs.get_curr_context().local_ctxt)
     return remote, local_ctxt
 
 
@@ -386,10 +387,11 @@ def make_run_command(
     args = [
         '--output-bundle-uuid ', output_bundle_uuid,
         '--output-bundle', output_bundle,
-        '--remote', remote,
         '--branch', context,
         '--workers', str(workers)
     ]
+    if remote:
+        args.extend(['--remote', remote])
     if no_pull:
         args += ['--no-pull']
     if no_push:

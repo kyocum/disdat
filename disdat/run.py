@@ -130,7 +130,7 @@ def _run_local(cli, pipeline_setup_file, arglist, backend):
         return stdout
     except docker.errors.ContainerError as ce:
         _logger.error("Internal error running image {}".format(pipeline_image_name))
-        _logger.error("Error: {}".format(six.ensure_str(ce)))
+        _logger.error("Error: {}".format(six.ensure_str(ce.stderr)))
         return six.ensure_str(ce)
     except docker.errors.ImageNotFound:
         _logger.error("Unable to find the docker image {}".format(pipeline_image_name))
@@ -467,13 +467,12 @@ def _run(
     if not common.setup_exists(pipeline_setup_file):
         return None
 
-    try:
-        output_bundle_uuid = pfs.disdat_uuid()
-        if remote is None or context is None:
-            # If either is none, then both are, b/c we checked in calling function
-            remote, context = common.get_run_command_parameters(pfs)
-    except ValueError:
-        _logger.error("'run' requires a remote set with `dsdt remote <s3 url>`")
+    output_bundle_uuid = pfs.disdat_uuid()
+    if remote is None or context is None:
+        remote, context = common.get_run_command_parameters(pfs)
+
+    if remote is None and (not no_push or not no_pull):  # if pulling or pushing, need a remote
+        _logger.error("Pushing or pulling bundles with 'run' requires a remote set with `dsdt remote <s3 url>`")
         return
 
     arglist = common.make_run_command(output_bundle, output_bundle_uuid, pipe_cls, remote, context,
@@ -539,7 +538,12 @@ def add_arg_parser(parsers):
     run_p.add_argument(
         "--no-push",
         action='store_true',
-        help="Do not commit and push newly created bundles to remote context."
+        help="If backend is not 'Local', then do not push newly created bundles to remote context."
+    )
+    run_p.add_argument(
+        '--no-pull',
+        action='store_true',
+        help="If backend is not 'Local', do not synchronize remote context with local context.  May cause pipeline to re-run."
     )
     run_p.add_argument(
         '--no-push-intermediates',
@@ -548,9 +552,16 @@ def add_arg_parser(parsers):
         dest='no_push_int'
     )
     run_p.add_argument(
-        '--no-pull',
+        '--pull',
         action='store_true',
-        help='Do not pull (synchronize) remote repository with local repo.  This may cause entire pipeline to re-run.',
+        default = False,
+        help="If using 'Local' backend, synchronize remote repository with local repo."
+    )
+    run_p.add_argument(
+        '--push',
+        action='store_true',
+        default = False,
+        help="If using 'Local' backend, push newly created bundles to remote context."
     )
     run_p.add_argument(
         '--use-aws-session-token',
@@ -618,6 +629,9 @@ def run_entry(cli=False, **kwargs):
     pfs = fs.DisdatFS()
 
     # Ensure kwargs only contains the arguments we want when calling _run
+    push = kwargs['push']
+    pull = kwargs['pull']
+
     remove_keys = []
     for k in kwargs.keys():
         if k not in _run.__code__.co_varnames:
@@ -639,10 +653,20 @@ def run_entry(cli=False, **kwargs):
     if kwargs['backend'] is not None:
         kwargs['backend'] = Backend[kwargs['backend']]
     else:
-        kwargs['backend'] = Backend.default()
+        kwargs['backend'] = Backend[Backend.default()]
 
     kwargs['input_tags'] = common.parse_args_tags(kwargs['input_tags'], to='list')
     kwargs['output_tags'] = common.parse_args_tags(kwargs['output_tags'], to='list')
     kwargs['cli'] = cli
+
+    # If backend == 'Local' then default is --no-push and --no-pull are False
+    # unless --push and --pull are set.
+    # If backend != 'Local' then we ignore --push and --pull
+
+    if kwargs['backend'] == Backend.Local:
+        if not push:
+            kwargs['no_push'] = True
+        if not pull:
+            kwargs['no_pull'] = True
 
     return _run(**kwargs)
