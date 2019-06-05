@@ -128,6 +128,10 @@ def _run_local(cli, pipeline_setup_file, arglist, backend):
         stdout = six.ensure_str(stdout)
         if cli: print(stdout)
         return stdout
+    except docker.errors.ContainerError as ce:
+        _logger.error("Internal error running image {}".format(pipeline_image_name))
+        _logger.error("Error: {}".format(six.ensure_str(ce)))
+        return six.ensure_str(ce)
     except docker.errors.ImageNotFound:
         _logger.error("Unable to find the docker image {}".format(pipeline_image_name))
         return None

@@ -63,12 +63,12 @@ you will track and share.  Finally, switch into that context.   The commands ``d
     $ dsdt switch mycontext
 
 Now let's add some data.  Disdat wraps up collections of literals and files into a *bundle*.   You can make bundles
-from files, directories, or csv/tsv files.   We'll add `hello_data.csv <examples/hello_data.csv>`_.   First we will just add the csv file as any regular file. 
+from files, directories, or csv/tsv files.   We'll add `hello_data.csv <examples/hello_data.csv>`_.   First we will just add the csv file as any regular file.  Then we list the bundle, using `-v` for verbose and `-i` to list non-pipeline outputs. 
 
 .. code-block:: console
 
     $ dsdt add my.first.bundle examples/hello_data.csv
-    $ dsdt ls -v
+    $ dsdt ls -iv
     NAME                	PROC_NAME           	OWNER     	DATE              	COMMITTED 	TAGS
     my.first.bundle     	AddTask_examples_hel	kyocum    	01-16-18 07:17:37 	False
     $ dsdt cat my.first.bundle   
@@ -79,7 +79,7 @@ Great!  You've created bundle that just contains one file, `hello_data.csv`.  No
 .. code-block:: console
 
     $ dsdt add -i my.second.bundle examples/hello_data.csv
-    $ dsdt ls -v
+    $ dsdt ls -iv
     NAME                	PROC_NAME           	OWNER     	DATE              	COMMITTED 	TAGS
     my.first.bundle     	AddTask_examples_hel	kyocum    	01-16-18 07:17:37 	False
     $ dsdt cat my.second.bundle   
@@ -89,6 +89,10 @@ Great!  You've created bundle that just contains one file, `hello_data.csv`.  No
 
 
 Great!  You've created your first data context and bundle.  In the tutorial we'll look at how you can use a bundle as an input to a pipeline, and how you can push/pull your bundles to/from AWS S3 to share data with colleagues.
+
+Questions?
+----------
+Feel free to post an isue and join our Slack channel `here <https://join.slack.com/t/disdatworkspace/shared_invite/enQtNjUzMDcxMzc2ODU1LWJhMzgzYWYzYjFlMzQxOTc5NzcyMzFhOTU4YjlkNDYwN2FmOGVkZTNmZjBlMzk3ZjAxZjNhYjc2YzcxNjg4N2Q>`_!
 
 Background
 ----------

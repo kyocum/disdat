@@ -60,6 +60,18 @@ RUN files=$(echo $PIPELINE_ROOT/*.tar.gz);  if [ "$files" != $PIPELINE_ROOT/'*.t
     done; \
 fi
 
+# Set the git status env variables for the container. This represents the most recent git hash for the pipeline.
+ARG GIT_HASH
+ENV PIPELINE_GIT_HASH=${GIT_HASH}
+ARG GIT_BRANCH
+ENV PIPELINE_GIT_BRANCH=${GIT_BRANCH}
+ARG GIT_FETCH_URL
+ENV PIPELINE_GIT_FETCH_URL=${GIT_FETCH_URL}
+ARG GIT_TIMESTAMP
+ENV PIPELINE_GIT_TIMESTAMP=${GIT_TIMESTAMP}
+ARG GIT_DIRTY
+ENV PIPELINE_GIT_DIRTY=${GIT_DIRTY}
+
 # Clean up the temporary build directory
 RUN rm -rf $BUILD_ROOT
 

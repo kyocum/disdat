@@ -27,6 +27,7 @@ import disdat.common
 import disdat.resources
 import disdat.utility.aws_s3 as aws
 from disdat.infrastructure import dockerizer
+from disdat.fs import determine_pipe_version
 
 import docker
 
@@ -177,6 +178,7 @@ def dockerize(pipeline_root,
     DISDAT_HOME = os.getenv('DISDAT_HOME', DEFAULT_DISDAT_HOME)
 
     if build:
+        pipe_version = determine_pipe_version(pipeline_root)
         build_command = [
             'make',  # XXX really need to check that this is GNU make
             '-f', docker_makefile,
@@ -186,7 +188,15 @@ def dockerize(pipeline_root,
             'PIPELINE_ROOT={}'.format(pipeline_root),
             'OS_TYPE={}'.format(image_os_type),
             'OS_VERSION={}'.format(image_os_version),
+            'GIT_HASH={}'.format(pipe_version.hash),
+            'GIT_BRANCH={}'.format(pipe_version.branch),
+            'GIT_FETCH_URL={}'.format(pipe_version.url),
+            'GIT_TIMESTAMP={}'.format(pipe_version.tstamp),
+            'GIT_DIRTY={}'.format(pipe_version.dirty),
         ]
+
+        _logger.debug("pipeline root = {} build command = {}".format(pipeline_root, build_command))
+
         if config_dir is not None:
             build_command.append('CONFIG_ROOT={}'.format(config_dir))
         if sagemaker:

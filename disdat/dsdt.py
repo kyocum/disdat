@@ -32,6 +32,7 @@ from disdat import dockerize
 from disdat import run
 from disdat.fs import init_fs_cl
 from disdat.add import init_add_cl
+from disdat.lineage import init_lineage_cl
 from disdat.common import DisdatConfig
 from disdat import log
 
@@ -114,6 +115,9 @@ def main():
 
     # add
     init_add_cl(subparsers)
+
+    # add
+    init_lineage_cl(subparsers)
 
     args = parser.parse_args(args)
 
