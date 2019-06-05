@@ -39,13 +39,9 @@ def _context_and_remote(context_name, remote=None):
     switch contexts.
 
     Args:
-        context_name (str): A fully-qualified context name. remote-context/local-context
+        context_name (str): A fully-qualified context name. remote-context/local-context or local-context
         remote (str): S3 remote name.
     """
-
-    if len(context_name.split('/')) <= 1:
-        _logger.error("Partial context name: Expected <remote-context>/<local-context>, got '{}'".format(context_name))
-        return False
 
     retval = disdat.api.context(context_name)
 
@@ -293,7 +289,7 @@ def main(input_args):
     disdat_parser.add_argument(
         '--remote',
         type=str,
-        required=True,
+        default=None,
         help='The s3 bucket from/to which to pull/push data',
     )
     disdat_parser.add_argument(
