@@ -125,7 +125,8 @@ class PipeBase(object):
 
     @staticmethod
     def make_hframe(output_frames, output_bundle_uuid, depends_on,
-                    human_name, processing_name, class_to_version, tags=None, presentation=hyperframe_pb2.DEFAULT):
+                    human_name, processing_name, class_to_version,
+                    start_ts=0, stop_ts=0, tags=None, presentation=hyperframe_pb2.DEFAULT):
         """
         Create HyperFrameRecord or HFR
         HFR contains a LineageRecord
@@ -143,6 +144,8 @@ class PipeBase(object):
             human_name:
             processing_name:
             class_to_version: A python class whose file is under git control
+            start_ts (float): timestamp of task start time
+            stop_ts (float): timestamp of task stop time
             tags:
             presentation (enum):  how to present this hframe when we use it as input to a function -- default None
 
@@ -163,7 +166,9 @@ class PipeBase(object):
                            code_semver=cv.semver,
                            code_hash=cv.hash,
                            code_branch=cv.branch,
-                           depends_on=depends_on)
+                           depends_on=depends_on,
+                           start_ts=start_ts,
+                           stop_ts=stop_ts)
 
         hfr = HyperFrameRecord(owner=getpass.getuser(),
                                human_name=human_name,
@@ -307,6 +312,15 @@ class PipeBase(object):
     @staticmethod
     def parse_return_val(hfid, val, data_context):
         """
+        Interpret the return values and create an HFrame to wrap them.
+        This means setting the correct presentation bit in the HFrame so that
+        we call downstream tasks with parameters as the author intended.
+
+        POLICY / NOTE:  An non-HF output is a Presentable.
+        NOTE: For now, a task output is *always* presentable.
+        NOTE: No other code should set presentation in a HyperFrame.
+
+        The mirror to this function (that unpacks a presentable is disdat.fs.present_hfr()
 
         Args:
             hfid (str): UUID
@@ -383,35 +397,3 @@ class PipeBase(object):
             frames.append(DataContext.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
 
         return presentation, frames
-
-    @staticmethod
-    def parse_pipe_return_val(hfid, val, data_context, pipe):
-        """
-
-        Interpret the return values and create an HFrame to wrap them.
-        This means setting the correct presentation bit in the HFrame so that
-        we call downstream tasks with parameters as the author intended.
-
-        POLICY / NOTE:  An non-HF output is a Presentable.
-        NOTE: For now, a task output is *always* presentable.
-        NOTE: No other code should set presentation in a HyperFrame.
-
-        The mirror to this function (that unpacks a presentable is disdat.fs.present_hfr()
-
-        Args:
-            hfid: UUID
-            val: Value to parse
-            data_context (`data_context.DataContext`):
-            pipe: The disdat pipe producing these values, has human_name, bundle_inputs, and pipe_id()
-
-        Returns:
-            HyperFrameRecord
-
-        """
-
-        presentation, frames = PipeBase.parse_return_val(hfid, val, data_context)
-
-        return PipeBase.make_hframe(frames, hfid, pipe.bundle_inputs(),
-                                    pipe.pipeline_id(), pipe.pipe_id(), pipe,
-                                    tags={"presentable": "True"},
-                                    presentation=presentation)

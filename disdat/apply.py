@@ -100,7 +100,7 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
                                       pipe_cls, input_tags, output_tags, force,
                                       data_context, incremental_push, incremental_pull)
 
-    # get versioning information for entire pipeline
+    # Get version information for pipeline
     users_root_task = reexecute_dag.deps()[0]
     pipeline_path = os.path.dirname(sys.modules[users_root_task.__module__].__file__)
     fs.DisdatFS().get_pipe_version(pipeline_path)

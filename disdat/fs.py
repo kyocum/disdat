@@ -32,6 +32,7 @@ import shutil
 import collections
 from multiprocessing import Pool, cpu_count
 import subprocess
+import six
 
 import pandas as pd
 
@@ -72,11 +73,15 @@ def _run_git_cmd(git_dir, git_cmd, get_output=False):
             with open(os.devnull, 'w') as null_file:
                 output = subprocess.check_output(cmd, stderr=null_file)
         except subprocess.CalledProcessError as e:
-            _logger.error("Failed to run git command {}: Got exit code {}".format(cmd, e.returncode))
+            _logger.debug("Unable to run git command {}: exit {}: likely no git repo, e.g., running in a container.".format(cmd, e.returncode))
             return e.returncode
     else:
         with open(os.devnull, 'w') as null_file:
             output = subprocess.call(cmd, stdout=null_file, stderr=null_file)
+
+    # If P3, this may be a byte array.   If P2, if not unicode, convert ...
+    output = six.ensure_str(output)
+
     return output
 
 
@@ -672,7 +677,7 @@ class DisdatFS(object):
         output_string = "{:20}\t{:20}\t{:8}\t{:18}\t{:8}\t{:40}".format(hfr.pb.human_name,
                                                                    hfr.pb.processing_name[:],
                                                                    hfr.pb.owner,
-                                                                   time.strftime("%m-%d-%y %H:%M:%S ",time.localtime(hfr.pb.lineage.creation_date)),
+                                                                   time.strftime("%m-%d-%y %H:%M:%S ", time.localtime(hfr.pb.lineage.creation_date)),
                                                                    committed,
                                                                    hfr.pb.uuid)
         if print_tags:
@@ -1597,7 +1602,7 @@ class DisdatFS(object):
 
         ctxt_obj = self.get_curr_context()
 
-        assert(ctxt_obj is not None, "Disdat must be in a context to use 'remote'")
+        assert ctxt_obj is not None, "Disdat must be in a context to use 'remote'"
 
         ctxt_obj.bind_remote_ctxt(remote_context, s3_url, force=force)
 
