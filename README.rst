@@ -24,25 +24,13 @@ Disdat includes both an API and a CLI (command-line interface).  To install both
     $ mkvirtualenv disdat
     $ pip install disdat
 
-Or if you want to use the latest from code repository: 
-
-.. code-block:: console
-
-    $ mkvirtualenv disdat
-    $ git clone git@github.com:kyocum/disdat.git
-    $ cd disdat
-    $ pip install -e .
-    $ ./build-dist.sh
-    
-
 Next we will initialize Disdat.   This sets up a directory on your local machine to store bundles.   After this point you can start using Disdat to author and share pipelines and data sets.  Check that you're running at least this version:
 
 .. code-block:: console
 
     $ dsdt init
     $ dsdt --version
-    Running Disdat version 0.8.2rc0
-
+    Running Disdat version 0.8.3rc2
 
 Tutorial
 --------
@@ -89,6 +77,12 @@ Great!  You've created bundle that just contains one file, `hello_data.csv`.  No
 
 
 Great!  You've created your first data context and bundle.  In the tutorial we'll look at how you can use a bundle as an input to a pipeline, and how you can push/pull your bundles to/from AWS S3 to share data with colleagues.
+
+Papers, presentations
+---------------------
+2019 ACM OpML paper, `Disdat: Bundle Data Management for Machine Learning Pipelines <https://www.usenix.org/system/files/opml19papers-yocum.pdf>`_, 
+
+Presentation `slides <https://www.usenix.org/sites/default/files/conference/protected-files/opml19_slides_yocum.pdf>`_
 
 Background
 ----------
