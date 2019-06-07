@@ -41,23 +41,32 @@ def print_lineage_protobuf(lineage_pb, offset=0):
     print("{}processing name: {}".format(indent, lineage_pb.hframe_name))
     print("{}uuid: {}".format(indent, lineage_pb.hframe_uuid))
     print("{}creation date: {}".format(indent, datetime.fromtimestamp(lineage_pb.creation_date)))
+    print("{}code repo: {}".format(indent, lineage_pb.code_repo))
+    print("{}code hash: {}".format(indent, lineage_pb.code_hash))
 
-    duration = lineage_pb.stop_time - lineage_pb.start_time
-
-    print("{}Start {} Stop {} Duration {}".format(indent, lineage_pb.start_time, lineage_pb.stop_time, duration))
-
-    user, site = lineage_pb.code_repo.split('@')
-    site, project_url = site.split(':')
-    project_url = project_url.replace('.git', '')
-
-    url = "https://{}/{}/commit/{}".format(site, project_url, lineage_pb.code_hash)
+    try:
+        repo = lineage_pb.code_repo.split('@')
+        if len(repo) == 2:
+            # Assume: git@github.intuit.com:user/project.git
+            _ , site = repo
+            site, project_url = site.split(':')
+            project_url = project_url.replace('.git', '')
+            url = "https://{}/{}/commit/{}".format(site, project_url, lineage_pb.code_hash)
+        else:
+            # Assume:  https://github.com/user/project.git
+            assert len(repo) == 1
+            project_url = repo[0].replace('.git', '')
+            url = "{}/commit/{}".format(project_url, lineage_pb.code_hash)
+    except Exception as e:
+        print (e)
+        url = "unknown"
 
     print("{}git commit URL: {}".format(indent,url))
     print("{}code branch: {}".format(indent,lineage_pb.code_branch))
 
-    # XXX Currently these aren't set appropriately
-    # print("code name: {}".format(lineage_pb.code_name))
-    # print("code semver: {}".format(lineage_pb.code_semver))
+    duration = lineage_pb.stop_time - lineage_pb.start_time
+
+    print("{}Start {} Stop {} Duration {}".format(indent, lineage_pb.start_time, lineage_pb.stop_time, duration))
 
 
 def _lineage(**kwargs):

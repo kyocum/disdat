@@ -100,16 +100,31 @@ def determine_pipe_version(pipe_root):
         which haven't been checked in yet.
     """
 
+    def _check_type_and_rstrip(val, default):
+        if isinstance(val, six.string_types):
+            val = val.rstrip()
+        else:
+            val = default
+        return val
+
     _logger.debug("PIPELINE_GIT_HASH = {}  cli hash = {}".format(os.environ.get('PIPELINE_GIT_HASH'),
                                                                  _run_git_cmd(pipe_root, 'rev-parse --short HEAD', get_output=True)))
     _logger.debug("git_branch = {os.environ.get('PIPELINE_GIT_BRANCH')}")
 
-    git_hash = os.getenv('PIPELINE_GIT_HASH', _run_git_cmd(pipe_root, 'rev-parse HEAD',  get_output=True)).rstrip()
-    git_branch = os.getenv('PIPELINE_GIT_BRANCH', _run_git_cmd(pipe_root, 'rev-parse --abbrev-ref HEAD',  get_output=True)).rstrip()
-    git_fetch_url = os.getenv('PIPELINE_GIT_FETCH_URL', _run_git_cmd(pipe_root, 'config --get remote.origin.url',  get_output=True)).rstrip()
-    git_timestamp = os.getenv('PIPELINE_GIT_TIMESTAMP', _run_git_cmd(pipe_root, 'log -1 --pretty=format:%aI',  get_output=True)).rstrip()
+    git_hash = os.getenv('PIPELINE_GIT_HASH', _run_git_cmd(pipe_root, 'rev-parse HEAD',  get_output=True))
+    git_hash = _check_type_and_rstrip(git_hash, "unknown")
+
+    git_branch = os.getenv('PIPELINE_GIT_BRANCH', _run_git_cmd(pipe_root, 'rev-parse --abbrev-ref HEAD',  get_output=True))
+    git_branch = _check_type_and_rstrip(git_branch, "unknown")
+
+    git_fetch_url = os.getenv('PIPELINE_GIT_FETCH_URL', _run_git_cmd(pipe_root, 'config --get remote.origin.url',  get_output=True))
+    git_fetch_url = _check_type_and_rstrip(git_fetch_url, "unknown")
+
+    git_timestamp = os.getenv('PIPELINE_GIT_TIMESTAMP', _run_git_cmd(pipe_root, 'log -1 --pretty=format:%aI',  get_output=True))
+    git_timestamp = _check_type_and_rstrip(git_timestamp, "unknown")
+
     git_dirty = bool(os.getenv('GIT_DIRTY', _run_git_cmd(pipe_root, 'diff --name-only',  get_output=True)))
-    
+
     obj_version = CodeVersion(semver="0.1.0", hash=git_hash, tstamp=git_timestamp, branch=git_branch,
                               url=git_fetch_url, dirty=git_dirty)
 

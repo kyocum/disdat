@@ -285,8 +285,13 @@ class Bundle(HyperFrameRecord):
 
             self.pb.presentation = presentation
 
-            pipeline_path = os.path.dirname(sys.modules[BundleWrapperTask.__module__].__file__)
-            cv = DisdatFS().get_pipe_version(pipeline_path)
+            # TODO: we should let user decide which file under git or explicitly set hash
+            if False:
+                pipeline_path = os.path.dirname(sys.modules[BundleWrapperTask.__module__].__file__)
+                cv = DisdatFS().get_pipe_version(pipeline_path)
+            else:
+                cv = disdat.fs.CodeVersion(semver="0.1.0", hash="unknown", tstamp="unknown", branch="unknown",
+                                      url="unknown", dirty="unknown")
 
             lr = LineageRecord(hframe_name=self._set_processing_name(), # <--- setting processing name
                                hframe_uuid=self.uuid,
