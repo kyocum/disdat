@@ -46,11 +46,13 @@ def print_lineage_protobuf(lineage_pb, offset=0):
 
     print("{}Start {} Stop {} Duration {}".format(indent, lineage_pb.start_time, lineage_pb.stop_time, duration))
 
-    user, site = lineage_pb.code_repo.split('@')
-    site, project_url = site.split(':')
-    project_url = project_url.replace('.git', '')
-
-    url = "https://{}/{}/commit/{}".format(site, project_url, lineage_pb.code_hash)
+    try:
+        user, site = lineage_pb.code_repo.split('@')
+        site, project_url = site.split(':')
+        project_url = project_url.replace('.git', '')
+        url = "https://{}/{}/commit/{}".format(site, project_url, lineage_pb.code_hash)
+    except Exception as e:
+        url = "unknown"
 
     print("{}git commit URL: {}".format(indent,url))
     print("{}code branch: {}".format(indent,lineage_pb.code_branch))
