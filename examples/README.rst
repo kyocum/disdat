@@ -16,7 +16,7 @@ Setup
 
 We assume you've installed the package into a local virtual environment following the top-level README.  Now we install
 the requirements for our pipelines and setup the ``PYTHONPATH`` environment variable so Disdat can find our modules.
-I assume you have installed Disdat at ``DISDAT_HOME``.
+I assume you have cloned the disdat repository at ``DISDAT_HOME``, e.g., ``/Users/kyocum/code/disdat-repo``.
 
 .. code-block:: console
 

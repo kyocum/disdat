@@ -41,14 +41,13 @@ Next we will initialize Disdat.   This sets up a directory on your local machine
 
     $ dsdt init
     $ dsdt --version
-    Running Disdat version 0.8.2rc0
+    Running Disdat version 0.8.3rc2
 
 
-Tutorial
+Examples
 --------
 
-We've implemented a simple TensorFlow example as a `three-task Disdat pipeline <examples/pipelines/mnist.py>`_.   The
-directory `examples <examples>`_ has more information.
+There are a set of examples of simple pipelines and using the Disdat API in Jupyter Notebooks `here <https://github.com/seanr15/disdat-examples>`_.  The Disdat repository itself contains various examples, including a simple TensorFlow example as a `three-task Disdat pipeline <examples/pipelines/mnist.py>`_.   See  `examples <examples>`_ for more information on that pipeline. 
 
 Short Test Drive
 ----------------
