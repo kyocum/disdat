@@ -621,7 +621,7 @@ class DisdatFS(object):
         else:
             return None
 
-    def ls(self, search_name, print_tags, print_intermediates, print_long, print_args,
+    def ls(self, search_name, print_tags, print_intermediates, print_roots, print_long, print_args,
            before=None, after=None, maxbydate=False, committed=None, tags=None, data_context=None):
         """
         Enumerate bundles (hyperframes) in this context.
@@ -629,7 +629,8 @@ class DisdatFS(object):
         Args:
             search_name: May be None.  Interpret as a simple regex (one kleene star)
             print_tags (bool): Whether to print the bundle tags
-            print_intermediates (bool): Whether to show intermediate bundles
+            print_intermediates (bool): Show only intermediate bundles
+            print_roots (bool): Show only root bundles
             print_args (bool): Whether to print the arguments used to produce this bundle
             before (date.datetime): '01-03-19 02:40:37' or date '01-03-19' inclusive range
             after (date.datetime): '01-03-19 02:40:37' or date '01-03-19' inclusive range
@@ -648,7 +649,13 @@ class DisdatFS(object):
                 return []
             data_context = self.get_curr_context()
 
-        if not print_intermediates:
+        # Print roots if
+        # not print_intermediates and print_roots: just print roots
+        # not print_intermediates and not print_roots: print everything
+        # print_intermediates and print_roots: print everything
+        # print_intermediates and not print_roots: just intermediates
+
+        if not print_intermediates and print_roots:
             if tags is not None:
                 tags.update({'root_task': True})
             else:
@@ -668,6 +675,10 @@ class DisdatFS(object):
                 else:
                     if r.get_tag('committed'):
                         continue
+
+            if print_intermediates and not print_roots:
+                if r.get_tag('root_task'):
+                    continue
 
             if print_long:
                 output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags, print_args=print_args))
@@ -1754,6 +1765,7 @@ def _ls(fs, args):
     for f in fs.ls(arg,
                    args.print_tags,
                    args.intermediates,
+                   args.roots,
                    args.verbose,
                    args.print_args,
                    committed=committed,
@@ -1842,7 +1854,9 @@ def init_fs_cl(subparsers):
     ls_p.add_argument('-a', '--print-args', action='store_true', help="Print the arguments (if any) used to create the bundle.")
     ls_p.add_argument('-p', '--print-tags', action='store_true', help="Print each bundle's tags.")
     ls_p.add_argument('-i', '--intermediates', action='store_true',
-                      help="List all bundles, including intermediate outputs.")
+                      help="List only intermediate outputs.")
+    ls_p.add_argument('-r', '--roots', action='store_true',
+                      help="List only bundles from root tasks (last task in pipeline).")
     ls_p.add_argument('-c', '--committed', action='store_true',
                       help="List only committed bundles.")
     ls_p.add_argument('-u', '--uncommitted', action='store_true',
