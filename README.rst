@@ -41,7 +41,7 @@ Next we will initialize Disdat.   This sets up a directory on your local machine
 
     $ dsdt init
     $ dsdt --version
-    Running Disdat version 0.8.3rc2
+    Running Disdat version 0.8.3rc3
 
 
 Examples
