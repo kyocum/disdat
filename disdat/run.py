@@ -629,6 +629,11 @@ def run_entry(cli=False, **kwargs):
     pfs = fs.DisdatFS()
 
     # Ensure kwargs only contains the arguments we want when calling _run
+    # We introduce push and pull for the CLI when users specify the local backend.
+    # In that case the default is not to push and not to pull.
+    # However, the API run() retains the original arguments no-push and no-pull.
+    # And user's must set no-push=true and no-pull=true in the API when the backend is local if they
+    # don't want to synchronize with the remote context.
     push = kwargs['push']
     pull = kwargs['pull']
 

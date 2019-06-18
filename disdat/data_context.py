@@ -1193,6 +1193,9 @@ class DataContext(object):
             local_file_set = [os.path.join(local_dir, fr.hframe_uuid, f.replace(common.BUNDLE_URI_SCHEME, '')) for f in
                               urls]
 
+        # At the moment, this is all or none.  There are cases where you could localize and pull
+        # only some of the files, in which case we could mix local and remote.  However, that may
+        # indicate that something else is wrong.   We should probably indicate that in the future.
         if all(os.path.isfile(lf) for lf in local_file_set):
             if strip_file_scheme:
                 append = ''
