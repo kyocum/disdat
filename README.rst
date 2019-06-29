@@ -62,12 +62,12 @@ you will track and share.  Finally, switch into that context.   The commands ``d
     $ dsdt switch mycontext
 
 Now let's add some data.  Disdat wraps up collections of literals and files into a *bundle*.   You can make bundles
-from files, directories, or csv/tsv files.   We'll add `hello_data.csv <examples/hello_data.csv>`_.   First we will just add the csv file as any regular file.  Then we list the bundle, using `-v` for verbose and `-i` to list non-pipeline outputs. 
+from files, directories, or csv/tsv files.   We'll add `hello_data.csv <examples/hello_data.csv>`_.   First we will just add the csv file as any regular file.  Then we list the bundle, using `-v` for verbose. 
 
 .. code-block:: console
 
     $ dsdt add my.first.bundle examples/hello_data.csv
-    $ dsdt ls -iv
+    $ dsdt ls v
     NAME                	PROC_NAME           	OWNER     	DATE              	COMMITTED 	TAGS
     my.first.bundle     	AddTask_examples_hel	kyocum    	01-16-18 07:17:37 	False
     $ dsdt cat my.first.bundle   
@@ -78,7 +78,7 @@ Great!  You've created bundle that just contains one file, `hello_data.csv`.  No
 .. code-block:: console
 
     $ dsdt add -i my.second.bundle examples/hello_data.csv
-    $ dsdt ls -iv
+    $ dsdt ls -v
     NAME                	PROC_NAME           	OWNER     	DATE              	COMMITTED 	TAGS
     my.first.bundle     	AddTask_examples_hel	kyocum    	01-16-18 07:17:37 	False
     $ dsdt cat my.second.bundle   

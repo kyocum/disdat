@@ -21,9 +21,6 @@ Utilities for accessing AWS using boto3
 @license: Apache 2.0
 """
 
-# We use boto3_session_cache as a drop-in replacement for boto3 so that
-# users that use AWS profiles with MFA tokens aren't constantly asked to
-# enter new token values.
 import base64
 import os
 import pkg_resources
@@ -31,10 +28,9 @@ from getpass import getuser
 import six
 
 from botocore.exceptions import ClientError
-import boto3_session_cache as b3
+import boto3 as b3
 from six.moves import urllib
 
-import disdat.common as common
 from disdat import logger as _logger
 
 
@@ -204,31 +200,18 @@ def profile_get_region():
     that.
     """
 
-    def _get_region(profiles, profile_name):
-        if profile_name not in profiles:
-            raise KeyError('AWS profile {} not defined in AWS config'.format(profile_name))
-        try:
-            profile = profiles[profile_name]
-            return profile['region']
-        except KeyError:
-            try:
-                profile_name = profile['source_profile']
-                return _get_region(profiles, profile_name)
-            except KeyError:
-                return None
-
     # ENV variables take precedence over the region in the ~/.aws/ folder
     if 'AWS_DEFAULT_REGION' in os.environ:
         region = os.environ['AWS_DEFAULT_REGION']
     else:
-        session = b3.session()
+        session = b3.session.Session()
+        profile = session.profile_name
+        region = session.region_name
         if 'AWS_PROFILE' in os.environ:
-            profile_name = os.environ['AWS_PROFILE']
-        else:
-            profile_name = 'default'
-        profiles = session.full_config['profiles']
-        region = _get_region(profiles, profile_name)
+            assert os.environ['AWS_PROFILE'] == profile, "Boto session profile != env AWS_PROFILE"
+
     return region
+
 
 def s3_path_exists(s3_url):
     """
@@ -477,8 +460,8 @@ def get_s3_key(bucket, key, filename=None):
             try:
                 os.makedirs(path)
             except os.error as ose:
-                # swallow error -- likely file already exists.
-                _logger.warn("aws_s3.get_s3_key: Error code {}".format(os.strerror(ose.errno)))
+                # swallow error -- likely directory already exists from other process
+                _logger.debug("aws_s3.get_s3_key: Error code {}".format(os.strerror(ose.errno)))
 
     while dl_retry > 0:
         try:
