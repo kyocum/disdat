@@ -41,7 +41,7 @@ from sys import platform
 
 import docker
 import six
-import boto3_session_cache as b3
+import boto3 as b3
 from enum import Enum
 
 import disdat.fs as fs
