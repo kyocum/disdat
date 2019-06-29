@@ -120,7 +120,7 @@ setup(
         ],
         'dev': [
             'pytest',
-            'ipython<6.0',
+            'ipython',
             'mock',
             'nose',
             'pylint',
