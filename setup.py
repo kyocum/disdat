@@ -96,8 +96,7 @@ setup(
     # your project is installed.  If >=, means it worked with the base version.
     # If <= means higher versions broke something.
 
-    install_requires=['boto3>=1.7.19',
-                      'boto3-session-cache',
+    install_requires=['boto3>=1.8',
                       'termcolor',
                       'docker>=2.5.1',
                       'luigi<=2.8.5',
