@@ -281,9 +281,8 @@ def _run_aws_batch(arglist, fq_repository_name, job_name, pipeline_image_name,
                 {'name': 'AWS_SESSION_TOKEN', 'value': credentials['SessionToken']}
             ]
         except Exception as e:
-            print ("Failed to get a token, trying users default credentials...")
-            credentials = b3.session().get_credentials()
-            #print (credentials.__dict__)
+            _logger.debug("Unable to generate an STS token, instead trying users default credentials...")
+            credentials = b3.session.Session().get_credentials()
             container_overrides['environment'] = [
                 {'name': 'AWS_ACCESS_KEY_ID', 'value': credentials.access_key},
                 {'name': 'AWS_SECRET_ACCESS_KEY', 'value': credentials.secret_key},
