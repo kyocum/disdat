@@ -108,8 +108,8 @@ class BundleWrapperTask(PipeTask):
     Note:  No processing_name and No UUID
     """
     name = luigi.Parameter(default=None)
-    owner = luigi.Parameter(default=None)
-    tags = luigi.DictParameter(default={})
+    owner = luigi.Parameter(default=None, significant=False)
+    tags = luigi.DictParameter(default={}, significant=False)
 
     def bundle_inputs(self):
         """ Determine input bundles """
@@ -680,7 +680,7 @@ def search(local_context, search_name=None, search_tags=None,
         is_committed (bool): If None (default): ignore committed, If True return committed, If False return uncommitted
         find_intermediates (bool):  Results must be intermediates
         find_roots (bool): Results must be final outputs
-        before (str): Return bundles <= "12-1-2009" or "12-1-2009 12:13:42"
+        before (str): Return bundles < "12-1-2009" or "12-1-2009 12:13:42"
         after (str): Return bundles >= "12-1-2009" or "12-1-2009 12:13:42"
 
     Returns:
@@ -878,7 +878,6 @@ def add(local_context, bundle_name, path, tags=None, treat_file_as_bundle=False)
     assert os.path.exists(path), "Disdat cannot find file at path: {}".format(path)
 
     with Bundle(local_context, bundle_name, getpass.getuser()) as b:
-
         if treat_file_as_bundle:
             # Make sure file is .csv or .tsv
             assert str(path).endswith(('.csv', '.tsv')), 'Disdat can only add tsv/csv files as bundles, please ' \
@@ -912,7 +911,8 @@ def add(local_context, bundle_name, path, tags=None, treat_file_as_bundle=False)
 
         if tags is not None and len(tags) > 0:
             b.add_tags(tags)
-        return b
+
+    return b
 
 
 def cat(local_context, bundle_name):

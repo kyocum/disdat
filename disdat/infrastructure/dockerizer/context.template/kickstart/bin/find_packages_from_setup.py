@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import argparse
-import imp
+import importlib as imp
 import mock
 import os
 import setuptools
@@ -54,4 +54,4 @@ if __name__ == '__main__':
     if not os.path.exists(args.setup_py):
         raise RuntimeError('Failed to find file {}'.format(args.setup_py))
 
-    print '\n'.join(find_packages(args.setup_py))
+    print ('\n'.join(find_packages(args.setup_py)))

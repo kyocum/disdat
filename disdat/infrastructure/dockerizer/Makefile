@@ -9,9 +9,9 @@ $(error PIPELINE_IMAGE_NAME variable not set)
 endif
 
 # The root for the Docker context in which we will build the image
-DOCKER_CONTEXT := $(shell echo $(DOCKER_CONTEXT) | sed 's/\/*$$//')
-ifeq ($(DOCKER_CONTEXT), )
-$(error DOCKER_CONTEXT variable not set or invalid)
+DISDAT_DOCKER_CONTEXT := $(shell echo $(DISDAT_DOCKER_CONTEXT) | sed 's/\/*$$//')
+ifeq ($(DISDAT_DOCKER_CONTEXT), )
+$(error DISDAT_DOCKER_CONTEXT variable not set or invalid)
 endif
 
 # The root of the Disdat source distribution
@@ -33,10 +33,10 @@ endif
 
 # The root of the Docker context template (Dockerfiles, kickstart scripts,
 # etc.)
-DOCKER_CONTEXT_TEMPLATE ?= $(DISDAT_ROOT)/disdat/infrastructure/dockerizer/context.template
-DOCKER_CONTEXT_TEMPLATE := $(shell echo $(DOCKER_CONTEXT_TEMPLATE) | sed 's/\/*$$//')
-ifeq ($(DOCKER_CONTEXT_TEMPLATE), )
-$(error DOCKER_CONTEXT_TEMPLATE variable not set or invalid)
+DISDAT_DOCKER_CONTEXT_TEMPLATE ?= $(DISDAT_ROOT)/disdat/infrastructure/dockerizer/context.template
+DISDAT_DOCKER_CONTEXT_TEMPLATE := $(shell echo $(DISDAT_DOCKER_CONTEXT_TEMPLATE) | sed 's/\/*$$//')
+ifeq ($(DISDAT_DOCKER_CONTEXT_TEMPLATE), )
+$(error DISDAT_DOCKER_CONTEXT_TEMPLATE variable not set or invalid)
 endif
 
 # The source root of the pipeline to run
@@ -106,33 +106,33 @@ all: build
 #           and scripts/executables
 #
 
-build: $(DOCKER_CONTEXT) build-00 build-01 build-02
+build: $(DISDAT_DOCKER_CONTEXT) build-00 build-01 build-02
 	@echo "----- Built Docker image for the $(PIPELINE_IMAGE_NAME) pipeline on $(OS_NAME)"
 
 sagemaker: build build-03
 	@echo "----- Built SageMaker Docker image for the $(PIPELINE_IMAGE_NAME) pipeline on $(OS_NAME)"
 
-build-00: $(DOCKER_CONTEXT)
+build-00: $(DISDAT_DOCKER_CONTEXT)
 	@echo "---------- Building base operating system environment"
 	docker build \
 		--build-arg KICKSTART_ROOT=$(IMAGE_KICKSTART_ROOT) \
 		--build-arg CONDA_VERSION=$(IMAGE_CONDA_VERSION) \
 		--build-arg VIRTUAL_ENV=$(IMAGE_VIRTUAL_ENV) \
-		--file $(DOCKER_CONTEXT)/Dockerfiles/00-disdat-$(OS_NAME).dockerfile \
+		--file $(DISDAT_DOCKER_CONTEXT)/Dockerfiles/00-disdat-$(OS_NAME).dockerfile \
 		--tag $(IMAGE_00_LAYER) \
-		$(DOCKER_CONTEXT)
+		$(DISDAT_DOCKER_CONTEXT)
 
-build-01: $(DOCKER_CONTEXT) $(DOCKER_CONTEXT)/disdat
+build-01: $(DISDAT_DOCKER_CONTEXT) $(DISDAT_DOCKER_CONTEXT)/disdat
 	@echo "---------- Building Disdat and its Python package dependencies"
 	docker build \
 		--build-arg IMAGE_LAYER=$(IMAGE_00_LAYER) \
 		--build-arg BUILD_ROOT=$(IMAGE_BUILD_ROOT) \
 		--build-arg DISDAT_SDIST=$(DISDAT_SDIST) \
-		--file $(DOCKER_CONTEXT)/Dockerfiles/01-disdat-python.dockerfile  \
+		--file $(DISDAT_DOCKER_CONTEXT)/Dockerfiles/01-disdat-python.dockerfile  \
 		--tag $(IMAGE_01_LAYER) \
-		$(DOCKER_CONTEXT)
+		$(DISDAT_DOCKER_CONTEXT)
 
-build-02: $(DOCKER_CONTEXT) $(DOCKER_CONTEXT)/config $(DOCKER_CONTEXT)/pipeline
+build-02: $(DISDAT_DOCKER_CONTEXT) $(DISDAT_DOCKER_CONTEXT)/config $(DISDAT_DOCKER_CONTEXT)/pipeline
 	@echo "---------- Installing the user environment"
 	docker build \
 		--build-arg OS_NAME=$(OS_NAME) \
@@ -143,40 +143,40 @@ build-02: $(DOCKER_CONTEXT) $(DOCKER_CONTEXT)/config $(DOCKER_CONTEXT)/pipeline
 		--build-arg GIT_FETCH_URL=$(GIT_FETCH_URL) \
 		--build-arg GIT_TIMESTAMP=$(GIT_TIMESTAMP) \
 		--build-arg GIT_DIRTY=$(GIT_DIRTY) \
-		--file $(DOCKER_CONTEXT)/Dockerfiles/02-user.dockerfile \
+		--file $(DISDAT_DOCKER_CONTEXT)/Dockerfiles/02-user.dockerfile \
 		--tag $(PIPELINE_IMAGE_NAME) \
-		$(DOCKER_CONTEXT)
+		$(DISDAT_DOCKER_CONTEXT)
 
-build-03: $(DOCKER_CONTEXT)
+build-03: $(DISDAT_DOCKER_CONTEXT)
 	@echo "---------- Using SageMaker entrypoint"
 	docker build \
 		--build-arg IMAGE_LAYER=$(PIPELINE_IMAGE_NAME) \
-		--file $(DOCKER_CONTEXT)/Dockerfiles/03-sagemaker.dockerfile \
+		--file $(DISDAT_DOCKER_CONTEXT)/Dockerfiles/03-sagemaker.dockerfile \
 		--tag $(SAGEMAKER_TRAIN_IMAGE_NAME) \
-		$(DOCKER_CONTEXT)
+		$(DISDAT_DOCKER_CONTEXT)
 
 #
 # Set up the Docker context in which we build the image
 #
 
-context: $(DOCKER_CONTEXT)
+context: $(DISDAT_DOCKER_CONTEXT)
 
 # Copy the dockerizer support files into the Docker context. For this copy,
 # we DON'T want the directory name to be included in the copy.
-$(DOCKER_CONTEXT): $(shell find $(DOCKER_CONTEXT_TEMPLATE) \! -name '*.pyc' -type f)
+$(DISDAT_DOCKER_CONTEXT): $(shell find $(DISDAT_DOCKER_CONTEXT_TEMPLATE) \! -name '*.pyc' -type f)
 	@echo "----- Creating temporary Docker context in $@"
 	@if [ ! -d $@ ]; then mkdir $@; fi
-	rsync -av --delete --force $(DOCKER_CONTEXT_TEMPLATE)/ $@
+	rsync -av --delete --force $(DISDAT_DOCKER_CONTEXT_TEMPLATE)/ $@
 	@touch $@
 
 # Copy the user configuration files into the Docker context
-$(DOCKER_CONTEXT)/config: $(DOCKER_CONTEXT) $(shell find $(CONFIG_ROOT) -type f)
+$(DISDAT_DOCKER_CONTEXT)/config: $(DISDAT_DOCKER_CONTEXT) $(shell find $(CONFIG_ROOT) -type f)
 	@echo "----- Copying configuration files from $(CONFIG_ROOT)"
 	rsync -av --delete --force --quiet $(CONFIG_ROOT)/ $@
 	@touch $@
 
 # Copy Disdat into the Docker context
-$(DOCKER_CONTEXT)/disdat: $(DOCKER_CONTEXT) $(shell find $(DISDAT_ROOT)/disdat -type f)
+$(DISDAT_DOCKER_CONTEXT)/disdat: $(DISDAT_DOCKER_CONTEXT) $(shell find $(DISDAT_ROOT)/disdat -type f)
 	@echo "----- Copying Disdat files from $(DISDAT_ROOT)"
 	rsync -av --delete --force --quiet \
 		$(DISDAT_ROOT)/disdat/infrastructure/dockerizer $(DISDAT_ROOT)/disdat/infrastructure $@
@@ -184,7 +184,7 @@ $(DOCKER_CONTEXT)/disdat: $(DOCKER_CONTEXT) $(shell find $(DISDAT_ROOT)/disdat -
 
 # Copy the user pipeline package into the Docker context.
 # We assume the user has a setup.py that can create an sdist.
-$(DOCKER_CONTEXT)/pipeline: $(DOCKER_CONTEXT) $(shell find $(PIPELINE_ROOT) -not -path '*/\.*' -type f)
+$(DISDAT_DOCKER_CONTEXT)/pipeline: $(DISDAT_DOCKER_CONTEXT) $(shell find $(PIPELINE_ROOT) -not -path '*/\.*' -type f)
 	@echo "----- Copying pipeline $(PIPELINE_ROOT)"
 	cd $(PIPELINE_ROOT); \
 	    python setup.py sdist --dist-dir $@; cd -
