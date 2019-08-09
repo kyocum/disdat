@@ -202,7 +202,7 @@ else
 		exit 1
 	fi
 
-	VIRTUALENV_VERSION=15.1.0
+	VIRTUALENV_VERSION=16.6.0
 	if [ $(virtualenv --version) != $VIRTUALENV_VERSION ]; then
 		warning "Expected virtualenv $VIRTUALENV_VERSION, got $(virtualenv --version)"
 	fi

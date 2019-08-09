@@ -183,7 +183,7 @@ def dockerize(pipeline_root,
             'make',  # XXX really need to check that this is GNU make
             '-f', docker_makefile,
             'PIPELINE_IMAGE_NAME={}'.format(pipeline_image_name),
-            'DOCKER_CONTEXT={}'.format(docker_context),
+            'DISDAT_DOCKER_CONTEXT={}'.format(docker_context),
             'DISDAT_ROOT={}'.format(os.path.join(DISDAT_HOME)),  # XXX YUCK
             'PIPELINE_ROOT={}'.format(pipeline_root),
             'OS_TYPE={}'.format(image_os_type),
