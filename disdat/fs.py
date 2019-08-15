@@ -54,7 +54,7 @@ ObjectState = Enum('ObjectState', 'present removed')
 
 
 def _run_git_cmd(git_dir, git_cmd, get_output=False):
-    '''Run a git command in a local git repository.
+    """Run a git command in a local git repository.
 
     :param git_dir: A path within a local git repository, i.e. it may be a
         subdirectory within the repository.
@@ -62,12 +62,13 @@ def _run_git_cmd(git_dir, git_cmd, get_output=False):
         would follow after :code:`git` on the command line.
     :param get_output: If :code:`True`, return the command standard output
         as a string; default is to return the command exit code.
-    '''
+    """
 
     verbose = False
 
     cmd = ['git', '-C', git_dir] + git_cmd.split()
-    if verbose: _logger.debug('Running git command {}'.format(cmd))
+    if verbose:
+        _logger.debug('Running git command {}'.format(cmd))
     if get_output:
         try:
             with open(os.devnull, 'w') as null_file:
@@ -149,6 +150,9 @@ class DisdatFS(object):
 
     task_path_cache = {}  ## [<pipe/luigi task id>] -> PipeCacheEntry(instance, directory, re-run)
     current_pipe_version = None
+
+    class JsonConfig(object):
+        ACTIVE_CONTEXT = 'active_context_name'
 
     @staticmethod
     def get_pipe_version(pipe_root):
@@ -291,69 +295,53 @@ class DisdatFS(object):
         :return: new DisdatFS handle
         """
         # Lazily loaded properties
-        self.__curr_context = None
+        self._curr_context = None
         self.__all_contexts = None
-        # This is lazily loaded *but* we store this in json on disk, so we self mangle.
-        self._mangled_curr_context_name = None
 
     @property
-    def _curr_context_name(self):
-        if self._mangled_curr_context_name is None:
-            if self._curr_context is not None:
-                self._mangled_curr_context_name = self._curr_context.local_ctxt
-        return self._mangled_curr_context_name
-
-    @_curr_context_name.setter
-    def _curr_context_name(self, value):
-        self._mangled_curr_context_name = value
+    def curr_context_name(self):
+        return self.curr_context.local_ctxt
 
     @property
     def _all_contexts(self):
         if self.__all_contexts is None:
-            self.__all_contexts = DataContext.load()
+            self.reload_all_contexts()
         return self.__all_contexts
 
     @property
-    def _curr_context(self):
-        if self.__curr_context is None:
-            self.load()
-            if self._mangled_curr_context_name is not None:
-                try:
-                    self.__curr_context = self._all_contexts[self._mangled_curr_context_name]
-                except KeyError as ke:
-                    print("No current local context, please change context with 'dsdt switch'")
-            self.save()
-        return self.__curr_context
-
-    @_curr_context.setter
-    def _curr_context(self, value):
-        self.__curr_context = value
-
-    def get_curr_context(self):
-        """
-        Grab a pointer to the current context
-
-        Returns:
-            (`fs.DataContext`): Current context
-
-        """
+    def curr_context(self):
+        if self._curr_context is None:
+            active_context_name = self.load()
+            try:
+                self._curr_context = self._all_contexts[active_context_name]
+            except KeyError:
+                raise AssertionError("active context '{}' not found in available contexts".format(active_context_name))
+        assert self._curr_context.is_valid(), 'not in a valid context'
         return self._curr_context
+
+    @curr_context.setter
+    def curr_context(self, value):
+        self._curr_context = value
+        self.save()
 
     def load(self):
         """
         Load the fs object found in the meta_dir.
 
-        Returns:
+        :return: (string) name of active context
         """
         meta_file = os.path.join(DisdatConfig.instance().get_meta_dir(), META_FS_FILE)
 
         if not os.path.isfile(meta_file):
             _logger.debug("No disdat {} meta fs data file found.".format(meta_file))
+            raise IOError("No disdat {} meta fs data file found.".format(meta_file))
         else:
             with open(meta_file, 'r') as json_file:
                 state_dict = json.loads(json_file.readline())
-            for k, v in state_dict.items():
-                self.__dict__[k] = v
+            try:
+                return state_dict[self.JsonConfig.ACTIVE_CONTEXT]
+            except KeyError:
+                raise RuntimeError("No current local context, please change context with 'dsdt switch'")
 
     def save(self):
         """
@@ -365,7 +353,7 @@ class DisdatFS(object):
         meta_file = os.path.join(DisdatConfig.instance().get_meta_dir(), META_FS_FILE)
 
         with open(meta_file, 'w') as json_file:
-            state_dict = {'_mangled_curr_context_name': self._mangled_curr_context_name}
+            state_dict = {self.JsonConfig.ACTIVE_CONTEXT: self.curr_context_name}
             json_file.write(json.dumps(state_dict))
 
     def reload_all_contexts(self):
@@ -376,7 +364,6 @@ class DisdatFS(object):
             None
         """
         self.__all_contexts = DataContext.load()
-        return
 
     def reload_context(self, target_context):
         """ If a particular context is not available, load if it exists
@@ -420,7 +407,7 @@ class DisdatFS(object):
             None
         """
 
-        pce  = self.get_path_cache(pipe)
+        pce = self.get_path_cache(pipe)
         if pce is None:
             _logger.debug("reuse_hframe: Adding a new (unseen) task to the path cache.")
         else:
@@ -428,10 +415,7 @@ class DisdatFS(object):
             return
 
         if data_context is None:
-            if not self.in_context():
-                _logger.warning('Not in a data context')
-                raise RuntimeError('Not in a data context')
-            data_context = self.get_curr_context()
+            data_context = self.curr_context
 
         dir = data_context.implicit_hframe_path(hframe.pb.uuid)
         DisdatFS.put_path_cache(pipe, hframe.pb.uuid, dir, False, is_left_edge_task)
@@ -458,7 +442,7 @@ class DisdatFS(object):
 
         """
 
-        pce  = self.get_path_cache(pipe)
+        pce = self.get_path_cache(pipe)
 
         if pce is None:
             _logger.debug("new_output_hframe: Adding a new (unseen) task to the path cache.")
@@ -467,10 +451,7 @@ class DisdatFS(object):
             return
 
         if data_context is None:
-            if not self.in_context():
-                _logger.warning('Not in a data context')
-                raise RuntimeError('Not in a data context')
-            data_context = self.get_curr_context()
+            data_context = self.curr_context
 
         dir, uuid, _ = data_context.make_managed_path(uuid=force_uuid)
 
@@ -499,33 +480,27 @@ class DisdatFS(object):
         return_strings = []
 
         if data_context is None:
-            if not self.in_context():
-                _logger.warning('Not in a data context')
-                return []
-            data_context = self.get_curr_context()
+            data_context = self.curr_context
 
-        if not self.in_context():
-            return_strings.append('[None]')
-        else:
-            return_strings.append("Disdat Context {}".format(data_context.get_remote_name()))
-            return_strings.append("On local branch {}".format(data_context.get_local_name()))
+        return_strings.append("Disdat Context {}".format(data_context.get_remote_name()))
+        return_strings.append("On local branch {}".format(data_context.get_local_name()))
 
-            hfrs = data_context.get_hframes(human_name=human_name, uuid=uuid, tags=tags)
+        hfrs = data_context.get_hframes(human_name=human_name, uuid=uuid, tags=tags)
 
-            if len(hfrs) == 0:
-                return_strings.append("No bundles to remove.")
-                return return_strings
-
-            if rm_old_only or rm_all:
-                for hfr in hfrs[1:]:
-                    if data_context.rm_hframe(hfr.pb.uuid, force=force):
-                        return_strings.append("Removing old bundle {}".format(hfr.to_string()))
-
-            if not rm_old_only:
-                if data_context.rm_hframe(hfrs[0].pb.uuid, force=force):
-                    return_strings.append("Removing latest bundle {}".format(hfrs[0].to_string()))
-
+        if len(hfrs) == 0:
+            return_strings.append("No bundles to remove.")
             return return_strings
+
+        if rm_old_only or rm_all:
+            for hfr in hfrs[1:]:
+                if data_context.rm_hframe(hfr.pb.uuid, force=force):
+                    return_strings.append("Removing old bundle {}".format(hfr.to_string()))
+
+        if not rm_old_only:
+            if data_context.rm_hframe(hfrs[0].pb.uuid, force=force):
+                return_strings.append("Removing latest bundle {}".format(hfrs[0].to_string()))
+
+        return return_strings
 
     def get_latest_hframe(self, human_name, tags=None, getall=False, data_context=None):
         """
@@ -542,10 +517,7 @@ class DisdatFS(object):
         """
 
         if data_context is None:
-            if not self.in_context():
-                _logger.warning('Not in a data context')
-                raise RuntimeError('Not in a data context')
-            data_context = self.get_curr_context()
+            data_context = self.curr_context
 
         found = data_context.get_hframes(human_name=human_name, tags=tags)
 
@@ -571,10 +543,7 @@ class DisdatFS(object):
         """
 
         if data_context is None:
-            if not self.in_context():
-                _logger.warning('Not in a data context')
-                raise RuntimeError('Not in a data context')
-            data_context = self.get_curr_context()
+            data_context = self.curr_context
 
         found = data_context.get_hframes(uuid=uuid, tags=tags)
 
@@ -605,10 +574,7 @@ class DisdatFS(object):
         """
 
         if data_context is None:
-            if not self.in_context():
-                _logger.warning('Not in a data context')
-                raise RuntimeError('Not in a data context')
-            data_context = self.get_curr_context()
+            data_context = self.curr_context
 
         found = data_context.get_hframes(processing_name=processing_name)
 
@@ -644,10 +610,7 @@ class DisdatFS(object):
         """
 
         if data_context is None:
-            if not self.in_context():
-                _logger.warning('Not in a data context')
-                return []
-            data_context = self.get_curr_context()
+            data_context = self.curr_context
 
         # Print roots if
         # not print_intermediates and print_roots: just print roots
@@ -734,10 +697,7 @@ class DisdatFS(object):
         """
 
         if data_context is None:
-            if not self.in_context():
-                _logger.warning('Not in a data context')
-                return None
-            data_context = self.get_curr_context()
+            data_context = self.curr_context
 
         if uuid is None:
             hfr = self.get_latest_hframe(human_name, tags=tags, data_context=data_context)
@@ -893,13 +853,13 @@ class DisdatFS(object):
 
         ctxt_dir = os.path.join(DisdatConfig.instance().get_context_dir(), local_context)
 
-        if local_context == self._curr_context_name:
-            print("Disdat on context {}, please 'dsdt switch <otherbranch>' before deleting.".format(local_context))
+        if self._curr_context is not None and (fq_context_name == self.curr_context_name):
+            print("Disdat on context {}, please 'dsdt switch <otherbranch>' before deleting.".format(fq_context_name))
             return
 
         if local_context in self._all_contexts:
             dc = self._all_contexts[local_context]
-            remote_context_url= dc.get_remote_object_dir()
+            remote_context_url = dc.get_remote_object_dir()
             dc.delete_branch(force=force)
             del self._all_contexts[local_context]
 
@@ -932,7 +892,7 @@ class DisdatFS(object):
 
         return self._all_contexts[local_context]
 
-    def switch(self, local_context_name, save=True):
+    def switch(self, local_context_name):
         """
         Switch to a different local context.
 
@@ -940,35 +900,24 @@ class DisdatFS(object):
             local_context_name (str): May be <remote context>/<local context> or <local context>
             save (bool): Whether to record context change on disk.
         Returns:
-            prior_context_name (str):  String name of the prior context
 
         """
-
         assert local_context_name is not None
 
         repo, local_context = DisdatFS._parse_fq_context_name(local_context_name)
 
-        prior_context_name = self._curr_context_name
-
-        if self._curr_context_name == local_context:
+        if self._curr_context is not None and self.curr_context_name == local_context_name:
             assert(local_context in self._all_contexts)
-            assert(self._curr_context == self._all_contexts[local_context])
+            assert(self.curr_context == self._all_contexts[local_context_name])
             _logger.info("Disdat already within a valid data context_name {}".format(local_context))
-            return prior_context_name
 
         new_context = self.get_context(local_context_name)
 
         if new_context is not None:
-            self._curr_context_name = local_context
-            self._curr_context = new_context
-            print("Switched to context {}".format(self._curr_context_name))
+            self.curr_context = new_context
+            print("Switched to context {}".format(self.curr_context_name))
         else:
-            print("In context {}".format(self._curr_context_name))
-
-        if save:
-            self.save()
-
-        return prior_context_name
+            print("In context {}".format(self.curr_context_name))
 
     def commit(self, bundle_name, input_tags, uuid=None, data_context=None):
         """   Commit indicates that this is a primary version of this bundle.
@@ -988,10 +937,7 @@ class DisdatFS(object):
         """
 
         if data_context is None:
-            if not self.in_context():
-                _logger.warning('Not in a data context')
-                return
-            data_context = self.get_curr_context()
+            data_context = self.curr_context
 
         _logger.debug('Committing bundle {} in context {}'.format(bundle_name, data_context.get_remote_name()))
 
@@ -1055,7 +1001,7 @@ class DisdatFS(object):
 
             next_hf = hf_frontier.pop()
 
-            for fr in next_hf.get_frames(self.get_curr_context()):
+            for fr in next_hf.get_frames(self.curr_context()):
 
                 if local_fs_frames:
                     if fr.is_local_fs_link_frame():
@@ -1109,7 +1055,7 @@ class DisdatFS(object):
         need_to_copy = False
 
         # Move files in LINK frames to new local destination
-        for fr in hfr.get_frames(self.get_curr_context()):
+        for fr in hfr.get_frames(self.curr_context()):
 
             if fr.is_hfr_frame():
                 # CASE 1:  Currently do not support HFR references.
@@ -1384,10 +1330,7 @@ class DisdatFS(object):
         """
 
         if data_context is None:
-            if not self.in_context():
-                _logger.warning('Not in a data context')
-                raise UserWarning("Not in a data context")
-            data_context = self.get_curr_context()
+            data_context = self.curr_context
 
         if data_context.remote_ctxt_url is None:
             print("Push cannot execute.  Local context {} on remote {} not bound.".format(data_context.local_ctxt,
@@ -1524,10 +1467,7 @@ class DisdatFS(object):
         """
 
         if data_context is None:
-            if not self.in_context():
-                _logger.warning('Not in a data context')
-                raise UserWarning("Not in a data context")
-            data_context = self.get_curr_context()
+            data_context = self.curr_context
 
         if data_context.remote_ctxt_url is None:
             print("Pull cannot execute.  Local context {} on remote {} not bound.".format(data_context.local_ctxt, data_context.remote_ctxt))
@@ -1626,7 +1566,7 @@ class DisdatFS(object):
             None
         """
 
-        ctxt_obj = self.get_curr_context()
+        ctxt_obj = self.curr_context()
 
         assert ctxt_obj is not None, "Disdat must be in a context to use 'remote'"
 
