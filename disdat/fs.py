@@ -389,7 +389,7 @@ class DisdatFS(object):
         Are we currently in a valid context?
         :return:
         """
-        return self._curr_context and self._curr_context.is_valid()
+        return self.curr_context and self.curr_context.is_valid()
 
     def reuse_hframe(self, pipe, hframe, is_left_edge_task, data_context=None):
         """
@@ -801,10 +801,10 @@ class DisdatFS(object):
         if fq_context_name is None:
             from termcolor import cprint
             for ctxt_name, ctxt in self._all_contexts.items():
-                if self._curr_context is not None and self._curr_context is ctxt:
+                if self.curr_context is not None and self.curr_context is ctxt:
                     cprint("*", "white", end='')
                     cprint("\t{}".format(ctxt_name), "green", end='')
-                    cprint("\t[{}@{}]".format(ctxt.remote_ctxt, self._curr_context.remote_ctxt_url))
+                    cprint("\t[{}@{}]".format(ctxt.remote_ctxt, self.curr_context.remote_ctxt_url))
                 else:
                     print("\t{}\t[{}@{}]".format(ctxt.local_ctxt, ctxt.remote_ctxt, ctxt.remote_ctxt_url))
             return 0
@@ -1001,7 +1001,7 @@ class DisdatFS(object):
 
             next_hf = hf_frontier.pop()
 
-            for fr in next_hf.get_frames(self.curr_context()):
+            for fr in next_hf.get_frames(self.curr_context):
 
                 if local_fs_frames:
                     if fr.is_local_fs_link_frame():
@@ -1045,17 +1045,17 @@ class DisdatFS(object):
         """
 
         if new_uuid is None:
-            local_fs_managed_path, new_hfr_uuid, _ = self._curr_context.make_managed_path()
+            local_fs_managed_path, new_hfr_uuid, _ = self.curr_context.make_managed_path()
         else:
             new_hfr_uuid = new_uuid
-            local_fs_managed_path = self._curr_context.implicit_hframe_path(new_uuid)
+            local_fs_managed_path = self.curr_context.implicit_hframe_path(new_uuid)
             s3_managed_path = None  # unused _ above
 
         frame_copies = []
         need_to_copy = False
 
         # Move files in LINK frames to new local destination
-        for fr in hfr.get_frames(self.curr_context()):
+        for fr in hfr.get_frames(self.curr_context):
 
             if fr.is_hfr_frame():
                 # CASE 1:  Currently do not support HFR references.
@@ -1201,7 +1201,7 @@ class DisdatFS(object):
 
         #print "---------------COPYHFR WITH ROOT_HFR {}  ".format(hfr.pb.uuid)
 
-        local_fs_managed_path, new_hfr_uuid, s3_managed_path = self._curr_context.make_managed_path(uuid=force_uuid)
+        local_fs_managed_path, new_hfr_uuid, s3_managed_path = self.curr_context.make_managed_path(uuid=force_uuid)
 
         if copy_to == 'local':
             managed_path = local_fs_managed_path
@@ -1296,8 +1296,8 @@ class DisdatFS(object):
             # Everything in a frame is either local or it is remote
             # Ensure copy_in does not copy from a managed path to the same managed path.
             # We should make sure that luigi targets are not copied in.
-            assert self._curr_context is not None
-            src_paths = self._curr_context.actualize_link_urls(fr)
+            assert self.curr_context is not None
+            src_paths = self.curr_context.actualize_link_urls(fr)
             new_paths = DataContext.copy_in_files(src_paths, managed_path)
             fr = hyperframe.FrameRecord.make_link_frame(new_hfr_uuid, fr.pb.name, new_paths, managed_path)
         return fr
@@ -1566,7 +1566,7 @@ class DisdatFS(object):
             None
         """
 
-        ctxt_obj = self.curr_context()
+        ctxt_obj = self.curr_context
 
         assert ctxt_obj is not None, "Disdat must be in a context to use 'remote'"
 
@@ -1586,15 +1586,15 @@ class DisdatFS(object):
         if not self.in_context():
             return_strings.append('[None]')
         else:
-            return_strings.append("Disdat Context {}".format(self._curr_context.get_repo_name()))
-            return_strings.append("On local context {}".format(self._curr_context.get_local_name()))
-            if self._curr_context.get_remote_object_dir() is not None:
-                return_strings.append("Remote @ {}".format(self._curr_context.get_remote_object_dir()))
+            return_strings.append("Disdat Context {}".format(self.curr_context.get_repo_name()))
+            return_strings.append("On local context {}".format(self.curr_context.get_local_name()))
+            if self.curr_context.get_remote_object_dir() is not None:
+                return_strings.append("Remote @ {}".format(self.curr_context.get_remote_object_dir()))
             else:
                 return_strings.append("No remote set.")
         if False:
             try:
-                hfrs = self._curr_context.get_hframes(human_name=human_name)
+                hfrs = self.curr_context.get_hframes(human_name=human_name)
                 if len(hfrs) > 0:
                     return_strings.append("Most recent object with this name is:")
                     return_strings.extend(DisdatFS._pretty_print_hframe(hfrs[0]))
