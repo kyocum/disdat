@@ -91,8 +91,9 @@ class PipeTask(luigi.Task, PipeBase):
 
         self.user_set_human_name = None
         self.user_tags = {}
-        self.add_deps  = {}
+        self.add_deps = {}
         self.db_targets = []
+        self._input_tags = {}
         self._mark_force = False
 
     def bundle_outputs(self):
@@ -378,6 +379,9 @@ class PipeTask(luigi.Task, PipeBase):
 
         kwargs = dict()
 
+        # Reset the stored tags, in case this instance is run multiple times.
+        self._input_tags = {}
+
         # Place upstream task outputs into the kwargs.  Thus the user does not call
         # self.inputs().  If they did, they would get a list of output targets for the bundle
         # that isn't very helpful.
@@ -397,6 +401,7 @@ class PipeTask(luigi.Task, PipeBase):
                 if pce.instance.user_arg_name in kwargs:
                     _logger.warning('Task human name {} reused when naming task dependencies: Dependency hyperframe shadowed'.format(pce.instance.user_arg_name))
 
+                self._input_tags[user_arg_name] = hfr.tag_dict
                 kwargs[user_arg_name] = self.data_context.present_hfr(hfr)
 
         return kwargs
@@ -615,6 +620,21 @@ class PipeTask(luigi.Task, PipeBase):
         """
         assert (isinstance(tags, dict))
         self.user_tags.update(tags)
+
+    def get_tags(self, user_arg_name):
+        """
+        Disdat Pipe API Function
+
+        Adds tags to bundle.
+
+        Args:
+            user_arg_name (str): keyword arg name of input bundle for which to return tags
+
+        Returns:
+            tags (dict (str, str)): key value pairs (string, string)
+        """
+        assert user_arg_name in self._input_tags
+        return self._input_tags[user_arg_name]
 
     def mark_force(self):
         """
