@@ -152,7 +152,7 @@ class DisdatFS(object):
     current_pipe_version = None
 
     class JsonConfig(object):
-        ACTIVE_CONTEXT = 'active_context_name'
+        ACTIVE_CONTEXT = '_mangled_curr_context_name'
 
     @staticmethod
     def get_pipe_version(pipe_root):
