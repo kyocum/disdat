@@ -29,6 +29,13 @@ fi
 RUN files=$(echo $BUILD_ROOT/config/$OS_NAME/*.deb); if [ "$files" != $BUILD_ROOT/config/$OS_NAME/'*.deb' ]; then \
 	for i in $files; do echo "Installing $i..."; dpkg -i $i; apt-get install -y -f;  done; \
 fi
+# Install R and packages
+RUN if [ -f $BUILD_ROOT/config/$OS_NAME/r.txt ]; then \
+    apt-get install -y r-base; \
+	for pkg in $(cat $BUILD_ROOT/config/$OS_NAME/r.txt); do \
+		R -e "install.packages('$pkg', repos='http://cran.us.r-project.org')"; \
+	done; \
+fi
 
 # NOTE: We were installing gdebi in the slim.dockerfile.  It includes an enormous number of dependencies.
 # We can't use autoremove, since it removes more than we installed.   The below is one way to
