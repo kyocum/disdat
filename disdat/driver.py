@@ -164,14 +164,15 @@ class DriverTask(luigi.WrapperTask, PipeBase):
         :return:        Instance of the task in question
         """
 
-        mod_path = mod_cls.split('.')
-        mod = '.'.join(mod_path[:-1])
-        cls = mod_path[-1]
+        #mod_path = mod_cls.split('.')
+        #mod = '.'.join(mod_path[:-1])
+        #cls = mod_path[-1]
 
-        if mod == '':
-            mod = None
+        #if mod == '':
+        #    mod = None
 
-        task = load_task(mod, cls, params)
+        #task = load_task(mod, cls, params)
+        task = mod_cls.from_str_params(params)
         return task
 
     def requires(self):
@@ -208,7 +209,8 @@ class DriverTask(luigi.WrapperTask, PipeBase):
         if self.pipe_params is not None:
             task_params.update(json.loads(self.pipe_params))
 
-        t = DriverTask.inflate_cls(self.pipe_cls, task_params)
+        #t = DriverTask.inflate_cls(self.pipe_cls, task_params)
+        t = self.pipe_cls.from_str_params(task_params)
 
         return t
 
