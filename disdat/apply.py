@@ -91,7 +91,7 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
         if not pfs.in_context():
             _logger.warning('Not in a data context')
             return None
-        data_context = pfs.get_curr_context()
+        data_context = pfs.curr_context
 
     # Re-execute logic -- make copy of task DAG
     # Creates a cache of {pipe:path_cache_entry} in the pipesFS object.

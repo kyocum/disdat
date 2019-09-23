@@ -1213,7 +1213,7 @@ class DisdatFS(object):
         frame_copies = []
         need_to_copy = False
 
-        for fr in hfr.get_frames(self.get_curr_context()):
+        for fr in hfr.get_frames(self.curr_context):
 
             if fr.is_hfr_frame():
 
@@ -1269,12 +1269,12 @@ class DisdatFS(object):
             hfr = hfr.mod_uuid(new_hfr_uuid)
             hfr = hfr.mod_frames(frame_copies)
             # Need to write this hyperframe locally (with all paths pointing at s3)
-            self.get_curr_context().write_hframe(hfr)
+            self.curr_context.write_hframe(hfr)
 
         # TODO: someone needs to check if it's already there!
         # make sure all hyperframes are on remote
         # print "---------------ROOT_HFR {}  MAKING NEW HFR {}  REMOTE".format(hfr.pb.uuid, new_hfr_uuid)
-        self.get_curr_context().write_hframe(hfr, to_remote=True)
+        self.curr_context.write_hframe(hfr, to_remote=True)
 
         return need_to_copy
 
