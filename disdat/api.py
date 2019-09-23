@@ -575,7 +575,7 @@ def current_context():
     fs = _get_fs()
 
     try:
-        return fs.get_curr_context().get_local_name()
+        return fs.curr_context_name
     except Exception as se:
         print(("Current context failed due to error: {}".format(se)))
         return None
