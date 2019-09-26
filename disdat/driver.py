@@ -26,11 +26,9 @@ Depending on the kind of pipe given, change our behavior between 1:1,
 
 author: Kenneth Yocum
 """
-import json
 from collections import defaultdict, deque
 
 import luigi
-from luigi.task_register import load_task
 
 from disdat.fs import PipeCacheEntry, DisdatFS
 from disdat.pipe_base import PipeBase
@@ -124,57 +122,6 @@ class DriverTask(luigi.WrapperTask, PipeBase):
 
         assert False
 
-    @staticmethod
-    def get_task_cls(mod_cls):
-        """ Resolve string to task class object
-
-        Reuse Luigi's service that registers task types
-
-        Like Luigi, we assume that the mod_cls is 'module.class' and we assume
-        that the user has put there pipe location on PYTHONPATH.
-
-        :param mod_cls: '<module>.<class>'
-        :return:        Task class object
-        """
-
-        from luigi.task_register import Register
-
-        mod_path = mod_cls.split('.')
-        mod = '.'.join(mod_path[:-1])
-        cls = mod_path[-1]
-
-        if mod is not None:
-            __import__(mod)
-
-        task_cls = Register.get_task_cls(cls)
-
-        return task_cls
-
-    @staticmethod
-    def inflate_cls(mod_cls, params):
-        """
-        Reuse Luigi's service that registers task types
-        so that we can dynamically instantiate an instance of this class.
-
-        Like Luigi, we assume that the mod_cls is 'module.class' and we assume
-        that the user has put there pipe location on PYTHONPATH.
-
-        :param mod_cls: '<module>.<class>'
-        :param params:  Dictionary of parameter to value
-        :return:        Instance of the task in question
-        """
-
-        #mod_path = mod_cls.split('.')
-        #mod = '.'.join(mod_path[:-1])
-        #cls = mod_path[-1]
-
-        #if mod == '':
-        #    mod = None
-
-        #task = load_task(mod, cls, params)
-        task = mod_cls.from_str_params(params)
-        return task
-
     def requires(self):
         """
         The driver orchestrates the execution of a user's transform (a sequence of Luigi tasks) on an
@@ -199,20 +146,19 @@ class DriverTask(luigi.WrapperTask, PipeBase):
         task_params = {'calling_task':  self,
                        'driver_output_bundle': self.output_bundle,
                        'force': self.force,
-                       'output_tags': json.dumps(dict(self.output_tags)), # Ugly re-stringifying dict
+                       'output_tags': self.output_tags,
                        'data_context': self.data_context,
                        'incremental_push': self.incremental_push,
                        'incremental_pull': self.incremental_pull
                        }
 
         # Get user pipeline parameters for this Pipe / Luigi Task
-        if self.pipe_params is not None:
-            task_params.update(json.loads(self.pipe_params))
+        if self.pipe_params:
+            task_params.update(self.pipe_params)
 
-        #t = DriverTask.inflate_cls(self.pipe_cls, task_params)
-        t = self.pipe_cls.from_str_params(task_params)
-
-        return t
+        # Instantiate and return the class directly with the parameters
+        # Instance caching is taken care of automatically by luigi
+        return self.pipe_cls(**task_params)
 
     def get_presentables(self, outer_hf, level=0):
         """

@@ -33,12 +33,9 @@ author: Kenneth Yocum
 """
 
 import os
-import json
-import six
+import time
 
 import luigi
-from datetime import datetime
-import time
 
 from disdat.pipe_base import PipeBase
 from disdat.db_link import DBLink
@@ -214,10 +211,6 @@ class PipeTask(luigi.Task, PipeBase):
         for user_arg_name, cls_and_params in rslt.items():
             pipe_class, params = cls_and_params[0], cls_and_params[1]
 
-            if isinstance(pipe_class, six.string_types):
-                """ if it is a string, find the Python task class """
-                pipe_class = DriverTask.get_task_cls(pipe_class)
-
             assert isinstance(pipe_class, luigi.task_register.Register)
 
             # we propagate the same inputs and the same output dir for every upstream task!
@@ -340,30 +333,12 @@ class PipeTask(luigi.Task, PipeBase):
         Returns:
             dict: (BUNDLE_TAG_PARAM_PREFIX.<name>:'string value',...)
         """
-        params = []
-        subcls_params = vars(cls) # vars on a class, not dir
-        for p in subcls_params:
-            param_obj = getattr(cls, p)
-            if not isinstance(param_obj, luigi.Parameter):
-                continue
-            val = getattr(self,p)
-            if isinstance(val, six.string_types):
-                ser_val = json.dumps(val)
-            else:
-                ser_val = param_obj.serialize(getattr(self, p))  # serialize the param_obj.normalize(x)
-            params.append(("{}{}".format(BUNDLE_TAG_PARAMS_PREFIX, p), ser_val))
-
-        return dict(params)
-
-        # If we put the code in self.__init__() luigi hasn't created instance variables yet.
-        # This was code to do that.
-        # only_pipe_params = PipeTask.get_params()
-        # all_params = self.get_params()
-        # only_subcls_params = tuple(set(all_params) - set(only_pipe_params))
-        # This is pretty gross.  Get the params that are unique to this pipe
-        # Pull them out of kwargs (that's how we build this task! we don't use args!)
-        # filtered_kwargs = {k: kwargs[k] for k, v in only_subcls_params if k in kwargs}  # @UnusedVariable
-        # self.only_subcls_param_values = self.get_param_values(only_subcls_params, [], filtered_kwargs)
+        # Don't need to bother with serializing parameters, just grab them
+        # tags only need to get serialized into hyperframes and never recovered
+        return {
+            "{}{}".format(BUNDLE_TAG_PARAMS_PREFIX, p): getattr(self, p)
+            for p in vars(cls) if isinstance(getattr(cls, p), luigi.Parameter)
+        }
 
     def prepare_pipe_kwargs(self, for_run=False):
         """ Each upstream task produces a bundle.  Prepare that bundle as input

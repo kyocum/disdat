@@ -37,6 +37,8 @@ import sys
 import json
 import shutil
 import getpass
+import warnings
+import importlib
 import errno
 
 import luigi
@@ -1016,7 +1018,7 @@ def apply(local_context, transform, output_bundle='-',
 
     Args:
         local_context (str):  The name of the local context in which the pipeline will run in the container
-        transform (str): The name of the Disdat Pipe class, typically `<package>.<module>.<class>`
+        transform (type[PipeTask]): A reference to the Disdat Pipe class
         output_bundle (str):  The name of the output bundle.  Defaults to `<task_name>_<param_hash>`
         input_tags: optional tags dictionary for selecting input bundle
         output_tags: optional tags dictionary to tag output bundle
@@ -1033,6 +1035,13 @@ def apply(local_context, transform, output_bundle='-',
 
     """
 
+    # check for deprecated str input for transform
+    if isinstance(transform, str):
+        msg = ('PipeTask classes should be passed as references, not strings, '
+               'support for string inputs will be removed in future versions')
+        warnings.warn(msg, DeprecationWarning)
+        transform = common.load_class(transform)
+
     data_context = _get_context(local_context)
 
     if input_tags is None:
@@ -1044,12 +1053,10 @@ def apply(local_context, transform, output_bundle='-',
     if params is None:
         params = {}
 
-    task_params = json.dumps(params)
-
     # IF apply raises, let it go up.
     # If API, caller can catch.
     # If CLI, python will exit 1
-    result = disdat.apply.apply(output_bundle, task_params, transform,
+    result = disdat.apply.apply(output_bundle, params, transform,
                                 input_tags, output_tags, force,
                                 output_bundle_uuid=output_bundle_uuid,
                                 central_scheduler=central_scheduler,

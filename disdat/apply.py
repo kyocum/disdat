@@ -51,7 +51,7 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
     Args:
         output_bundle: The new bundle to be created
         pipe_params (str):   Luigi Task parameters string
-        pipe_cls:      String <module.ClassName>
+        pipe_cls (type[PipeTask]):      reference to the task class
         force:         force recomputation of dependencies
         input_tags (dict):  Tags used to find the input bundle
         output_tags (dict):  Tags that need to be placed on the output bundle

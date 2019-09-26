@@ -13,9 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-
+import pytest
 from disdat.pipe import PipeTask
 import disdat.api as api
+from disdat import common
 
 
 class ContextTest(PipeTask):
@@ -43,7 +44,7 @@ def test_independent_context():
     api.context(context_1_name)
     api.context(context_2_name)
 
-    api.apply(context_1_name, 'ContextTest')
+    api.apply(context_1_name, ContextTest)
 
     assert len(api.search(context_1_name)) == 1, 'Only one bundle should be in context one'
     assert len(api.search(context_2_name)) == 0, 'Context two should be empty'
@@ -53,3 +54,7 @@ def test_independent_context():
 
     assert context_1_name not in api.ls_contexts(), 'Contexts should be removed'
     assert context_2_name not in api.ls_contexts(), 'Contexts should be removed'
+
+
+if __name__ == '__main__':
+    pytest.main([__file__])

@@ -918,7 +918,7 @@ class HyperFrameRecord(PBObject):
 
         """
 
-        self.tag_dict    = {}
+        self.tag_dict = {}
 
         self.pb.ClearField('tags')
         self.add_tags(new_tags)
@@ -1191,11 +1191,11 @@ class HyperFrameRecord(PBObject):
         Returns:
             Nothing
         """
-
         for k, v in tags.items():
             t = self.pb.tags.add()
             t.k = k
-            t.v = v
+            # We simply format tag values this way, because that is how we will retrieve them
+            t.v = '{}'.format(v)
             self.tag_dict[k] = v
 
     def get_tag(self, name):
