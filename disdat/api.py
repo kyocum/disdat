@@ -575,7 +575,7 @@ def current_context():
     fs = _get_fs()
 
     try:
-        return fs.get_curr_context().get_local_name()
+        return fs.curr_context_name
     except Exception as se:
         print(("Current context failed due to error: {}".format(se)))
         return None
@@ -676,7 +676,7 @@ def search(local_context, search_name=None, search_tags=None,
     Args:
         local_context (str): The name of the local context to search.
         search_name: May be None.  Interpret as a simple regex (one kleene star)
-        search_tags (bool): A set of key:values the bundles must have
+        search_tags (dict): A set of key:values the bundles must have
         is_committed (bool): If None (default): ignore committed, If True return committed, If False return uncommitted
         find_intermediates (bool):  Results must be intermediates
         find_roots (bool): Results must be final outputs
