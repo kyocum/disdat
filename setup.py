@@ -97,7 +97,7 @@ setup(
     # If <= means higher versions broke something.
 
     install_requires=[
-        'luigi==2.8.5',
+        'luigi==2.8.9',
         'boto3==1.9.209',
         'termcolor==1.1.0',
         'docker==4.0.2',
