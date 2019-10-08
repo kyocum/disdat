@@ -286,17 +286,20 @@ class PipeTask(luigi.Task, PipeBase):
                                        tags={"presentable": "True"},
                                        presentation=presentation)
 
-            # Add Luigi Task parameters -- Only add the class parameters.  These are Disdat special params.
-            self.user_tags.update(self._get_subcls_params())
-
+            # Add any output tags to the user tag dict
             if self.output_tags:
                 self.user_tags.update(self.output_tags)
 
+            # If this is the root_task, identify it as so in the tag dict
             if isinstance(self.calling_task, DriverTask):
                 self.user_tags.update({'root_task': 'True'})
 
-            if self.user_tags:
-                hfr.replace_tags(self.user_tags)
+            # Lastly add any parameters associated with this class as tags.
+            # They are differentiated by a special prefix in the key
+            self.user_tags.update(self._get_subcls_params())
+
+            # Overwrite the hyperframe tags with the complete set of tags
+            hfr.replace_tags(self.user_tags)
 
             self.data_context.write_hframe(hfr)
 
