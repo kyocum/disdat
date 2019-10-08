@@ -48,6 +48,7 @@ import os
 import tempfile
 from datetime import datetime
 import uuid
+import json
 
 import numpy as np
 import pandas as pd
@@ -1194,8 +1195,7 @@ class HyperFrameRecord(PBObject):
         for k, v in tags.items():
             t = self.pb.tags.add()
             t.k = k
-            # We simply format tag values this way, because that is how we will retrieve them
-            t.v = '{}'.format(v)
+            t.v = v
             self.tag_dict[k] = v
 
     def get_tag(self, name):

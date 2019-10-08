@@ -260,9 +260,9 @@ class PipeTask(luigi.Task, PipeBase):
         assert(pce is not None)
 
         try:
-            start = time.time() #P3 datetime.now().timestamp()
+            start = time.time()  # P3 datetime.now().timestamp()
             user_rtn_val = self.pipe_run(**kwargs)
-            stop =  time.time() #P3 datetime.now().timestamp()
+            stop = time.time()  # P3 datetime.now().timestamp()
         except Exception as error:
             """ If user's pipe fails for any reason, remove bundle dir and raise """
             try:
@@ -287,7 +287,7 @@ class PipeTask(luigi.Task, PipeBase):
                                        presentation=presentation)
 
             # Add Luigi Task parameters -- Only add the class parameters.  These are Disdat special params.
-            self.user_tags.update(self._get_subcls_params(self))
+            self.user_tags.update(self._get_subcls_params())
 
             if self.output_tags:
                 self.user_tags.update(self.output_tags)
@@ -315,8 +315,8 @@ class PipeTask(luigi.Task, PipeBase):
 
         return hfr
 
-    @classmethod
-    def _get_subcls_params(cls, self):
+
+    def _get_subcls_params(self):
         """ Given the child class, extract user defined Luigi parameters
 
         The right way to do this is to use vars(cls) and filter by Luigi Parameter
@@ -328,17 +328,19 @@ class PipeTask(luigi.Task, PipeBase):
         However, we can implicitly re-use that ordering if we re-instantiate the Luigi class.
 
         Args:
-            cls: The subclass with defined parameters.  To tell which variables are Luigi Parameters
             self: The instance of the subclass.  To get the normalized values for the Luigi Parameters
         Returns:
             dict: (BUNDLE_TAG_PARAM_PREFIX.<name>:'string value',...)
         """
         # Don't need to bother with serializing parameters, just grab them
         # tags only need to get serialized into hyperframes and never recovered
-        return {
-            "{}{}".format(BUNDLE_TAG_PARAMS_PREFIX, p): getattr(self, p)
-            for p in vars(cls) if isinstance(getattr(cls, p), luigi.Parameter)
-        }
+        cls = self.__class__
+        params = {}
+        for param in vars(cls):
+            attribute = getattr(cls, param)
+            if isinstance(attribute, luigi.Parameter):
+                params["{}{}".format(BUNDLE_TAG_PARAMS_PREFIX, param)] = attribute.serialize(getattr(self, param))
+        return params
 
     def prepare_pipe_kwargs(self, for_run=False):
         """ Each upstream task produces a bundle.  Prepare that bundle as input
