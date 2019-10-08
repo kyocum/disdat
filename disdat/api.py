@@ -507,7 +507,6 @@ class Bundle(HyperFrameRecord):
         assert (self.open and not self.closed)
 
         file_basename = os.path.basename(existing_file)
-
         target = PipeBase.filename_to_luigi_targets(self.local_dir, file_basename)
 
         with target.temporary_path() as temp_path:
@@ -874,40 +873,57 @@ def add(local_context, bundle_name, path, tags=None, treat_file_as_bundle=False)
                                                                      bundle_name,
                                                                      local_context))
 
-    # Ensure path exists before creating bundle
-    assert os.path.exists(path), "Disdat cannot find file at path: {}".format(path)
+    # The user can pass either a path or an iterable of paths,
+    # convert single paths to iterable for compatibility
+    paths = path
+    try:
+        assert os.path.exists(paths)
+        paths = [paths]
+    except TypeError:
+        pass
 
     with Bundle(local_context, bundle_name, getpass.getuser()) as b:
-        if treat_file_as_bundle:
-            # Make sure file is .csv or .tsv
-            assert str(path).endswith(('.csv', '.tsv')), 'Disdat can only add tsv/csv files as bundles, please ' \
-                                                             'provide a .csv or .tsv file.'
 
-            bundle_df = pd.read_csv(path, sep=None)  # sep=None means python parse engine detects sep
-            b.add_data(bundle_df)
+        file_list = []
+        for path in paths:
 
-        else:
-            file_list = []
-            if os.path.isfile(path):
-                thing = b.copy_in_file(path)
-                file_list.append(thing)
+            # Ensure path exists before creating bundle
+            assert os.path.exists(path), "Disdat cannot find file at path: {}".format(path)
+
+            if treat_file_as_bundle:
+                # Make sure file is .csv or .tsv
+                assert str(path).endswith(('.csv', '.tsv')), 'Disdat can only add tsv/csv files as bundles, please ' \
+                                                                 'provide a .csv or .tsv file.'
+
+                bundle_df = pd.read_csv(path, sep=None)  # sep=None means python parse engine detects sep
+                file_list.append(bundle_df)
+
             else:
-                base_path = path
-                for root, dirs, files in os.walk(path, topdown=True):
-                    # create a directory at root
-                    # /x/y/z/fileA
-                    # /x/y/z/a/fileB
-                    dst_base_path = root.replace(base_path, '')
-                    if dst_base_path == '':
-                        dst_base_path = b.local_dir
-                    else:
-                        dst_base_path = b.make_directory(dst_base_path)
-                    for name in files:
-                        dst_full_path = os.path.join(dst_base_path, name)
-                        src_full_path = os.path.join(root,name)
-                        shutil.copyfile(src_full_path, dst_full_path)
-                        file_list.append(dst_full_path)
-            b.add_data(file_list)
+
+                if os.path.isfile(path):
+                    thing = b.copy_in_file(path)
+                    file_list.append(thing)
+                else:
+                    base_path = path
+                    for root, dirs, files in os.walk(path, topdown=True):
+                        # create a directory at root
+                        # /x/y/z/fileA
+                        # /x/y/z/a/fileB
+                        dst_base_path = root.replace(base_path, '')
+                        if dst_base_path == '':
+                            dst_base_path = b.local_dir
+                        else:
+                            dst_base_path = b.make_directory(dst_base_path)
+                        for name in files:
+                            dst_full_path = os.path.join(dst_base_path, name)
+                            src_full_path = os.path.join(root,name)
+                            shutil.copyfile(src_full_path, dst_full_path)
+                            file_list.append(dst_full_path)
+
+        # Return the list (unless it is length 1, then no need to do that)
+        # This is needed for consistency with the pipe task bundling api
+        file_list = file_list[0] if len(file_list) == 1 else file_list
+        b.add_data(file_list)
 
         if tags is not None and len(tags) > 0:
             b.add_tags(tags)

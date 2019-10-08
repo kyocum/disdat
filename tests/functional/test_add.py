@@ -78,7 +78,7 @@ def test_single_file(tmpdir):
     b = api.get(TEST_CONTEXT, 'test_single_file')
 
     # Assert the bundles contain the same data
-    bundle_hash, file_hash = get_hash(b.data[0]), get_hash(test_csv_path)
+    bundle_hash, file_hash = get_hash(b.data), get_hash(test_csv_path)
     assert bundle_hash == file_hash, 'Hashes do not match'
 
     # Test with tags
@@ -89,7 +89,7 @@ def test_single_file(tmpdir):
     b = api.get(TEST_CONTEXT, 'test_single_file')
 
     # Assert the bundles contain the same data
-    bundle_hash, file_hash = get_hash(b.data[0]), get_hash(test_csv_path)
+    bundle_hash, file_hash = get_hash(b.data), get_hash(test_csv_path)
     assert bundle_hash == file_hash, 'Hashes do not match'
     assert b.tags == tag, 'Tags do not match'
 
