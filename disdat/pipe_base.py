@@ -374,7 +374,7 @@ class PipeBase(object):
 
         elif isinstance(val, tuple):
             presentation = hyperframe_pb2.ROW
-            for i, _ in enumerate(tuple):
+            for i, _ in enumerate(val):
                 frames.append(DataContext.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':{}'.format(i), val, managed_path))
 
         elif isinstance(val, dict):
