@@ -1018,7 +1018,7 @@ def apply(local_context, transform, output_bundle='-',
 
     Args:
         local_context (str):  The name of the local context in which the pipeline will run in the container
-        transform (type[PipeTask]): A reference to the Disdat Pipe class
+        transform (type[disdat.pipe.PipeTask]): A reference to the Disdat Pipe class
         output_bundle (str):  The name of the output bundle.  Defaults to `<task_name>_<param_hash>`
         input_tags: optional tags dictionary for selecting input bundle
         output_tags: optional tags dictionary to tag output bundle
