@@ -266,6 +266,11 @@ class PipeTask(luigi.Task, PipeBase):
 
         assert(pce is not None)
 
+        """ NOTE: If a user changes a task param in run(), and that param parameterizes a dependency in requires(), 
+        then running requires() post run() will give different tasks.  To be safe we record the inputs before run() 
+        """
+        cached_bundle_inputs = self.bundle_inputs()
+
         try:
             start = time.time() #P3 datetime.now().timestamp()
             user_rtn_val = self.pipe_run(**kwargs)
@@ -284,7 +289,7 @@ class PipeTask(luigi.Task, PipeBase):
 
             hfr = PipeBase.make_hframe(frames,
                                        pce.uuid,
-                                       self.bundle_inputs(),
+                                       cached_bundle_inputs,
                                        self.pipeline_id(),
                                        self.pipe_id(),
                                        self,
