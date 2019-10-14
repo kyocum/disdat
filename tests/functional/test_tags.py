@@ -57,4 +57,5 @@ class TestContext:
 
 
 if __name__ == '__main__':
-    pytest.main([__file__])
+    api.apply('examples', 'Destination')
+    #pytest.main([__file__])
