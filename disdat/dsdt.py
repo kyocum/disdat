@@ -33,7 +33,7 @@ from disdat import run
 from disdat.fs import init_fs_cl
 from disdat.add import init_add_cl
 from disdat.lineage import init_lineage_cl
-from disdat.common import DisdatConfig
+from disdat.common import DisdatConfig, load_class
 from disdat import log
 
 
@@ -104,7 +104,7 @@ def main():
     apply_p.add_argument('-f', '--force', action='store_true', help="If there are dependencies, force re-computation.")
     apply_p.add_argument('--incremental-push', action='store_true', help="Commit and push each task's bundle as it is produced to the remote.")
     apply_p.add_argument('--incremental-pull', action='store_true', help="Localize bundles as they are needed by downstream tasks from the remote.")
-    apply_p.add_argument('pipe_cls', type=str, help="User-defined transform, e.g., 'module.PipeClass'")
+    apply_p.add_argument('pipe_cls', type=load_class, help="User-defined transform, e.g., 'module.PipeClass'")
     apply_p.add_argument('params', type=str,  nargs=argparse.REMAINDER,
                          help="Optional set of parameters for this pipe '--parameter value'")
     apply_p.set_defaults(func=lambda args: _apply(args))

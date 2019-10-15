@@ -56,21 +56,21 @@ class C(PipeTask):
 def test_single_task():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT, 'A')
+    api.apply(TEST_CONTEXT, A)
     data = api.get(TEST_CONTEXT, 'a').data
 
     assert data == 2, 'Data did not match output'
     assert type(data) == int, 'Data is not path'
     assert len(api.search(TEST_CONTEXT)) == 1, 'Only one bundle should be present'
 
-    api.apply(TEST_CONTEXT, 'A')
+    api.apply(TEST_CONTEXT, A)
     assert len(api.search(TEST_CONTEXT)) == 1, 'Only one bundle should be present'
 
 
 def test_dependant_tasks():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT,  'C')
+    api.apply(TEST_CONTEXT,  C)
     data = api.get(TEST_CONTEXT, 'c').data
 
     assert data == 6, 'Data did not match output'
@@ -81,14 +81,14 @@ def test_dependant_tasks():
 def test_task_with_parameter():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT,  'B', params={'n': 10})
+    api.apply(TEST_CONTEXT,  B, params={'n': 10})
     data = api.get(TEST_CONTEXT, 'b').data
 
     assert data == 20, 'Data did not match output'
     assert type(data) == int, 'Data is not path'
     assert len(api.search(TEST_CONTEXT)) == 1, 'One bundle should be present'
 
-    api.apply(TEST_CONTEXT,  'B', params={'n': 20})
+    api.apply(TEST_CONTEXT,  B, params={'n': 20})
     data = api.get(TEST_CONTEXT, 'b').data
 
     assert data == 40, 'Data did not match output'
@@ -99,14 +99,14 @@ def test_task_with_parameter():
 def test_child_task_with_parameter():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT,  'C', params={'n': 10})
+    api.apply(TEST_CONTEXT,  C, params={'n': 10})
     data = api.get(TEST_CONTEXT, 'c').data
 
     assert data == 22, 'Data did not match output'
     assert type(data) == int, 'Data is not path'
     assert len(api.search(TEST_CONTEXT)) == 3, 'Three bundles should be present'
 
-    api.apply(TEST_CONTEXT,  'C', params={'n': 20})
+    api.apply(TEST_CONTEXT,  C, params={'n': 20})
     data = api.get(TEST_CONTEXT, 'c').data
 
     assert data == 42, 'Data did not match output'

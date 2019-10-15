@@ -21,6 +21,7 @@ import logging
 import os
 import sys
 import shutil
+import importlib
 import subprocess
 
 import luigi
@@ -167,7 +168,7 @@ class DisdatConfig(object):
         Next, see if there is a disdat.cfg in cwd.  Then configure disdat and (re)configure logging.
         """
         # _logger.debug("Loading config file [{}]".format(disdat_config_file))
-        config = configparser.SafeConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
+        config = configparser.ConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
         config.read(disdat_config_file)
         self.meta_dir_root = os.path.expanduser(config.get('core', 'meta_dir_root'))
         self.meta_dir_root = DisdatConfig._fix_relative_path(disdat_config_file, self.meta_dir_root)
@@ -491,3 +492,24 @@ def setup_exists(fqp_setup):
         print ("No setup.py found at {}.".format(fqp_setup))
         return False
     return True
+
+
+def load_class(class_path):
+    """
+    Given a fully-qualified [pkg.mod.sub.classname] class name,
+    load the specified class and return a reference to it.
+
+    Args:
+        class_path (str): '.' separated module and classname
+
+    Returns:
+        class: reference to the loaded class
+    """
+    try:
+        mod_path, cls_name = class_path.rsplit('.', 1)
+    except ValueError:
+        raise ValueError('must include fully specified classpath, not local reference')
+
+    mod = importlib.import_module(mod_path)
+    cls = getattr(mod, cls_name)
+    return cls

@@ -41,13 +41,13 @@ def test():
 
     result = None
     try:
-        result = api.apply(TEST_CONTEXT, 'Root2', output_bundle='test_api_exit', params={}, force=True, workers=2)
+        result = api.apply(TEST_CONTEXT, Root2, output_bundle='test_api_exit', params={}, force=True, workers=2)
     except Exception as e:
         print ("Got exception {} result {} ".format(e, e.result))
         assert(e.result['did_work'])
         assert(not e.result['success'])
     finally:
-        print ("API apply returned {}".format(result))
+        print("API apply returned {}".format(result))
 
 
 class FailBate(PipeTask):

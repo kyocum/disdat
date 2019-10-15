@@ -918,7 +918,7 @@ class HyperFrameRecord(PBObject):
 
         """
 
-        self.tag_dict    = {}
+        self.tag_dict = {}
 
         self.pb.ClearField('tags')
         self.add_tags(new_tags)
@@ -1191,7 +1191,6 @@ class HyperFrameRecord(PBObject):
         Returns:
             Nothing
         """
-
         for k, v in tags.items():
             t = self.pb.tags.add()
             t.k = k

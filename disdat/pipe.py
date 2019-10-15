@@ -33,12 +33,9 @@ author: Kenneth Yocum
 """
 
 import os
-import json
-import six
+import time
 
 import luigi
-from datetime import datetime
-import time
 
 from disdat.pipe_base import PipeBase
 from disdat.db_link import DBLink
@@ -214,10 +211,6 @@ class PipeTask(luigi.Task, PipeBase):
         for user_arg_name, cls_and_params in rslt.items():
             pipe_class, params = cls_and_params[0], cls_and_params[1]
 
-            if isinstance(pipe_class, six.string_types):
-                """ if it is a string, find the Python task class """
-                pipe_class = DriverTask.get_task_cls(pipe_class)
-
             assert isinstance(pipe_class, luigi.task_register.Register)
 
             # we propagate the same inputs and the same output dir for every upstream task!
@@ -267,9 +260,9 @@ class PipeTask(luigi.Task, PipeBase):
         assert(pce is not None)
 
         try:
-            start = time.time() #P3 datetime.now().timestamp()
+            start = time.time()  # P3 datetime.now().timestamp()
             user_rtn_val = self.pipe_run(**kwargs)
-            stop =  time.time() #P3 datetime.now().timestamp()
+            stop = time.time()  # P3 datetime.now().timestamp()
         except Exception as error:
             """ If user's pipe fails for any reason, remove bundle dir and raise """
             try:
@@ -293,17 +286,20 @@ class PipeTask(luigi.Task, PipeBase):
                                        tags={"presentable": "True"},
                                        presentation=presentation)
 
-            # Add Luigi Task parameters -- Only add the class parameters.  These are Disdat special params.
-            self.user_tags.update(self._get_subcls_params(self))
-
+            # Add any output tags to the user tag dict
             if self.output_tags:
                 self.user_tags.update(self.output_tags)
 
+            # If this is the root_task, identify it as so in the tag dict
             if isinstance(self.calling_task, DriverTask):
                 self.user_tags.update({'root_task': 'True'})
 
-            if self.user_tags:
-                hfr.replace_tags(self.user_tags)
+            # Lastly add any parameters associated with this class as tags.
+            # They are differentiated by a special prefix in the key
+            self.user_tags.update(self._get_subcls_params())
+
+            # Overwrite the hyperframe tags with the complete set of tags
+            hfr.replace_tags(self.user_tags)
 
             self.data_context.write_hframe(hfr)
 
@@ -322,8 +318,8 @@ class PipeTask(luigi.Task, PipeBase):
 
         return hfr
 
-    @classmethod
-    def _get_subcls_params(cls, self):
+
+    def _get_subcls_params(self):
         """ Given the child class, extract user defined Luigi parameters
 
         The right way to do this is to use vars(cls) and filter by Luigi Parameter
@@ -335,35 +331,19 @@ class PipeTask(luigi.Task, PipeBase):
         However, we can implicitly re-use that ordering if we re-instantiate the Luigi class.
 
         Args:
-            cls: The subclass with defined parameters.  To tell which variables are Luigi Parameters
             self: The instance of the subclass.  To get the normalized values for the Luigi Parameters
         Returns:
             dict: (BUNDLE_TAG_PARAM_PREFIX.<name>:'string value',...)
         """
-        params = []
-        subcls_params = vars(cls) # vars on a class, not dir
-        for p in subcls_params:
-            param_obj = getattr(cls, p)
-            if not isinstance(param_obj, luigi.Parameter):
-                continue
-            val = getattr(self,p)
-            if isinstance(val, six.string_types):
-                ser_val = json.dumps(val)
-            else:
-                ser_val = param_obj.serialize(getattr(self, p))  # serialize the param_obj.normalize(x)
-            params.append(("{}{}".format(BUNDLE_TAG_PARAMS_PREFIX, p), ser_val))
-
-        return dict(params)
-
-        # If we put the code in self.__init__() luigi hasn't created instance variables yet.
-        # This was code to do that.
-        # only_pipe_params = PipeTask.get_params()
-        # all_params = self.get_params()
-        # only_subcls_params = tuple(set(all_params) - set(only_pipe_params))
-        # This is pretty gross.  Get the params that are unique to this pipe
-        # Pull them out of kwargs (that's how we build this task! we don't use args!)
-        # filtered_kwargs = {k: kwargs[k] for k, v in only_subcls_params if k in kwargs}  # @UnusedVariable
-        # self.only_subcls_param_values = self.get_param_values(only_subcls_params, [], filtered_kwargs)
+        # Don't need to bother with serializing parameters, just grab them
+        # tags only need to get serialized into hyperframes and never recovered
+        cls = self.__class__
+        params = {}
+        for param in vars(cls):
+            attribute = getattr(cls, param)
+            if isinstance(attribute, luigi.Parameter):
+                params["{}{}".format(BUNDLE_TAG_PARAMS_PREFIX, param)] = attribute.serialize(getattr(self, param))
+        return params
 
     def prepare_pipe_kwargs(self, for_run=False):
         """ Each upstream task produces a bundle.  Prepare that bundle as input

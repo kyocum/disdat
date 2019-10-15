@@ -53,7 +53,7 @@ def context():
 class TestContext:
 
     def test_tags(self, context):
-        api.apply(context, 'Destination')
+        api.apply(context, Destination)
 
 
 if __name__ == '__main__':

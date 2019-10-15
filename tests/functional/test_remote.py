@@ -49,7 +49,7 @@ def test_push():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
     api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL, force=True)
 
-    api.apply(TEST_CONTEXT, 'RemoteTest')
+    api.apply(TEST_CONTEXT, RemoteTest)
     bundle = api.get(TEST_CONTEXT, 'remote_test')
 
     assert bundle.data == 'Hello'
@@ -81,7 +81,7 @@ def test_pull():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
     api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL, force=True)
 
-    api.apply(TEST_CONTEXT, 'RemoteTest')
+    api.apply(TEST_CONTEXT, RemoteTest)
     bundle = api.get(TEST_CONTEXT, 'remote_test')
 
     assert bundle.data == 'Hello'
