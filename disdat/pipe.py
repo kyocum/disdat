@@ -86,12 +86,13 @@ class PipeTask(luigi.Task, PipeBase):
 
         super(PipeTask, self).__init__(*args, **kwargs)
 
-        self.user_set_human_name = None
-        self.user_tags = {}
-        self.add_deps = {}
-        self.db_targets = []
-        self._input_tags = {}
-        self._mark_force = False
+        # Instance variables to track various user wishes
+        self.user_set_human_name = None  # self.set_bundle_name()
+        self.user_tags = {}              # self.add_tags()
+        self.add_deps = {}               # self.add(_external)_dependency()
+        self.db_targets = []             # Deprecating
+        self._input_tags = {}            # self.get_tags() of upstream tasks
+        self._mark_force = False         # self.mark_force()
 
     def bundle_outputs(self):
         """
@@ -259,6 +260,11 @@ class PipeTask(luigi.Task, PipeBase):
 
         assert(pce is not None)
 
+        """ NOTE: If a user changes a task param in run(), and that param parameterizes a dependency in requires(), 
+        then running requires() post run() will give different tasks.  To be safe we record the inputs before run() 
+        """
+        cached_bundle_inputs = self.bundle_inputs()
+
         try:
             start = time.time()  # P3 datetime.now().timestamp()
             user_rtn_val = self.pipe_run(**kwargs)
@@ -277,7 +283,7 @@ class PipeTask(luigi.Task, PipeBase):
 
             hfr = PipeBase.make_hframe(frames,
                                        pce.uuid,
-                                       self.bundle_inputs(),
+                                       cached_bundle_inputs,
                                        self.pipeline_id(),
                                        self.pipe_id(),
                                        self,
@@ -359,13 +365,14 @@ class PipeTask(luigi.Task, PipeBase):
 
         kwargs = dict()
 
-        # Reset the stored tags, in case this instance is run multiple times.
-        self._input_tags = {}
-
         # Place upstream task outputs into the kwargs.  Thus the user does not call
         # self.inputs().  If they did, they would get a list of output targets for the bundle
         # that isn't very helpful.
         if for_run:
+
+            # Reset the stored tags, in case this instance is run multiple times.
+            self._input_tags = {}
+
             upstream_tasks = [(t.user_arg_name, self.pfs.get_path_cache(t)) for t in self.requires()]
             for user_arg_name, pce in [u for u in upstream_tasks if u[1] is not None]:
                 hfr = self.pfs.get_hframe_by_uuid(pce.uuid, data_context=self.data_context)
@@ -605,10 +612,10 @@ class PipeTask(luigi.Task, PipeBase):
         """
         Disdat Pipe API Function
 
-        Adds tags to bundle.
+        Retrieve the tag dictionary from an upstream task.
 
         Args:
-            user_arg_name (str): keyword arg name of input bundle for which to return tags
+            user_arg_name (str): keyword arg name of input bundle data for which to return tags
 
         Returns:
             tags (dict (str, str)): key value pairs (string, string)
