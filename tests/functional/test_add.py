@@ -214,7 +214,7 @@ def test_add_directory(tmpdir):
 
 
 @moto.mock_s3
-def test_add_with_treat_as_bundle(tmpdir):
+def deprecated_add_with_treat_as_bundle(tmpdir):
     api.context(context_name=TEST_CONTEXT)
 
     # Setup moto s3 resources
@@ -271,7 +271,9 @@ def test_add_with_treat_as_bundle(tmpdir):
     bundle_df_path = os.path.join(str(tmpdir), 'bundle.csv')
     bundle_df.to_csv(bundle_df_path)
 
+    # These are now deprecated
     # Add bundle dataframe
+
     api.add(TEST_CONTEXT, 'test_add_bundle', bundle_df_path, treat_file_as_bundle=True)
 
     # Assert that data in bundle is a dataframe
@@ -290,7 +292,7 @@ def test_add_with_treat_as_bundle(tmpdir):
     api.delete_context(TEST_CONTEXT)
 
 
-def test_data_as_bundle_not_csv(tmpdir):
+def deprecated_data_as_bundle_not_csv(tmpdir):
 
     # Create Context
     api.context(TEST_CONTEXT)
