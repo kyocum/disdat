@@ -48,7 +48,6 @@ import os
 import tempfile
 from datetime import datetime
 import uuid
-import json
 
 import numpy as np
 import pandas as pd

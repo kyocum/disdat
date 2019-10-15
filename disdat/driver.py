@@ -39,7 +39,7 @@ class DriverTask(luigi.WrapperTask, PipeBase):
     Properties:
          output_bundle: The name of the collection of resulting data items
          param_bundles: A dictionary of arguments to the first underlying Luigi Task
-         pipe_cls:      The name of pipe.  It is string: <module>.<class>
+         pipe_cls:      The pipe's class, type[disdat.Pipe.PipeTask]
          input_tags:
          output_tags:
          force:         Force recompute of dependencies (requires)
