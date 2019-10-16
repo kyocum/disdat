@@ -406,39 +406,6 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
     return use_bundle
 
 
-def convert_str_params(cls, params_str):
-    """
-    This is similar to Luigi.Task.from_str_params(cls, params_str)
-    But we don't create the class here.   We just want to convert
-    each of the params that are in the class and in this dictionary
-    into the deserialized form.
-
-    NOTE:  This is somewhat dangerous and could break if Luigi changes around
-    this code.  The alternative is to use Luigi.load_task() but then we have to ensure
-    all the input parameters are "strings" and we have to then put special code
-    inside of apply to know when to create a class normally, or create it from the CLI.
-
-    Parameters:
-        params_str (dict): dict of str->str.  param name -> value .
-    """
-    kwargs = {}
-
-    cls_params = {n: p for n, p in cls.get_params()}  # get_params() returns [ (name, param), ... ]
-
-    for param_name, param_str in params_str.items():
-        if param_name in cls_params:
-            param = cls_params[param_name]
-            if isinstance(param_str, list):
-                kwargs[param_name] = param._parse_list(param_str)
-            else:
-                kwargs[param_name] = param.parse(param_str)
-        else:
-            _logger.error("Parameter {} is not defined in class {}.".format(param_name, cls.__name__))
-            raise ValueError("Parameter {} is not defined in class {}.".format(param_name, cls.__name__))
-
-    return kwargs
-
-
 def cli_apply(args):
     """
     Parse and prepare strings from argparse arguments into suitable Python objects
@@ -458,9 +425,8 @@ def cli_apply(args):
         print("Apply unavailable -- Disdat not in a valid context.")
         return
 
-    # Create a dictionary of str->str arguments
-    user_params = common.parse_params(args.params) # a dictionary of str:str
-    deser_user_params = convert_str_params(args.pipe_cls, user_params)
+    # Create a dictionary of str->str arguments to str->python objects deser'd by Luigi Parameters
+    deser_user_params = common.parse_params(args.pipe_cls, args.params)
 
     input_tags = common.parse_args_tags(args.input_tag)
 

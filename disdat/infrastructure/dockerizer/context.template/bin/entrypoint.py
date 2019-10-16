@@ -9,7 +9,6 @@ Entry point for pipelines run within Docker images.
 from __future__ import print_function
 
 import argparse
-import disdat.apply
 import disdat.common
 import disdat.fs
 import disdat.api
@@ -204,8 +203,7 @@ def run_disdat_container(args):
     output_tags = disdat.common.parse_args_tags(args.output_tag)
 
     # Convert string of pipeline args into dictionary for api.apply
-    user_params = disdat.common.parse_params(args.pipeline_args)
-    deser_user_params = disdat.apply.convert_str_params(args.pipe_cls, user_params)
+    deser_user_params = disdat.common.parse_params(args.pipe_cls, args.pipeline_args)
 
     # If the user wants final and intermediate, then inc push.
     if not args.no_push and not args.no_push_intermediates:
