@@ -43,15 +43,6 @@ DISDAT_PATH = os.environ.get("PATH", None)
 DISDAT_PYTHONPATH = os.environ.get("PYTHONPATH", None)
 
 
-def _apply(args):
-    """
-
-    :param args:
-    :return:
-    """
-    apply.main(args)
-
-
 def main():
     """
     Main as a function for testing convenience and as a package entry point.
@@ -107,7 +98,7 @@ def main():
     apply_p.add_argument('pipe_cls', type=load_class, help="User-defined transform, e.g., 'module.PipeClass'")
     apply_p.add_argument('params', type=str,  nargs=argparse.REMAINDER,
                          help="Optional set of parameters for this pipe '--parameter value'")
-    apply_p.set_defaults(func=lambda args: _apply(args))
+    apply_p.set_defaults(func=lambda args: apply.cli_apply(args))
 
     # File system operations
     init_fs_cl(subparsers)

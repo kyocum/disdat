@@ -406,8 +406,37 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
     return use_bundle
 
 
-def main(args):
+def convert_str_params(cls, params_str):
     """
+    This is similar to Luigi.Task.from_str_params(cls, params_str)
+    But we don't create the class here.   We just want to convert
+    each of the params that are in the class and in this dictionary
+    into the deserialized form.
+
+    NOTE:  This is somewhat dangerous and could break if Luigi changes around
+    this code.  The alternative is to use Luigi.load_task() but then we have to ensure
+    all the input parameters are "strings" and we have to then put special code
+    inside of apply to know when to create a class normally, or create it from the CLI.
+
+    :param params_str: dict of param name -> value as string.
+    """
+    kwargs = {}
+    for param_name, param in cls.get_params():
+        if param_name in params_str:
+            param_str = params_str[param_name]
+            if isinstance(param_str, list):
+                kwargs[param_name] = param._parse_list(param_str)
+            else:
+                kwargs[param_name] = param.parse(param_str)
+    return kwargs
+
+
+def cli_apply(args):
+    """
+    Parse and prepare strings from argparse arguments into suitable Python objects
+    to call the api's version of apply.  Note, args.pipe_cls is already a cls object.
+    Most of the work here is to deser each input parameter value according to its
+    Luigi definition.
 
     Parameters:
         disdat_config:
@@ -421,7 +450,9 @@ def main(args):
         print("Apply unavailable -- Disdat not in a valid context.")
         return
 
-    dynamic_params = json.dumps(common.parse_params(args.params))
+    # Create a dictionary of str->str arguments
+    user_params = common.parse_params(args.params) # a dictionary of str:str
+    deser_user_params = convert_str_params(args.pipe_cls, user_params)
 
     input_tags = common.parse_args_tags(args.input_tag)
 
@@ -430,7 +461,7 @@ def main(args):
     # NOTE: sysexit=False is required for us to pass a data_context object through luigi tasks.
     # Else we build up arguments as strings to run_with_retcodes().  And it crashes because the data_context is
     # not a string.
-    result = apply(args.output_bundle, dynamic_params, args.pipe_cls, input_tags, output_tags,
+    result = apply(args.output_bundle, deser_user_params, args.pipe_cls, input_tags, output_tags,
                    args.force,
                    central_scheduler=args.central_scheduler,
                    workers=args.workers,
