@@ -215,7 +215,7 @@ def run_disdat_container(args):
 
     try:
         result = disdat.api.apply(args.branch,
-                                  args.pipeline,
+                                  args.pipe_cls,
                                   output_bundle=args.output_bundle,
                                   input_tags=input_tags,
                                   output_tags=output_tags,
@@ -358,7 +358,7 @@ def main(input_args):
     )
 
     pipeline_parser.add_argument(
-        'pipeline',
+        'pipe_cls',
         default=None,
         type=disdat.common.load_class,
         help=add_argument_help_string("Name of the pipeline class to run, e.g., 'package.module.ClassName'"),
