@@ -418,16 +418,24 @@ def convert_str_params(cls, params_str):
     all the input parameters are "strings" and we have to then put special code
     inside of apply to know when to create a class normally, or create it from the CLI.
 
-    :param params_str: dict of param name -> value as string.
+    Parameters:
+        params_str (dict): dict of str->str.  param name -> value .
     """
     kwargs = {}
-    for param_name, param in cls.get_params():
-        if param_name in params_str:
-            param_str = params_str[param_name]
+
+    cls_params = {n: p for n, p in cls.get_params()}  # get_params() returns [ (name, param), ... ]
+
+    for param_name, param_str in params_str.items():
+        if param_name in cls_params:
+            param = cls_params[param_name]
             if isinstance(param_str, list):
                 kwargs[param_name] = param._parse_list(param_str)
             else:
                 kwargs[param_name] = param.parse(param_str)
+        else:
+            _logger.error("Parameter {} is not defined in class {}.".format(param_name, cls.__name__))
+            raise ValueError("Parameter {} is not defined in class {}.".format(param_name, cls.__name__))
+
     return kwargs
 
 
