@@ -406,8 +406,12 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
     return use_bundle
 
 
-def main(args):
+def cli_apply(args):
     """
+    Parse and prepare strings from argparse arguments into suitable Python objects
+    to call the api's version of apply.  Note, args.pipe_cls is already a cls object.
+    Most of the work here is to deser each input parameter value according to its
+    Luigi definition.
 
     Parameters:
         disdat_config:
@@ -421,7 +425,8 @@ def main(args):
         print("Apply unavailable -- Disdat not in a valid context.")
         return
 
-    dynamic_params = json.dumps(common.parse_params(args.params))
+    # Create a dictionary of str->str arguments to str->python objects deser'd by Luigi Parameters
+    deser_user_params = common.parse_params(args.pipe_cls, args.params)
 
     input_tags = common.parse_args_tags(args.input_tag)
 
@@ -430,7 +435,7 @@ def main(args):
     # NOTE: sysexit=False is required for us to pass a data_context object through luigi tasks.
     # Else we build up arguments as strings to run_with_retcodes().  And it crashes because the data_context is
     # not a string.
-    result = apply(args.output_bundle, dynamic_params, args.pipe_cls, input_tags, output_tags,
+    result = apply(args.output_bundle, deser_user_params, args.pipe_cls, input_tags, output_tags,
                    args.force,
                    central_scheduler=args.central_scheduler,
                    workers=args.workers,
