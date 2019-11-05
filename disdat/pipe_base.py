@@ -117,7 +117,8 @@ class PipeBase(object):
             # This can happen when the pipe has been created with non-deterministic parameters
             _logger.error("add_bundle_meta_files: could not find pce for task {}".format(pipe_task.pipe_id()))
             _logger.error("It is possible one of your tasks is parameterized in a non-deterministic fashion.")
-            raise Exception("add_bundle_meta_files: Unable to find pce for task {}".format(pipe_task.pipe_id()))
+            # raise Exception("add_bundle_meta_files: Unable to find pce for task {}".format(pipe_task.pipe_id()))
+            return None
 
         hframe = {PipeBase.HFRAME: luigi.LocalTarget(os.path.join(pce.path, HyperFrameRecord.make_filename(pce.uuid)))}
 
