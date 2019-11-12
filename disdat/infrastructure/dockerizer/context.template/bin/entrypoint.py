@@ -268,7 +268,6 @@ def main(input_args):
 
     # Skip all the argparse stuff, and first check for --entrypoint
     try:
-        print('seeing if there is another entrypoint')
         entrypoint = input_args.index('--entrypoint')
         del input_args[entrypoint]
         input_args.insert(0, input_args.pop(entrypoint))
