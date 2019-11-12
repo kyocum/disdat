@@ -92,6 +92,7 @@ class PipeTask(luigi.Task, PipeBase):
         self.add_deps = {}               # self.add(_external)_dependency()
         self.db_targets = []             # Deprecating
         self._input_tags = {}            # self.get_tags() of upstream tasks
+        self._input_bundle_uuids = {}    # self.get_bundle_uuid() of upstream tasks
         self._mark_force = False         # self.mark_force()
 
     def bundle_outputs(self):
@@ -372,6 +373,7 @@ class PipeTask(luigi.Task, PipeBase):
 
             # Reset the stored tags, in case this instance is run multiple times.
             self._input_tags = {}
+            self._input_bundle_uuids = {}
 
             upstream_tasks = [(t.user_arg_name, self.pfs.get_path_cache(t)) for t in self.requires()]
             for user_arg_name, pce in [u for u in upstream_tasks if u[1] is not None]:
@@ -389,6 +391,7 @@ class PipeTask(luigi.Task, PipeBase):
                     _logger.warning('Task human name {} reused when naming task dependencies: Dependency hyperframe shadowed'.format(pce.instance.user_arg_name))
 
                 self._input_tags[user_arg_name] = hfr.tag_dict
+                self._input_bundle_uuids[user_arg_name] = pce.uuid
                 kwargs[user_arg_name] = self.data_context.present_hfr(hfr)
 
         return kwargs
@@ -622,6 +625,21 @@ class PipeTask(luigi.Task, PipeBase):
         """
         assert user_arg_name in self._input_tags
         return self._input_tags[user_arg_name]
+
+    def get_bundle_uuid(self, user_arg_name):
+        """
+        Disdat Pipe API Function
+
+        Retrieve the UUID from an upstream task.
+
+        Args:
+            user_arg_name (str): keyword arg name of input bundle data for which to return tags
+
+        Returns:
+            uuid (str)
+        """
+        assert user_arg_name in self._input_bundle_uuids
+        return self._input_bundle_uuids[user_arg_name]
 
     def mark_force(self):
         """
