@@ -1480,6 +1480,15 @@ class DisdatFS(object):
             data_context.rebuild_db()
             return
 
+        if uuid is not None:
+            local_hfr = self.get_hframe_by_uuid(uuid, data_context=data_context)
+            if local_hfr is not None:
+                if localize:
+                    # TODO: Need fast check to see if it is already localized!
+                    DisdatFS._localize_hfr(local_hfr, uuid, data_context)
+                return
+            # else fall through to see if we can pull from remote context
+
         #start = time.time()
         possible_hframe_objects = aws_s3.ls_s3_url_objects(data_context.get_remote_object_dir())
         #print "List time {} seconds".format(time.time() - start)
