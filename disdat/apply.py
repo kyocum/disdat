@@ -93,6 +93,9 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
             return None
         data_context = pfs.curr_context
 
+    # Increment the reference count for this process
+    apply.reference_count += 1
+
     # Re-execute logic -- make copy of task DAG
     # Creates a cache of {pipe:path_cache_entry} in the pipesFS object.
     # This "task_path_cache" is used throughout execution to find output bundles.
@@ -126,11 +129,19 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
 
     success = build([reexecute_dag], local_scheduler=not central_scheduler, workers=workers)
 
-    # After running a pipeline, blow away our path cache and git hash. Needed if we're run twice in the same process.
-    fs.DisdatFS().clear_pipe_version()
-    fs.DisdatFS().clear_path_cache()
+    # After running, decrement our reference count (which tells how many simultaneous apply methods are
+    # running nested in this process.  Once the last one completes, blow away our path cache and git hash.
+    # Needed if we're run twice (from scratch) in the same process.
+    apply.reference_count -= 1
+    if not apply.reference_count:
+        fs.DisdatFS().clear_pipe_version()
+        fs.DisdatFS().clear_path_cache()
 
     return {'success': success, 'did_work': did_work}
+
+
+# Add a reference count to apply, so we can determine when to clean up the path_cache
+apply.reference_count = 0
 
         
 def topo_sort_tasks(root_task):
