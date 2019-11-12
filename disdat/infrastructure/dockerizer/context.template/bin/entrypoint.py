@@ -9,6 +9,7 @@ Entry point for pipelines run within Docker images.
 from __future__ import print_function
 
 import argparse
+import subprocess
 import disdat.common
 import disdat.fs
 import disdat.api
@@ -264,6 +265,18 @@ def main(input_args):
     # the default params below to handle most cases.  This is an example
     # of how you might do this in the future if needed.
     # some_default = os.environ[ENVVAR] if ENVVAR in os.environ else None
+
+    # Skip all the argparse stuff, and first check for --entrypoint
+    try:
+        print('seeing if there is another entrypoint')
+        entrypoint = input_args.index('--entrypoint')
+        del input_args[entrypoint]
+        input_args.insert(0, input_args.pop(entrypoint))
+        return subprocess.call(input_args)
+    except ValueError:
+        # There is no entrypoint override, no worries
+        pass
+
 
     parser = argparse.ArgumentParser(
         description=_HELP,
