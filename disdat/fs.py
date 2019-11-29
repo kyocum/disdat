@@ -588,7 +588,7 @@ class DisdatFS(object):
             return None
 
     def ls(self, search_name, print_tags, print_intermediates, print_roots, print_long, print_args,
-           before=None, after=None, maxbydate=False, committed=None, tags=None, data_context=None):
+           before=None, after=None, uuid=None, maxbydate=False, committed=None, tags=None, data_context=None):
         """
         Enumerate bundles (hyperframes) in this context.
 
@@ -600,8 +600,9 @@ class DisdatFS(object):
             print_args (bool): Whether to print the arguments used to produce this bundle
             before (date.datetime): '01-03-19 02:40:37' or date '01-03-19' inclusive range
             after (date.datetime): '01-03-19 02:40:37' or date '01-03-19' inclusive range
-            committed (bool): If True, just committed, if False, just uncommitted, if None then ignore.
+            uuid (str): A specific UUID to list.  Trumps search_name
             maxbydate (bool): return the latest by date
+            committed (bool): If True, just committed, if False, just uncommitted, if None then ignore.
             tags: Optional. A dictionary of tags to search for.
             data_context (`disdat.data_context.DataContext`): Optional data context to operate in
 
@@ -1808,7 +1809,9 @@ def init_fs_cl(subparsers):
                       help="List only bundles from root tasks (last task in pipeline).")
     ls_p.add_argument('-c', '--committed', action='store_true',
                       help="List only committed bundles.")
-    ls_p.add_argument('-u', '--uncommitted', action='store_true',
+    ls_p.add_argument('-u', '--uuid', type=str, default=None,
+                      help='list by bundle UUID')
+    ls_p.add_argument('--uncommitted', action='store_true',
                       help="List only uncommitted bundles.")
     ls_p.add_argument('-l', '--latest-by-date', action='store_true',
                       help="Return the most recent bundle for any name.")
