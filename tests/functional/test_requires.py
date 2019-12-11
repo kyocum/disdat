@@ -14,6 +14,16 @@
 # limitations under the License.
 #
 
+
+import os
+import hashlib
+import pytest
+import pandas as pd
+from numpy import random
+
+import disdat.api as api
+from tests.functional.common import run_test, TEST_CONTEXT
+
 from disdat.pipe import PipeTask
 
 """ Purpose of this test is to show that if you return nothing, you 
@@ -22,8 +32,7 @@ still need to get the input in the downstream task.  See git issue
  """
 
 
-class Bizarre(PipeTask):
-
+class a(PipeTask):
     def pipe_requires(self):
         return
 
@@ -31,12 +40,18 @@ class Bizarre(PipeTask):
         return
 
 
-class a(Bizarre):
-    def pipe_requires(self):
-        return
-
-
-class b(Bizarre):
+class b(PipeTask):
     def pipe_requires(self):
         self.add_dependency('something', a, {})
 
+    def pipe_run(self, something=None):
+        print("Return type {}, object: {}".format(type(something), something))
+        assert something is None
+
+
+def test_requires(run_test):
+    api.apply(TEST_CONTEXT, b, params={})
+
+
+if __name__ == '__main__':
+    pytest.main([__file__])

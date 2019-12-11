@@ -26,20 +26,18 @@ author: Kenneth Yocum
 from __future__ import print_function
 
 import sys
-import json
 import collections
 import os
 
 from luigi import build, worker
 
 import disdat.common as common  # config, especially logging, before luigi ever loads
-import disdat.pipe_base as pipe_base
 import disdat.fs as fs
 import disdat.driver as driver
 from disdat import logger as _logger
 
 
-def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
+def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force, force_all,
           output_bundle_uuid=None, central_scheduler=False, workers=1, data_context=None,
           incremental_push=False, incremental_pull=False):
     """
@@ -52,10 +50,11 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
         output_bundle: The new bundle to be created
         pipe_params (dict):   mapping of parameter name to Luigi Task parameter value
         pipe_cls (type[disdat.pipe.PipeTask]):      reference to the task class
-        force:         force recomputation of dependencies
+        force:         force recomputation of the last user task.
+        force_all:     force recomputation of dependencies
         input_tags (dict):  Tags used to find the input bundle
         output_tags (dict):  Tags that need to be placed on the output bundle
-        force (bool): whether to re-run this pipe
+        force_all (bool): whether to re-run this pipe
         output_bundle_uuid (str):  Optionally specify exactly the UUID of the output bundle IFF we actually need to produce it
         central_scheduler: Use a centralized Luigi scheduler (default False, i.e., --local-scheduler is used)
         workers: The number of luigi workers to use for this workflow (default 1)
@@ -71,6 +70,7 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
     _logger.debug("pipe_cls {}".format(pipe_cls))
     _logger.debug("pipe params: {}".format(pipe_params))
     _logger.debug("force: {}".format(force))
+    _logger.debug("force_all: {}".format(force_all))
     _logger.debug("input tags: {}".format(input_tags))
     _logger.debug("output tags: {}".format(output_tags))
     _logger.debug("sys.path {}".format(sys.path))
@@ -100,13 +100,17 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force,
     # Creates a cache of {pipe:path_cache_entry} in the pipesFS object.
     # This "task_path_cache" is used throughout execution to find output bundles.
     reexecute_dag = driver.DriverTask(output_bundle, pipe_params,
-                                      pipe_cls, input_tags, output_tags, force,
+                                      pipe_cls, input_tags, output_tags, force_all,
                                       data_context, incremental_push, incremental_pull)
 
     # Get version information for pipeline
     users_root_task = reexecute_dag.deps()[0]
     pipeline_path = os.path.dirname(sys.modules[users_root_task.__module__].__file__)
     fs.DisdatFS().get_pipe_version(pipeline_path)
+
+    # If the user just wants to re-run this task, use mark_force
+    if force:
+        users_root_task.mark_force()
 
     did_work = resolve_workflow_bundles(reexecute_dag, data_context)
 
@@ -300,8 +304,9 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
         return regen_bundle
 
-    if pipe.force:
+    if pipe.force and not worker._is_external(pipe):
         # Forcing recomputation through a manual --force directive
+        # If it is external, do not recompute in any case
         _logger.debug("resolve_bundle: --force forcing a new output bundle.")
         if verbose: print("resolve_bundle: --force forcing a new output bundle.\n")
         pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
@@ -448,7 +453,7 @@ def cli_apply(args):
     # Else we build up arguments as strings to run_with_retcodes().  And it crashes because the data_context is
     # not a string.
     result = apply(args.output_bundle, deser_user_params, args.pipe_cls, input_tags, output_tags,
-                   args.force,
+                   args.force, args.force_all,
                    central_scheduler=args.central_scheduler,
                    workers=args.workers,
                    incremental_push=args.incremental_push,

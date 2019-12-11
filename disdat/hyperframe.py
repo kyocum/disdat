@@ -1266,7 +1266,7 @@ class LineageRecord(PBObject):
 
     def __init__(self, hframe_name=None, hframe_uuid=None,
                  code_repo=None, code_name=None, code_semver=None,
-                 code_hash=None, code_branch=None,
+                 code_hash=None, code_branch=None, code_method=None,
                  creation_date=None, depends_on=None,
                  start_ts=0, stop_ts=0):
         """
@@ -1280,6 +1280,7 @@ class LineageRecord(PBObject):
             code_semver: semver from code_version
             code_hash: githash from code_version
             code_branch: name of branch
+            code_method (str): package.module.class.method | package.module.method | package.module.class
             creation_date: Time this bundle was created
             depends_on (list): array[ (hframe_name, version uuid), ... ]
             start_ts (float): timestamp of task start
@@ -1298,6 +1299,7 @@ class LineageRecord(PBObject):
         self.pb.code_semver = code_semver
         self.pb.code_hash = code_hash
         self.pb.code_branch = code_branch
+        self.pb.code_method = code_method
         self.pb.start_time = start_ts
         self.pb.stop_time = stop_ts
 
@@ -1859,6 +1861,8 @@ class FrameRecord(PBObject):
                 import json
                 frame_type = FrameRecord.get_proto_type(str)
                 series_data = [json.dumps(element) for element in nda]
+                # print("Series_data {}".format(series_data))
+                # print("frame_type {}".format(frame_type))
                 # raise Exception("make_native_frame does not yet support non-string objects")
 
         elif nda.dtype.type == np.unicode_ or nda.dtype.type == np.string_:
