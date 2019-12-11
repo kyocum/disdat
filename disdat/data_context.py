@@ -1267,6 +1267,28 @@ class DataContext(object):
 
         return nda.item()
 
+    def convert_hfr2json(self, hfr):
+        """
+        Convert a HyperFrameRecord into a single json output
+
+        Args:
+            hfr:
+
+        Returns:
+            (scalar)
+
+        """
+        frames = hfr.get_frames(self)
+        assert len(frames) == 1
+        fr = frames[0]
+
+        assert not (fr.is_local_fs_link_frame() or fr.is_s3_link_frame() or fr.is_db_link_frame()), \
+            "hfr2json, failed since this is a link frame. "
+
+        nda = fr.to_ndarray()
+
+        return json.loads(nda.item())
+
     def convert_hfr2ndarray(self, hfr):
         """
         Convert a HyperFrameRecord into an ndarray.
@@ -1334,6 +1356,12 @@ class DataContext(object):
 
         if hfr.pb.presentation == hyperframe_pb2.HF:
             frames = hfr.get_frames(self)
+            if len(frames) == 0:
+                # TODO: Remove on major release or adding true HF presentations
+                _logger.warning("DEPRECATION: Presentation HF was a hack for NoneType returns."
+                                " You should delete this bundle: UUID {}.".format(hfr.pb.uuid))
+                print(hfr.pb)
+                return None
             assert len(frames) == 1
             assert frames[0].pb.type == hyperframe_pb2.HFRAME
             return frames[0].get_hframes()
@@ -1349,6 +1377,9 @@ class DataContext(object):
 
         elif hfr.pb.presentation == hyperframe_pb2.ROW:
             return self.convert_hfr2row(hfr)
+
+        elif hfr.pb.presentation == hyperframe_pb2.JSON:
+            return self.convert_hfr2json(hfr)
 
         else:
             raise Exception("present_hfr with HFR using unknown presentation enumeration {}".format(hfr.pb.presentation))

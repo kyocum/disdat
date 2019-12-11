@@ -40,7 +40,7 @@ import disdat.hyperframe as hyperframe
 import disdat.common as common
 import disdat.utility.aws_s3 as aws_s3
 from disdat.data_context import DataContext
-from disdat.common import DisdatConfig
+from disdat.common import DisdatConfig, CatNoBundleError
 from disdat import logger as _logger
 
 PipeCacheEntry = collections.namedtuple('PipeCacheEntry', 'instance uuid path rerun is_left_edge_task')
@@ -600,7 +600,7 @@ class DisdatFS(object):
             print_args (bool): Whether to print the arguments used to produce this bundle
             before (date.datetime): '01-03-19 02:40:37' or date '01-03-19' inclusive range
             after (date.datetime): '01-03-19 02:40:37' or date '01-03-19' inclusive range
-            uuid (str): A specific UUID to list.  Trumps search_name
+            uuid (str): A specific UUID to list.  Trumps all other options.
             maxbydate (bool): return the latest by date
             committed (bool): If True, just committed, if False, just uncommitted, if None then ignore.
             tags: Optional. A dictionary of tags to search for.
@@ -630,8 +630,12 @@ class DisdatFS(object):
         if print_long:
             output_strings.append(DisdatFS._pretty_print_header())
 
-        for i, r in enumerate(data_context.get_hframes(human_name=search_name, tags=tags,
-                                                       maxbydate=maxbydate, before=before, after=after)):
+        for i, r in enumerate(data_context.get_hframes(human_name=search_name,
+                                                       uuid=uuid,
+                                                       tags=tags,
+                                                       maxbydate=maxbydate,
+                                                       before=before,
+                                                       after=after)):
             if committed is not None:
                 if committed:
                     if not r.get_tag('committed'):
@@ -713,7 +717,7 @@ class DisdatFS(object):
                 df.to_csv(file, sep=',', index=False)
             return other
         else:
-            return None
+            raise CatNoBundleError("No bundle found with name({}) uuid({})".format(human_name,uuid))
 
     @staticmethod
     def _extract_uuid(managed_path):
@@ -1718,6 +1722,7 @@ def _ls(fs, args):
                    args.roots,
                    args.verbose,
                    args.print_args,
+                   uuid=args.uuid,
                    committed=committed,
                    before=before,
                    after=after,
@@ -1727,13 +1732,8 @@ def _ls(fs, args):
 
 
 def _cat(fs, args):
-
-    result = fs.cat(args.bundle, uuid=args.uuid, tags=common.parse_args_tags(args.tag), file=args.file)
-
-    if result is None:
-        print("Disdat cat found no bundle with name {} or uuid {}".format(args.bundle, args.uuid))
-    else:
-
+    try:
+        result = fs.cat(args.bundle, uuid=args.uuid, tags=common.parse_args_tags(args.tag), file=args.file)
         if isinstance(result, pd.DataFrame):
             # If df, make sure we print out all columns
             pd.set_option('display.max_colwidth', -1)
@@ -1741,6 +1741,8 @@ def _cat(fs, args):
         else:
             # else default print the object
             print(result)
+    except CatNoBundleError as cnbe:
+        print("Disdat cat found no bundle with name {} or uuid {}".format(args.bundle, args.uuid))
 
 
 def _status(fs, args):

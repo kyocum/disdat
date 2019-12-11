@@ -415,6 +415,7 @@ def _run(
         input_tags = {},
         output_tags = {},
         force = False,
+        force_all = False,
         context = None,
         remote = None,
         no_pull = False,
@@ -440,7 +441,8 @@ def _run(
             `Backend.Local`)
         input_tags (list(str)): Find bundle with these tags ['key:value',...]
         output_tags (list(str)): Push result bundle with these tags ['key:value',...]
-        force (bool): If `True` force recomputation of all upstream pipe requirements (default `False`)
+        force (bool): If `True` force recomputation of all upstream tasks (default `False`)
+        force_all (bool): If `True` force recomputation of last task (default `False`)
         context (str): <remote context>/<local context> context string
         remote (str): The remote S3 URL.
         no_pull (bool): Do not pull before executing (start in empty local context)
@@ -475,7 +477,7 @@ def _run(
         return
 
     arglist = common.make_run_command(output_bundle, output_bundle_uuid, pipe_cls, remote, context,
-                                      input_tags, output_tags, force, no_pull, no_push,
+                                      input_tags, output_tags, force, force_all, no_pull, no_push,
                                       no_push_int, workers, pipeline_args)
 
     if backend == Backend.AWSBatch or backend == Backend.SageMaker:

@@ -221,6 +221,7 @@ def run_disdat_container(args):
                                   params=deser_user_params,
                                   output_bundle_uuid=args.output_bundle_uuid,
                                   force=args.force,
+                                  force_all=args.force_all,
                                   workers=args.workers,
                                   incremental_push=incremental_push,
                                   incremental_pull=incremental_pull)
@@ -247,7 +248,7 @@ def run_disdat_container(args):
         _logger.error('Failed to run pipeline: RuntimeError {}'.format(re))
         sys.exit(os.EX_IOERR)
 
-    except disdat.common.ApplyException as ae:
+    except disdat.common.ApplyError as ae:
         _logger.error('Failed to run pipeline: ApplyException {}'.format(ae))
         sys.exit(os.EX_IOERR)
 
@@ -364,7 +365,13 @@ def main(input_args):
     pipeline_parser.add_argument(
         '--force',
         action='store_true',
-        help='Force recomputation of all pipe dependencies (default is to recompute dependencies with changed inputs or code)',
+        help='Force recomputation of the last task.',
+    )
+
+    pipeline_parser.add_argument(
+        '--force-all',
+        action='store_true',
+        help='Force recomputation of all upstream tasks.',
     )
 
     pipeline_parser.add_argument(

@@ -140,7 +140,6 @@ class Bundle(HyperFrameRecord):
         If #2 then, it's easy to use a bundle object and write it to multiple
         contexts.   We should close or destroy a bundle in case 2.
 
-
         Args:
             local_context (str): Where this bundle will be output or where it was sourced from.
             name (str): Human name for this bundle
@@ -197,10 +196,12 @@ class Bundle(HyperFrameRecord):
 
     @property
     def params(self):
-        """ Return the tags that were parameters """
-        return {k.strip(common.BUNDLE_TAG_PARAMS_PREFIX):json.loads(v)
-                 for k,v in self.tag_dict.items()
-                 if common.BUNDLE_TAG_PARAMS_PREFIX in k}
+        """ Return the tags that were parameters
+        This returns the string version of the parameters (how they were serialized into the bundle)
+        Note that we currently use Luigi Parameter parse and serialize to go from string and to string.
+        Luigi does so to interpret command-line arguments.
+        """
+        return {k[len(common.BUNDLE_TAG_PARAMS_PREFIX):]: v for k, v in self.tag_dict.items() if k.startswith(common.BUNDLE_TAG_PARAMS_PREFIX)}
 
     """ Alternative construction post allocation """
 
@@ -302,6 +303,7 @@ class Bundle(HyperFrameRecord):
                                code_semver=cv.semver,
                                code_hash=cv.hash,
                                code_branch=cv.branch,
+                               code_method='unknown', # TODO: capture pkg.mod.class.method that creates bundle
                                depends_on=self.depends_on)
 
             self.add_lineage(lr)
@@ -1011,7 +1013,8 @@ def pull(local_context, bundle_name=None, uuid=None, localize=False):
 
 
 def apply(local_context, transform, output_bundle='-',
-          input_tags=None, output_tags=None, force=False, params=None,
+          input_tags=None, output_tags=None, force=False,
+          force_all=False, params=None,
           output_bundle_uuid=None, central_scheduler=False, workers=1,
           incremental_push=False, incremental_pull=False):
     """ Execute a Disdat pipeline natively on the local machine.   Note that `api.run` will execute
@@ -1023,7 +1026,8 @@ def apply(local_context, transform, output_bundle='-',
         output_bundle (str):  The name of the output bundle.  Defaults to `<task_name>_<param_hash>`
         input_tags: optional tags dictionary for selecting input bundle
         output_tags: optional tags dictionary to tag output bundle
-        force: Force re-running this transform, default False
+        force (bool): Force re-running this transform, default False
+        force_all (bool): Force re-running ALL transforms, default False
         params: optional parameters dictionary
         output_bundle_uuid: Force UUID of output bundle
         central_scheduler (bool): Use a central scheduler, default False, i.e., use local scheduler
@@ -1058,7 +1062,7 @@ def apply(local_context, transform, output_bundle='-',
     # If API, caller can catch.
     # If CLI, python will exit 1
     result = disdat.apply.apply(output_bundle, params, transform,
-                                input_tags, output_tags, force,
+                                input_tags, output_tags, force, force_all,
                                 output_bundle_uuid=output_bundle_uuid,
                                 central_scheduler=central_scheduler,
                                 workers=workers,
@@ -1085,6 +1089,7 @@ def run(local_context,
         input_tags=None,
         output_tags=None,
         force=False,
+        force_all=False,
         no_pull=False,
         no_push=False,
         no_push_int=False,
@@ -1107,7 +1112,8 @@ def run(local_context,
         remote (str): The remote's S3 path
         input_tags (dict): str:str dictionary of tags required of the input bundle
         output_tags (dict): str:str dictionary of tags placed on all output bundles (including intermediates)
-        force (bool):  Currently not respected.  But should re-run the entire pipeline no matter prior outputs
+        force (bool):  Re-run the last pipe task no matter prior outputs
+        force_all (bool):  Re-run the entire pipeline no matter prior outputs
         no_pull (bool): Do not pull before execution
         no_push (bool): Do not push any output bundles after task execution
         no_push_int (bool):  Do not push intermediate task bundles after execution
@@ -1139,6 +1145,7 @@ def run(local_context,
                        input_tags=input_tags,
                        output_tags=output_tags,
                        force=force,
+                       force_all=force_all,
                        context=context,
                        remote=remote,
                        no_pull=no_pull,

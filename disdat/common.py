@@ -51,13 +51,18 @@ BUNDLE_TAG_TRANSIENT = '__transient'
 LOCAL_EXECUTION = 'LOCAL_EXECUTION'  # Docker endpoint env variable if we're running a container locally
 
 
-class ApplyException(Exception):
+class ApplyError(Exception):
     def __init__(self, message, apply_result):
-        super(ApplyException, self).__init__(message)
+        super(ApplyError, self).__init__(message)
         self.apply_result = apply_result
     @property
     def result(self):
         return self.apply_result
+
+
+class CatNoBundleError(Exception):
+    def __init__(self, message):
+        super(ApplyError, self).__init__(message)
 
 
 def error(msg, *args, **kwargs):
@@ -86,7 +91,7 @@ def apply_handle_result(apply_result, raise_not_exit=False):
     else:
         error_str = "Disdat Apply ran, but one or more tasks failed."
         if raise_not_exit:
-            raise ApplyException(error_str, apply_result)
+            raise ApplyError(error_str, apply_result)
         else:
             sys.exit(error_str)
 
@@ -356,6 +361,7 @@ def make_run_command(
         input_tags,
         output_tags,
         force,
+        force_all,
         no_pull,
         no_push,
         no_push_int,
@@ -376,6 +382,7 @@ def make_run_command(
         input_tags:
         output_tags:
         force:
+        force_all:
         no_pull:
         no_push:
         no_push_int:
@@ -401,6 +408,8 @@ def make_run_command(
         args += ['--no-push-intermediates']
     if force:
         args += ['--force']
+    if force_all:
+        args += ['--force-all']
     if len(input_tags) > 0:
         for next_tag in input_tags:
             args += ['--input-tag', next_tag]

@@ -92,7 +92,8 @@ def main():
                          help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'")
     apply_p.add_argument('-o', '--output-bundle', type=str, default='-',
                          help="Name output bundle: '-o my.output.bundle'.  Default name is '<TaskName>_<param_hash>'")
-    apply_p.add_argument('-f', '--force', action='store_true', help="If there are dependencies, force re-computation.")
+    apply_p.add_argument('-f', '--force', action='store_true', help="Force re-computation of only this task.")
+    apply_p.add_argument('--force-all', action='store_true', help="Force re-computation of ALL upstream tasks.")
     apply_p.add_argument('--incremental-push', action='store_true', help="Commit and push each task's bundle as it is produced to the remote.")
     apply_p.add_argument('--incremental-pull', action='store_true', help="Localize bundles as they are needed by downstream tasks from the remote.")
     apply_p.add_argument('pipe_cls', type=load_class, help="User-defined transform, e.g., 'module.PipeClass'")

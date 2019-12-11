@@ -43,12 +43,13 @@ def print_lineage_protobuf(lineage_pb, offset=0):
     print("{}creation date: {}".format(indent, datetime.fromtimestamp(lineage_pb.creation_date)))
     print("{}code repo: {}".format(indent, lineage_pb.code_repo))
     print("{}code hash: {}".format(indent, lineage_pb.code_hash))
+    print("{}code method: {}".format(indent, lineage_pb.code_method if hasattr(lineage_pb, 'code_method') else None))
 
     try:
         repo = lineage_pb.code_repo.split('@')
         if len(repo) == 2:
             # Assume: git@github.intuit.com:user/project.git
-            _ , site = repo
+            _, site = repo
             site, project_url = site.split(':')
             project_url = project_url.replace('.git', '')
             url = "https://{}/{}/commit/{}".format(site, project_url, lineage_pb.code_hash)
