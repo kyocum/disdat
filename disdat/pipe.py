@@ -63,7 +63,7 @@ class PipeTask(luigi.Task, PipeBase):
     driver_output_bundle = luigi.Parameter(default='None', significant=False)
 
     force = luigi.BoolParameter(default=False, significant=False)
-    output_tags = luigi.DictParameter(default={}, significant=True)
+    output_tags = luigi.DictParameter(default={}, significant=False)
 
     # Each pipeline executes wrt a data context.
     data_context = luigi.Parameter(default=None, significant=False)
