@@ -481,7 +481,7 @@ class PipeTask(luigi.Task, PipeBase):
 
         return
 
-    def add_external_dependency(self, name, task_class, params, uuid=None):
+    def add_external_dependency(self, param_name, task_class, params, human_name=None, uuid=None):
         """
         Disdat Pipe API Function
 
@@ -490,11 +490,25 @@ class PipeTask(luigi.Task, PipeBase):
         flatten(self.requires())).  And what that means is that this requirement can only be satisfied
         by the bundle actually existing.
 
+        NOTE: if you add an external dependency by name, it is possible that someone adds a bundle during
+        execution and that your requires function is no longer deterministic.   You must add caching to your
+        requires function to handle this scenario.
+
+        Example with class variable bundle_uuid:
+        ``
+        if self.bundle_uuid is None:
+            bundle = self.add_external_dependency('_', MyTaskClass, {}, human_name='some_result')
+            self.bundle_uuid = bundle.uuid
+        else:
+            bundle = self.add_external_dependency('_', MyTaskClass, {}, uuid=self.bundle_uuid)
+        ``
+
         Args:
-            name (str): The parameter name this bundle assumes when passed to Pipe.run
+            param_name (str): The parameter name this bundle assumes when passed to Pipe.run
             task_class (:object):  Must always set class name of upstream task.
             params (:dict):  Dictionary of parameters for this task.  Note if UUID is set, then params are ignored!
-            uuid (str): Resolve dependency by explicit UUID, trumps task_class and params
+            human_name (str): Resolve dependency by human_name, return the latest bundle with that humman_name.  Trumps task_class and params.
+            uuid (str): Resolve dependency by explicit UUID, trumps task_class and params, and human_name.
 
         Returns:
             None
@@ -508,23 +522,25 @@ class PipeTask(luigi.Task, PipeBase):
             error = "add_dependency third argument must be a dictionary of parameters"
             raise Exception(error)
 
-        assert (name not in self.add_deps)
+        assert (param_name not in self.add_deps)
 
         try:
-            if uuid is None:
+            if uuid is not None:
+                hfr = self.pfs.get_hframe_by_uuid(uuid, data_context=self.data_context)
+            elif human_name is not None:
+                hfr = self.pfs.get_latest_hframe(human_name, data_context=self.data_context)
+            else:
                 p = task_class(params)
                 hfr = self.pfs.get_hframe_by_proc(p.pipe_id(), data_context=self.data_context)
-            else:
-                hfr = self.pfs.get_hframe_by_uuid(uuid, data_context=self.data_context)
 
             bundle = api.Bundle(self.data_context.get_local_name(), 'unknown')
 
             bundle.fill_from_hfr(hfr)
 
-            if uuid is not None:
+            if uuid is not None or human_name is not None:
                 params = task_class._put_subcls_params(bundle.params)
 
-            self.add_deps[name] = (luigi.task.externalize(task_class), params)
+            self.add_deps[param_name] = (luigi.task.externalize(task_class), params)
 
         except Exception as error:
             _logger.warning("Unable to resolve external bundle by processing name({}): {}".format(p.pipe_id(), error))
