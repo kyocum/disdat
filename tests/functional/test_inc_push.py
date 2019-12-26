@@ -99,7 +99,7 @@ def test_add_with_treat_as_bundle():
     # Try to run the pipeline - should fail
     try:
         # Run test pipeline
-        api.apply(TEST_CONTEXT, 'CPush', incremental_push=True)
+        api.apply(TEST_CONTEXT, CPush, incremental_push=True)
     except Exception as e:
         pass
 

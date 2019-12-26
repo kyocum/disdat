@@ -33,7 +33,7 @@ from disdat import run
 from disdat.fs import init_fs_cl
 from disdat.add import init_add_cl
 from disdat.lineage import init_lineage_cl
-from disdat.common import DisdatConfig
+from disdat.common import DisdatConfig, load_class
 from disdat import log
 
 
@@ -41,15 +41,6 @@ _pipes_fs = None
 
 DISDAT_PATH = os.environ.get("PATH", None)
 DISDAT_PYTHONPATH = os.environ.get("PYTHONPATH", None)
-
-
-def _apply(args):
-    """
-
-    :param args:
-    :return:
-    """
-    apply.main(args)
 
 
 def main():
@@ -101,13 +92,14 @@ def main():
                          help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'")
     apply_p.add_argument('-o', '--output-bundle', type=str, default='-',
                          help="Name output bundle: '-o my.output.bundle'.  Default name is '<TaskName>_<param_hash>'")
-    apply_p.add_argument('-f', '--force', action='store_true', help="If there are dependencies, force re-computation.")
+    apply_p.add_argument('-f', '--force', action='store_true', help="Force re-computation of only this task.")
+    apply_p.add_argument('--force-all', action='store_true', help="Force re-computation of ALL upstream tasks.")
     apply_p.add_argument('--incremental-push', action='store_true', help="Commit and push each task's bundle as it is produced to the remote.")
     apply_p.add_argument('--incremental-pull', action='store_true', help="Localize bundles as they are needed by downstream tasks from the remote.")
-    apply_p.add_argument('pipe_cls', type=str, help="User-defined transform, e.g., 'module.PipeClass'")
+    apply_p.add_argument('pipe_cls', type=load_class, help="User-defined transform, e.g., 'module.PipeClass'")
     apply_p.add_argument('params', type=str,  nargs=argparse.REMAINDER,
                          help="Optional set of parameters for this pipe '--parameter value'")
-    apply_p.set_defaults(func=lambda args: _apply(args))
+    apply_p.set_defaults(func=lambda args: apply.cli_apply(args))
 
     # File system operations
     init_fs_cl(subparsers)

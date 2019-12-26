@@ -156,7 +156,8 @@ class PipeBase(object):
         """
 
         # Grab code version and path cache entry -- only called if we ran
-        pipeline_path = os.path.dirname(sys.modules[class_to_version.__module__].__file__)
+        code_method = class_to_version.__module__
+        pipeline_path = os.path.dirname(sys.modules[code_method].__file__)
         cv = DisdatFS().get_pipe_version(pipeline_path)
 
         lr = LineageRecord(hframe_name=processing_name,
@@ -166,6 +167,7 @@ class PipeBase(object):
                            code_semver=cv.semver,
                            code_hash=cv.hash,
                            code_branch=cv.branch,
+                           code_method=code_method,
                            depends_on=depends_on,
                            start_ts=start_ts,
                            stop_ts=stop_ts)
@@ -360,7 +362,9 @@ class PipeBase(object):
         managed_path = os.path.join(data_context.get_object_dir(), hfid)
 
         if val is None:
-            presentation = hyperframe_pb2.HF
+            """ None's stored as json.dumps([None]) or '[null]' """
+            presentation = hyperframe_pb2.JSON
+            frames.append(DataContext.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
 
         elif isinstance(val, HyperFrameRecord):
             presentation = hyperframe_pb2.HF
@@ -374,7 +378,7 @@ class PipeBase(object):
 
         elif isinstance(val, tuple):
             presentation = hyperframe_pb2.ROW
-            for i, _ in enumerate(tuple):
+            for i, _ in enumerate(val):
                 frames.append(DataContext.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':{}'.format(i), val, managed_path))
 
         elif isinstance(val, dict):

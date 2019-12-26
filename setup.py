@@ -96,17 +96,19 @@ setup(
     # your project is installed.  If >=, means it worked with the base version.
     # If <= means higher versions broke something.
 
-    install_requires=['boto3>=1.8',
-                      'termcolor',
-                      'docker>=2.5.1',
-                      'luigi<=2.8.5',
-                      'pandas<=0.24.2',
-                      'numpy<=1.16.3',
-                      'enum34>=',
-                      'sqlalchemy>=',
-                      'protobuf>=3.3.0', # 3.6.0
-                      'six'
-                      ],
+    install_requires=[
+        'luigi==2.8.9',
+        'boto3==1.9.209',
+        'botocore<1.13.0,>=1.12.209',  # ensure boto3 botocore compat
+        'termcolor==1.1.0',
+        'docker==4.0.2',
+        'pandas==0.24.2',
+        'numpy==1.16.3',
+        'enum34==1.1.6',
+        'sqlalchemy==1.3.7',
+        'protobuf==3.9.1',
+        'six==1.12.0'
+    ],
 
     # List additional groups of dependencies here (e.g. development
     # dependencies). You can install these using the following syntax,

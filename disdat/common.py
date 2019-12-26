@@ -21,6 +21,7 @@ import logging
 import os
 import sys
 import shutil
+import importlib
 import subprocess
 
 import luigi
@@ -50,13 +51,18 @@ BUNDLE_TAG_TRANSIENT = '__transient'
 LOCAL_EXECUTION = 'LOCAL_EXECUTION'  # Docker endpoint env variable if we're running a container locally
 
 
-class ApplyException(Exception):
+class ApplyError(Exception):
     def __init__(self, message, apply_result):
-        super(ApplyException, self).__init__(message)
+        super(ApplyError, self).__init__(message)
         self.apply_result = apply_result
     @property
     def result(self):
         return self.apply_result
+
+
+class CatNoBundleError(Exception):
+    def __init__(self, message):
+        super(ApplyError, self).__init__(message)
 
 
 def error(msg, *args, **kwargs):
@@ -85,7 +91,7 @@ def apply_handle_result(apply_result, raise_not_exit=False):
     else:
         error_str = "Disdat Apply ran, but one or more tasks failed."
         if raise_not_exit:
-            raise ApplyException(error_str, apply_result)
+            raise ApplyError(error_str, apply_result)
         else:
             sys.exit(error_str)
 
@@ -167,7 +173,7 @@ class DisdatConfig(object):
         Next, see if there is a disdat.cfg in cwd.  Then configure disdat and (re)configure logging.
         """
         # _logger.debug("Loading config file [{}]".format(disdat_config_file))
-        config = configparser.SafeConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
+        config = configparser.ConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
         config.read(disdat_config_file)
         self.meta_dir_root = os.path.expanduser(config.get('core', 'meta_dir_root'))
         self.meta_dir_root = DisdatConfig._fix_relative_path(disdat_config_file, self.meta_dir_root)
@@ -355,6 +361,7 @@ def make_run_command(
         input_tags,
         output_tags,
         force,
+        force_all,
         no_pull,
         no_push,
         no_push_int,
@@ -375,6 +382,7 @@ def make_run_command(
         input_tags:
         output_tags:
         force:
+        force_all:
         no_pull:
         no_push:
         no_push_int:
@@ -400,6 +408,8 @@ def make_run_command(
         args += ['--no-push-intermediates']
     if force:
         args += ['--force']
+    if force_all:
+        args += ['--force-all']
     if len(input_tags) > 0:
         for next_tag in input_tags:
             args += ['--input-tag', next_tag]
@@ -437,16 +447,62 @@ def parse_args_tags(args_tag, to='dict'):
     return tag_thing
 
 
-def parse_params(params):
+def parse_params(cls, params):
     """
+    Create a dictionary of str->str arguments to str->python objects deser'd by Luigi Parameters
+
     Input is the string "--arg value --arg2 value2"
-    Convert to dict {'arg':value,'arg2':value2}
 
-    :param params: from argparse
-    :return:   dict {'arg':value,'arg2':value2}
+    Convert to dict {'arg':str,'arg2':str2}
+
+    then
+
+    Convert to dict {'arg':luigi.Parameter.value,'arg2':luigi.Parameter.value2}
+
+    Args:
+        cls (type[disdat.pipe.PipeTask]):
+        params: from argparse
+
+    Returns:
+         dict {'arg':value,'arg2':value2}
     """
 
-    return {k.lstrip('--'): v for k, v in zip(params[::2], params[1::2])}
+    params_str_dict = {k.lstrip('--'): v for k, v in zip(params[::2], params[1::2])}
+
+    return convert_str_params(cls, params_str_dict)
+
+
+def convert_str_params(cls, params_str):
+    """
+    This is similar to Luigi.Task.from_str_params(cls, params_str)
+    But we don't create the class here, and we outer loop through our params (not the classes
+    params).  We just want to convert each of the params that are in the class and in this dictionary
+    into the deserialized form.
+
+    NOTE:  This is somewhat dangerous and could break if Luigi changes around
+    this code.  The alternative is to use Luigi.load_task() but then we have to ensure
+    all the input parameters are "strings" and we have to then put special code
+    inside of apply to know when to create a class normally, or create it from the CLI.
+
+    Parameters:
+        params_str (dict): dict of str->str.  param name -> value .
+    """
+    kwargs = {}
+
+    cls_params = {n: p for n, p in cls.get_params()}  # get_params() returns [ (name, param), ... ]
+
+    for param_name, param_str in params_str.items():
+        if param_name in cls_params:
+            param = cls_params[param_name]
+            if isinstance(param_str, list):
+                kwargs[param_name] = param._parse_list(param_str)
+            else:
+                kwargs[param_name] = param.parse(param_str)
+        else:
+            _logger.error("Parameter {} is not defined in class {}.".format(param_name, cls.__name__))
+            raise ValueError("Parameter {} is not defined in class {}.".format(param_name, cls.__name__))
+
+    return kwargs
 
 
 def get_local_file_path(url):
@@ -491,3 +547,24 @@ def setup_exists(fqp_setup):
         print ("No setup.py found at {}.".format(fqp_setup))
         return False
     return True
+
+
+def load_class(class_path):
+    """
+    Given a fully-qualified [pkg.mod.sub.classname] class name,
+    load the specified class and return a reference to it.
+
+    Args:
+        class_path (str): '.' separated module and classname
+
+    Returns:
+        class: reference to the loaded class
+    """
+    try:
+        mod_path, cls_name = class_path.rsplit('.', 1)
+    except ValueError:
+        raise ValueError('must include fully specified classpath, not local reference')
+
+    mod = importlib.import_module(mod_path)
+    cls = getattr(mod, cls_name)
+    return cls

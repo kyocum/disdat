@@ -100,7 +100,7 @@ def test_add_with_treat_as_bundle():
     api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL, force=True)
 
     # Run test pipeline
-    api.apply(TEST_CONTEXT, 'CIP')
+    api.apply(TEST_CONTEXT, CIP)
 
     # Push bundles to remote
     for bundle_name in ['a', 'b', 'c']:
@@ -130,7 +130,7 @@ def test_add_with_treat_as_bundle():
         assert data_path.startswith('s3://'), 'Data should be in S3'
 
     # Rerun pipeline
-    api.apply(TEST_CONTEXT, 'BIP', params={'n': 100}, incremental_pull=True)
+    api.apply(TEST_CONTEXT, BIP, params={'n': 100}, incremental_pull=True)
 
     # Make sure all bundles exist. Bundles a and b should have local paths
     for bundle_name in ['a', 'b', 'c']:

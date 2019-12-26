@@ -33,12 +33,9 @@ author: Kenneth Yocum
 """
 
 import os
-import json
-import six
+import time
 
 import luigi
-from datetime import datetime
-import time
 
 from disdat.pipe_base import PipeBase
 from disdat.db_link import DBLink
@@ -66,7 +63,7 @@ class PipeTask(luigi.Task, PipeBase):
     driver_output_bundle = luigi.Parameter(default='None', significant=False)
 
     force = luigi.BoolParameter(default=False, significant=False)
-    output_tags = luigi.DictParameter(default={}, significant=True)
+    output_tags = luigi.DictParameter(default={}, significant=False)
 
     # Each pipeline executes wrt a data context.
     data_context = luigi.Parameter(default=None, significant=False)
@@ -89,12 +86,14 @@ class PipeTask(luigi.Task, PipeBase):
 
         super(PipeTask, self).__init__(*args, **kwargs)
 
-        self.user_set_human_name = None
-        self.user_tags = {}
-        self.add_deps = {}
-        self.db_targets = []
-        self._input_tags = {}
-        self._mark_force = False
+        # Instance variables to track various user wishes
+        self.user_set_human_name = None  # self.set_bundle_name()
+        self.user_tags = {}              # self.add_tags()
+        self.add_deps = {}               # self.add(_external)_dependency()
+        self.db_targets = []             # Deprecating
+        self._input_tags = {}            # self.get_tags() of upstream tasks
+        self._input_bundle_uuids = {}    # self.get_bundle_uuid() of upstream tasks
+        self._mark_force = False         # self.mark_force()
 
     def bundle_outputs(self):
         """
@@ -126,7 +125,7 @@ class PipeTask(luigi.Task, PipeBase):
 
     def pipe_id(self):
         """
-        Given a pipe instance, return a unique string based on the class name and
+        Given a pipe instance, return the "processing_name" -- a unique string based on the class name and
         the parameters.  This re-uses Luigi code for getting the unique string.
 
         NOTE: The PipeTask has a 'driver_output_bundle'.  This the name of the pipline output bundle given by the user.
@@ -214,10 +213,6 @@ class PipeTask(luigi.Task, PipeBase):
         for user_arg_name, cls_and_params in rslt.items():
             pipe_class, params = cls_and_params[0], cls_and_params[1]
 
-            if isinstance(pipe_class, six.string_types):
-                """ if it is a string, find the Python task class """
-                pipe_class = DriverTask.get_task_cls(pipe_class)
-
             assert isinstance(pipe_class, luigi.task_register.Register)
 
             # we propagate the same inputs and the same output dir for every upstream task!
@@ -266,10 +261,15 @@ class PipeTask(luigi.Task, PipeBase):
 
         assert(pce is not None)
 
+        """ NOTE: If a user changes a task param in run(), and that param parameterizes a dependency in requires(), 
+        then running requires() post run() will give different tasks.  To be safe we record the inputs before run() 
+        """
+        cached_bundle_inputs = self.bundle_inputs()
+
         try:
-            start = time.time() #P3 datetime.now().timestamp()
+            start = time.time()  # P3 datetime.now().timestamp()
             user_rtn_val = self.pipe_run(**kwargs)
-            stop =  time.time() #P3 datetime.now().timestamp()
+            stop = time.time()  # P3 datetime.now().timestamp()
         except Exception as error:
             """ If user's pipe fails for any reason, remove bundle dir and raise """
             try:
@@ -284,7 +284,7 @@ class PipeTask(luigi.Task, PipeBase):
 
             hfr = PipeBase.make_hframe(frames,
                                        pce.uuid,
-                                       self.bundle_inputs(),
+                                       cached_bundle_inputs,
                                        self.pipeline_id(),
                                        self.pipe_id(),
                                        self,
@@ -293,17 +293,20 @@ class PipeTask(luigi.Task, PipeBase):
                                        tags={"presentable": "True"},
                                        presentation=presentation)
 
-            # Add Luigi Task parameters -- Only add the class parameters.  These are Disdat special params.
-            self.user_tags.update(self._get_subcls_params(self))
-
+            # Add any output tags to the user tag dict
             if self.output_tags:
                 self.user_tags.update(self.output_tags)
 
+            # If this is the root_task, identify it as so in the tag dict
             if isinstance(self.calling_task, DriverTask):
                 self.user_tags.update({'root_task': 'True'})
 
-            if self.user_tags:
-                hfr.replace_tags(self.user_tags)
+            # Lastly add any parameters associated with this class as tags.
+            # They are differentiated by a special prefix in the key
+            self.user_tags.update(self._get_subcls_params())
+
+            # Overwrite the hyperframe tags with the complete set of tags
+            hfr.replace_tags(self.user_tags)
 
             self.data_context.write_hframe(hfr)
 
@@ -322,11 +325,10 @@ class PipeTask(luigi.Task, PipeBase):
 
         return hfr
 
-    @classmethod
-    def _get_subcls_params(cls, self):
+    def _get_subcls_params(self):
         """ Given the child class, extract user defined Luigi parameters
 
-        The right way to do this is to use vars(cls) and filter by Luigi Parameter
+        This function uses vars(cls) and filters by Luigi Parameter
         types.  Luigi get_params() gives us all parameters in the full class hierarchy.
         It would give us the parameters in this class as well.  And then we'd have to do set difference.
         See luigi.Task.get_params()
@@ -335,35 +337,44 @@ class PipeTask(luigi.Task, PipeBase):
         However, we can implicitly re-use that ordering if we re-instantiate the Luigi class.
 
         Args:
-            cls: The subclass with defined parameters.  To tell which variables are Luigi Parameters
             self: The instance of the subclass.  To get the normalized values for the Luigi Parameters
         Returns:
-            dict: (BUNDLE_TAG_PARAM_PREFIX.<name>:'string value',...)
+            dict: {BUNDLE_TAG_PARAM_PREFIX.<name>:'string value',...}
         """
-        params = []
-        subcls_params = vars(cls) # vars on a class, not dir
-        for p in subcls_params:
-            param_obj = getattr(cls, p)
-            if not isinstance(param_obj, luigi.Parameter):
-                continue
-            val = getattr(self,p)
-            if isinstance(val, six.string_types):
-                ser_val = json.dumps(val)
-            else:
-                ser_val = param_obj.serialize(getattr(self, p))  # serialize the param_obj.normalize(x)
-            params.append(("{}{}".format(BUNDLE_TAG_PARAMS_PREFIX, p), ser_val))
+        cls = self.__class__
+        params = {}
+        for param in vars(cls):
+            attribute = getattr(cls, param)
+            if isinstance(attribute, luigi.Parameter):
+                params["{}{}".format(BUNDLE_TAG_PARAMS_PREFIX, param)] = attribute.serialize(getattr(self, param))
+        return params
 
-        return dict(params)
+    @classmethod
+    def _put_subcls_params(cls, ser_params):
+        """ Given the child class, create the Luigi parameter dictionary
 
-        # If we put the code in self.__init__() luigi hasn't created instance variables yet.
-        # This was code to do that.
-        # only_pipe_params = PipeTask.get_params()
-        # all_params = self.get_params()
-        # only_subcls_params = tuple(set(all_params) - set(only_pipe_params))
-        # This is pretty gross.  Get the params that are unique to this pipe
-        # Pull them out of kwargs (that's how we build this task! we don't use args!)
-        # filtered_kwargs = {k: kwargs[k] for k, v in only_subcls_params if k in kwargs}  # @UnusedVariable
-        # self.only_subcls_param_values = self.get_param_values(only_subcls_params, [], filtered_kwargs)
+        Assume that ser_params dictionary keys are the attribute names in the Disdat task class.
+
+        Args:
+            self: The instance of the subclass.  To get the normalized values for the Luigi Parameters
+            ser_params (dict): Dictionary <str>:<str>
+        Returns:
+            deser_params (dict): {<name>: Luigi.Parameter,...}
+        """
+        # cls = self.__class__
+        deser_params = {}
+        for param, ser_value in ser_params.items():
+            try:
+                attribute = getattr(cls, param)
+                assert isinstance(attribute, luigi.Parameter)
+                deser_params[param] = attribute.parse(ser_value)
+            except Exception as e:
+                _logger.warning("Bundle parameter ({}:{}) unable to be deserialized by class({}): {}".format(param,
+                                                                                                             ser_value,
+                                                                                                             cls.__name__,
+                                                                                                             e))
+                raise e
+        return deser_params
 
     def prepare_pipe_kwargs(self, for_run=False):
         """ Each upstream task produces a bundle.  Prepare that bundle as input
@@ -379,13 +390,15 @@ class PipeTask(luigi.Task, PipeBase):
 
         kwargs = dict()
 
-        # Reset the stored tags, in case this instance is run multiple times.
-        self._input_tags = {}
-
         # Place upstream task outputs into the kwargs.  Thus the user does not call
         # self.inputs().  If they did, they would get a list of output targets for the bundle
         # that isn't very helpful.
         if for_run:
+
+            # Reset the stored tags, in case this instance is run multiple times.
+            self._input_tags = {}
+            self._input_bundle_uuids = {}
+
             upstream_tasks = [(t.user_arg_name, self.pfs.get_path_cache(t)) for t in self.requires()]
             for user_arg_name, pce in [u for u in upstream_tasks if u[1] is not None]:
                 hfr = self.pfs.get_hframe_by_uuid(pce.uuid, data_context=self.data_context)
@@ -402,6 +415,7 @@ class PipeTask(luigi.Task, PipeBase):
                     _logger.warning('Task human name {} reused when naming task dependencies: Dependency hyperframe shadowed'.format(pce.instance.user_arg_name))
 
                 self._input_tags[user_arg_name] = hfr.tag_dict
+                self._input_bundle_uuids[user_arg_name] = pce.uuid
                 kwargs[user_arg_name] = self.data_context.present_hfr(hfr)
 
         return kwargs
@@ -467,7 +481,7 @@ class PipeTask(luigi.Task, PipeBase):
 
         return
 
-    def add_external_dependency(self, name, task_class, params):
+    def add_external_dependency(self, param_name, task_class, params, human_name=None, uuid=None):
         """
         Disdat Pipe API Function
 
@@ -476,29 +490,71 @@ class PipeTask(luigi.Task, PipeBase):
         flatten(self.requires())).  And what that means is that this requirement can only be satisfied
         by the bundle actually existing.
 
+        NOTE: if you add an external dependency by name, it is possible that someone adds a bundle during
+        execution and that your requires function is no longer deterministic.   You must add caching to your
+        requires function to handle this scenario.
+
+        Example with class variable bundle_uuid:
+        ``
+        if self.bundle_uuid is None:
+            bundle = self.add_external_dependency('_', MyTaskClass, {}, human_name='some_result')
+            self.bundle_uuid = bundle.uuid
+        else:
+            bundle = self.add_external_dependency('_', MyTaskClass, {}, uuid=self.bundle_uuid)
+        ``
+
         Args:
-            name (str): Name of our upstream (also name of argument in downstream)
-            task_class (:object):  upstream task class
-            params (:dict):  Dictionary of
+            param_name (str): The parameter name this bundle assumes when passed to Pipe.run
+            task_class (:object):  Must always set class name of upstream task.
+            params (:dict):  Dictionary of parameters for this task.  Note if UUID is set, then params are ignored!
+            human_name (str): Resolve dependency by human_name, return the latest bundle with that humman_name.  Trumps task_class and params.
+            uuid (str): Resolve dependency by explicit UUID, trumps task_class and params, and human_name.
 
         Returns:
             None
 
         """
 
+        # for the bundle object
+        import disdat.api as api
+
         if not isinstance(params, dict):
             error = "add_dependency third argument must be a dictionary of parameters"
             raise Exception(error)
 
-        assert (name not in self.add_deps)
-        self.add_deps[name] = (luigi.task.externalize(task_class), params)
+        assert (param_name not in self.add_deps)
 
-        return
+        try:
+            if uuid is not None:
+                hfr = self.pfs.get_hframe_by_uuid(uuid, data_context=self.data_context)
+            elif human_name is not None:
+                hfr = self.pfs.get_latest_hframe(human_name, data_context=self.data_context)
+            else:
+                p = task_class(params)
+                hfr = self.pfs.get_hframe_by_proc(p.pipe_id(), data_context=self.data_context)
+
+            bundle = api.Bundle(self.data_context.get_local_name(), 'unknown')
+
+            bundle.fill_from_hfr(hfr)
+
+            if uuid is not None or human_name is not None:
+                params = task_class._put_subcls_params(bundle.params)
+
+            self.add_deps[param_name] = (luigi.task.externalize(task_class), params)
+
+        except Exception as error:
+            _logger.warning("Unable to resolve external bundle by processing name({}): {}".format(p.pipe_id(), error))
+            return None
+
+        return bundle
 
     def add_db_target(self, db_target):
         """
-        Every time the user creates a db target, we add
-        it to the list of db_targets in this pipe.
+        Unimplemented: deprecated until we revisit semantics of DB bundle links.
+
+        Allow user to record a versioned database table.   Behind the scenes the system records
+        the dsn, database, schema, and table (information sufficient to operate on the table).  On "commit' a
+        db link will create a view to the latest version of the database table.
 
         Note: We add through the DBTarget object create, not through
         pipe.create_db_target() in the case that people do some hacking and don't use that API.
@@ -509,6 +565,7 @@ class PipeTask(luigi.Task, PipeBase):
         Returns:
             None
         """
+        assert False, "add_db_target is deprecated until we revisit semantics of DB bundle links."
         self.db_targets.append(db_target)
 
     def create_output_table(self, dsn, table_name, schema_name=None):
@@ -625,16 +682,31 @@ class PipeTask(luigi.Task, PipeBase):
         """
         Disdat Pipe API Function
 
-        Adds tags to bundle.
+        Retrieve the tag dictionary from an upstream task.
 
         Args:
-            user_arg_name (str): keyword arg name of input bundle for which to return tags
+            user_arg_name (str): keyword arg name of input bundle data for which to return tags
 
         Returns:
             tags (dict (str, str)): key value pairs (string, string)
         """
         assert user_arg_name in self._input_tags
         return self._input_tags[user_arg_name]
+
+    def get_bundle_uuid(self, user_arg_name):
+        """
+        Disdat Pipe API Function
+
+        Retrieve the UUID from an upstream task.
+
+        Args:
+            user_arg_name (str): keyword arg name of input bundle data for which to return tags
+
+        Returns:
+            uuid (str)
+        """
+        assert user_arg_name in self._input_bundle_uuids
+        return self._input_bundle_uuids[user_arg_name]
 
     def mark_force(self):
         """

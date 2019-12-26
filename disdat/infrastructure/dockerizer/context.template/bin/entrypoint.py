@@ -9,7 +9,7 @@ Entry point for pipelines run within Docker images.
 from __future__ import print_function
 
 import argparse
-import disdat.apply
+import subprocess
 import disdat.common
 import disdat.fs
 import disdat.api
@@ -200,15 +200,11 @@ def run_disdat_container(args):
         sys.exit(os.EX_IOERR)
 
     # If specified, decode the ordinary 'key:value' strings into a dictionary of tags.
-    input_tags = {}
-    if args.input_tag is not None:
-        input_tags = disdat.common.parse_args_tags(args.input_tag)
-    output_tags = {}
-    if args.output_tag is not None:
-        output_tags = disdat.common.parse_args_tags(args.output_tag)
+    input_tags = disdat.common.parse_args_tags(args.input_tag)
+    output_tags = disdat.common.parse_args_tags(args.output_tag)
 
     # Convert string of pipeline args into dictionary for api.apply
-    pipeline_args = disdat.common.parse_params(args.pipeline_args)
+    deser_user_params = disdat.common.parse_params(args.pipe_cls, args.pipeline_args)
 
     # If the user wants final and intermediate, then inc push.
     if not args.no_push and not args.no_push_intermediates:
@@ -218,13 +214,14 @@ def run_disdat_container(args):
 
     try:
         result = disdat.api.apply(args.branch,
-                                  args.pipeline,
+                                  args.pipe_cls,
                                   output_bundle=args.output_bundle,
                                   input_tags=input_tags,
                                   output_tags=output_tags,
-                                  params=pipeline_args,
+                                  params=deser_user_params,
                                   output_bundle_uuid=args.output_bundle_uuid,
                                   force=args.force,
+                                  force_all=args.force_all,
                                   workers=args.workers,
                                   incremental_push=incremental_push,
                                   incremental_pull=incremental_pull)
@@ -251,7 +248,7 @@ def run_disdat_container(args):
         _logger.error('Failed to run pipeline: RuntimeError {}'.format(re))
         sys.exit(os.EX_IOERR)
 
-    except disdat.common.ApplyException as ae:
+    except disdat.common.ApplyError as ae:
         _logger.error('Failed to run pipeline: ApplyException {}'.format(ae))
         sys.exit(os.EX_IOERR)
 
@@ -269,6 +266,17 @@ def main(input_args):
     # the default params below to handle most cases.  This is an example
     # of how you might do this in the future if needed.
     # some_default = os.environ[ENVVAR] if ENVVAR in os.environ else None
+
+    # Skip all the argparse stuff, and first check for --entrypoint
+    try:
+        entrypoint = input_args.index('--entrypoint')
+        del input_args[entrypoint]
+        input_args.insert(0, input_args.pop(entrypoint))
+        return subprocess.call(input_args)
+    except ValueError:
+        # There is no entrypoint override, no worries
+        pass
+
 
     parser = argparse.ArgumentParser(
         description=_HELP,
@@ -357,13 +365,19 @@ def main(input_args):
     pipeline_parser.add_argument(
         '--force',
         action='store_true',
-        help='Force recomputation of all pipe dependencies (default is to recompute dependencies with changed inputs or code)',
+        help='Force recomputation of the last task.',
     )
 
     pipeline_parser.add_argument(
-        'pipeline',
+        '--force-all',
+        action='store_true',
+        help='Force recomputation of all upstream tasks.',
+    )
+
+    pipeline_parser.add_argument(
+        'pipe_cls',
         default=None,
-        type=str,
+        type=disdat.common.load_class,
         help=add_argument_help_string("Name of the pipeline class to run, e.g., 'package.module.ClassName'"),
     )
 

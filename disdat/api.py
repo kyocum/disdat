@@ -37,6 +37,8 @@ import sys
 import json
 import shutil
 import getpass
+import warnings
+import importlib
 import errno
 
 import luigi
@@ -138,7 +140,6 @@ class Bundle(HyperFrameRecord):
         If #2 then, it's easy to use a bundle object and write it to multiple
         contexts.   We should close or destroy a bundle in case 2.
 
-
         Args:
             local_context (str): Where this bundle will be output or where it was sourced from.
             name (str): Human name for this bundle
@@ -195,10 +196,12 @@ class Bundle(HyperFrameRecord):
 
     @property
     def params(self):
-        """ Return the tags that were parameters """
-        return {k.strip(common.BUNDLE_TAG_PARAMS_PREFIX):json.loads(v)
-                 for k,v in self.tag_dict.items()
-                 if common.BUNDLE_TAG_PARAMS_PREFIX in k}
+        """ Return the tags that were parameters
+        This returns the string version of the parameters (how they were serialized into the bundle)
+        Note that we currently use Luigi Parameter parse and serialize to go from string and to string.
+        Luigi does so to interpret command-line arguments.
+        """
+        return {k[len(common.BUNDLE_TAG_PARAMS_PREFIX):]: v for k, v in self.tag_dict.items() if k.startswith(common.BUNDLE_TAG_PARAMS_PREFIX)}
 
     """ Alternative construction post allocation """
 
@@ -300,6 +303,7 @@ class Bundle(HyperFrameRecord):
                                code_semver=cv.semver,
                                code_hash=cv.hash,
                                code_branch=cv.branch,
+                               code_method='unknown', # TODO: capture pkg.mod.class.method that creates bundle
                                depends_on=self.depends_on)
 
             self.add_lineage(lr)
@@ -507,7 +511,6 @@ class Bundle(HyperFrameRecord):
         assert (self.open and not self.closed)
 
         file_basename = os.path.basename(existing_file)
-
         target = PipeBase.filename_to_luigi_targets(self.local_dir, file_basename)
 
         with target.temporary_path() as temp_path:
@@ -848,23 +851,21 @@ def rm(local_context, bundle_name=None, uuid=None, tags=None, rm_all=False, rm_o
           uuid=uuid, tags=tags, force=force, data_context=data_context)
 
 
-def add(local_context, bundle_name, path, tags=None, treat_file_as_bundle=False):
+def add(local_context, bundle_name, path, tags=None):
     """  Create bundle bundle_name given path path_name.
 
     If path is a directory, then create bundle with items in directory as a list of links.
-    If path is a file:
-        If treat_file_as_bundle and ends in .tsv or .csv then treat as dataframe presented bundle.
-    else:
-        Create bundle as single link to this file.
+    If path is a file or set of files:
+        Create bundle as links to this file.
 
-    Creates a bundle that presents as a list of one or more files.
+    Note: Bundle presents as Python list of files, unless path is a single file.  In which case
+    the Bundle presents as just a single file link.
 
     Args:
         local_context (str): The local context in which to create this bundle
         bundle_name (str):  The human name for this new bundle
         path (str):  The directory or file from which to create a bundle
         tags (dict):  The set of tags to attach to this bundle
-        treat_file_as_bundle (bool): Whether to treat file as a bundle
 
     Returns:
         `api.Bundle`
@@ -874,20 +875,21 @@ def add(local_context, bundle_name, path, tags=None, treat_file_as_bundle=False)
                                                                      bundle_name,
                                                                      local_context))
 
-    # Ensure path exists before creating bundle
-    assert os.path.exists(path), "Disdat cannot find file at path: {}".format(path)
+    # The user can pass either a path or an iterable of paths,
+    # convert single paths to iterable for compatibility
+    paths = path
+    try:
+        assert os.path.exists(paths)
+        paths = [paths]
+    except TypeError:
+        pass
 
     with Bundle(local_context, bundle_name, getpass.getuser()) as b:
-        if treat_file_as_bundle:
-            # Make sure file is .csv or .tsv
-            assert str(path).endswith(('.csv', '.tsv')), 'Disdat can only add tsv/csv files as bundles, please ' \
-                                                             'provide a .csv or .tsv file.'
+        file_list = []
 
-            bundle_df = pd.read_csv(path, sep=None)  # sep=None means python parse engine detects sep
-            b.add_data(bundle_df)
+        for path in paths:
+            assert os.path.exists(path), "Disdat cannot find file at path: {}".format(path)
 
-        else:
-            file_list = []
             if os.path.isfile(path):
                 thing = b.copy_in_file(path)
                 file_list.append(thing)
@@ -907,7 +909,10 @@ def add(local_context, bundle_name, path, tags=None, treat_file_as_bundle=False)
                         src_full_path = os.path.join(root,name)
                         shutil.copyfile(src_full_path, dst_full_path)
                         file_list.append(dst_full_path)
-            b.add_data(file_list)
+
+        # Return the list (unless it is length 1)
+        file_list = file_list[0] if len(file_list) == 1 else file_list
+        b.add_data(file_list)
 
         if tags is not None and len(tags) > 0:
             b.add_tags(tags)
@@ -1008,7 +1013,8 @@ def pull(local_context, bundle_name=None, uuid=None, localize=False):
 
 
 def apply(local_context, transform, output_bundle='-',
-          input_tags=None, output_tags=None, force=False, params=None,
+          input_tags=None, output_tags=None, force=False,
+          force_all=False, params=None,
           output_bundle_uuid=None, central_scheduler=False, workers=1,
           incremental_push=False, incremental_pull=False):
     """ Execute a Disdat pipeline natively on the local machine.   Note that `api.run` will execute
@@ -1016,11 +1022,12 @@ def apply(local_context, transform, output_bundle='-',
 
     Args:
         local_context (str):  The name of the local context in which the pipeline will run in the container
-        transform (str): The name of the Disdat Pipe class, typically `<package>.<module>.<class>`
+        transform (type[disdat.pipe.PipeTask]): A reference to the Disdat Pipe class
         output_bundle (str):  The name of the output bundle.  Defaults to `<task_name>_<param_hash>`
         input_tags: optional tags dictionary for selecting input bundle
         output_tags: optional tags dictionary to tag output bundle
-        force: Force re-running this transform, default False
+        force (bool): Force re-running this transform, default False
+        force_all (bool): Force re-running ALL transforms, default False
         params: optional parameters dictionary
         output_bundle_uuid: Force UUID of output bundle
         central_scheduler (bool): Use a central scheduler, default False, i.e., use local scheduler
@@ -1033,6 +1040,13 @@ def apply(local_context, transform, output_bundle='-',
 
     """
 
+    # check for deprecated str input for transform
+    if isinstance(transform, str):
+        msg = ('PipeTask classes should be passed as references, not strings, '
+               'support for string inputs will be removed in future versions')
+        warnings.warn(msg, DeprecationWarning)
+        transform = common.load_class(transform)
+
     data_context = _get_context(local_context)
 
     if input_tags is None:
@@ -1044,13 +1058,11 @@ def apply(local_context, transform, output_bundle='-',
     if params is None:
         params = {}
 
-    task_params = json.dumps(params)
-
     # IF apply raises, let it go up.
     # If API, caller can catch.
     # If CLI, python will exit 1
-    result = disdat.apply.apply(output_bundle, task_params, transform,
-                                input_tags, output_tags, force,
+    result = disdat.apply.apply(output_bundle, params, transform,
+                                input_tags, output_tags, force, force_all,
                                 output_bundle_uuid=output_bundle_uuid,
                                 central_scheduler=central_scheduler,
                                 workers=workers,
@@ -1077,6 +1089,7 @@ def run(local_context,
         input_tags=None,
         output_tags=None,
         force=False,
+        force_all=False,
         no_pull=False,
         no_push=False,
         no_push_int=False,
@@ -1099,7 +1112,8 @@ def run(local_context,
         remote (str): The remote's S3 path
         input_tags (dict): str:str dictionary of tags required of the input bundle
         output_tags (dict): str:str dictionary of tags placed on all output bundles (including intermediates)
-        force (bool):  Currently not respected.  But should re-run the entire pipeline no matter prior outputs
+        force (bool):  Re-run the last pipe task no matter prior outputs
+        force_all (bool):  Re-run the entire pipeline no matter prior outputs
         no_pull (bool): Do not pull before execution
         no_push (bool): Do not push any output bundles after task execution
         no_push_int (bool):  Do not push intermediate task bundles after execution
@@ -1131,6 +1145,7 @@ def run(local_context,
                        input_tags=input_tags,
                        output_tags=output_tags,
                        force=force,
+                       force_all=force_all,
                        context=context,
                        remote=remote,
                        no_pull=no_pull,

@@ -52,6 +52,7 @@ message HyperFrame {
 // Records the format of the data when the hframe was created
 // And is used to reconstitute the same form when presenting the data to the user.
 // The DEFAULT tag represent an unset / default presentation entry.
+// The JSON tag represents presentations that haven't explicitly typed for, such as Python "NoneType" value.
 // -----------------------------------------------------------------------------
 
 
@@ -62,6 +63,7 @@ enum Presentation {
     TENSOR  = 4;
     ROW     = 5;
     DEFAULT = 6;
+    JSON    = 7;
 }
 
 
@@ -130,6 +132,7 @@ message Lineage {
     repeated Dependency depends_on = 11;
     double start_time = 12;
     double stop_time = 13;
+    string code_method = 14;
 }
 
 

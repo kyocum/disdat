@@ -41,7 +41,7 @@ def test():
 
     api.context(TEST_CONTEXT)
 
-    api.apply(TEST_CONTEXT, 'DataMaker', params={'int_array': '[1000,2000,3000]'})
+    api.apply(TEST_CONTEXT, DataMaker, params={'int_array': [1000, 2000, 3000]})
 
     b = api.get(TEST_CONTEXT, 'PreMaker_auf_datamaker')
 
@@ -49,7 +49,7 @@ def test():
 
     b.rm()
 
-    api.apply(TEST_CONTEXT, 'Root_1')
+    api.apply(TEST_CONTEXT, Root_1)
 
     b = api.get(TEST_CONTEXT, 'PreMaker_auf_root')
 
@@ -62,11 +62,11 @@ class DataMaker(PipeTask):
     """ Run this by itself.
     Then B requires DataMaker as external, and A. """
 
-    int_array = luigi.ListParameter(default=[1,2,3,5,8])
+    int_array = luigi.ListParameter(default=[1, 2, 3, 5, 8])
 
     def pipe_requires(self):
         self.set_bundle_name("DataMaker")
-        self.add_dependency('premaker', PreMaker, {'printme':"auf_datamaker"})
+        self.add_dependency('premaker', PreMaker, {'printme': "auf_datamaker"})
         return
 
     def pipe_run(self, premaker=None):
@@ -86,14 +86,14 @@ class PreMaker(PipeTask):
 
         print("Task premaker says {}".format(self.printme))
 
-        return pd.DataFrame({'fark':np.random.randint(100, size=10), 'bark':np.random.randint(10, size=10)})
+        return pd.DataFrame({'fark': np.random.randint(100, size=10), 'bark': np.random.randint(10, size=10)})
 
 
 class Root_1(PipeTask):
 
     def pipe_requires(self):
         self.add_dependency('premaker', PreMaker, {'printme': "auf_root"})
-        self.add_external_dependency('datamaker', DataMaker, {'int_array': [1000,2000,3000]})
+        self.add_external_dependency('datamaker', DataMaker, {'int_array': [1000, 2000, 3000]})
 
     def pipe_run(self, premaker=None, datamaker=None):
 

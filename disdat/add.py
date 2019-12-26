@@ -40,10 +40,9 @@ def _add(args):
         return
 
     _ = api.add(fs._curr_context.get_local_name(),
-            args.bundle,
-            args.path_name,
-            tags=common.parse_args_tags(args.tag),
-            treat_file_as_bundle=args.inline_bundle)
+                args.bundle,
+                args.path_name,
+                tags=common.parse_args_tags(args.tag))
 
     return
 
@@ -58,8 +57,6 @@ def init_add_cl(subparsers):
     add_p = subparsers.add_parser('add', description='Create a bundle from a .csv, .tsv, or a directory of files.')
     add_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
                        help="Set one or more tags: 'dsdt add -t authoritative:True -t version:0.7.1'")
-    add_p.add_argument('-i', '--inline-bundle', action='store_true', default=False,
-                       help="Import a .tsv or a .csv file as an inline bundle.  Will present as a Pandas dataframe.")
     add_p.add_argument('bundle', type=str, help='The destination bundle in the current context')
     add_p.add_argument('path_name', type=str, help='File or directory of files to add to the bundle', action='store')
     add_p.set_defaults(func=lambda args: _add(args))
