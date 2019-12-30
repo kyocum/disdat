@@ -530,7 +530,7 @@ class PipeTask(luigi.Task, PipeBase):
             elif human_name is not None:
                 hfr = self.pfs.get_latest_hframe(human_name, data_context=self.data_context)
             else:
-                p = task_class(params)
+                p = task_class(**params)
                 hfr = self.pfs.get_hframe_by_proc(p.pipe_id(), data_context=self.data_context)
 
             bundle = api.Bundle(self.data_context.get_local_name(), 'unknown')
@@ -543,7 +543,7 @@ class PipeTask(luigi.Task, PipeBase):
             self.add_deps[param_name] = (luigi.task.externalize(task_class), params)
 
         except Exception as error:
-            _logger.warning("Unable to resolve external bundle by processing name({}): {}".format(p.pipe_id(), error))
+            _logger.warning("Unable to resolve external bundle made by class ({}): {}".format(task_class, error))
             return None
 
         return bundle
