@@ -280,7 +280,10 @@ class PipeTask(luigi.Task, PipeBase):
             raise
 
         try:
-            presentation, frames = PipeBase.parse_return_val(pce.uuid, user_rtn_val, self.data_context)
+            presentation, frames = PipeBase.parse_return_val(pce.uuid,
+                                                             user_rtn_val,
+                                                             self.data_context,
+                                                             self.incremental_push)
 
             hfr = PipeBase.make_hframe(frames,
                                        pce.uuid,
@@ -601,7 +604,24 @@ class PipeTask(luigi.Task, PipeBase):
 
         """
 
-        return self.make_luigi_targets_from_basename(filename)
+        return self.make_luigi_targets_from_basename(filename, self.data_context, False, self.incremental_push)
+
+    def create_output_file_remote(self, filename):
+        """
+        Disdat Pipe API Function
+
+        Pass in the name of your file, and get back an object to which you can write on S3.
+        Under the hood, this is a Luigi.contrib.s3.S3Target.
+
+        Args:
+            filename:  The name of your file, not the path.
+
+        Returns:
+            (`luigi.Target`):
+
+        """
+
+        return self.make_luigi_targets_from_basename(filename, self.data_context, True, self.incremental_push)
 
     def create_output_dir(self, dirname):
         """

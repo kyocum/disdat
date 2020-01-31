@@ -1026,7 +1026,7 @@ class DisdatFS(object):
 
         return found_link_frames
 
-    def shallow_hfr_copy(self, hfr, new_uuid=None, tags=None, presentation=None):
+    def shallow_hfr_copy(self, hfr, new_uuid=None, tags=None, presentation=None, data_context=None):
         """
         Take this existing hypeframe, find all the link frames, copy data to a new directory / uuid.
 
@@ -1043,24 +1043,28 @@ class DisdatFS(object):
             new_uuid: Optional new uuid to use for this new copy
             tags (:dict): Optional new set of tags to place on this copy.
             presentation: Optional new presentation
+            data_context (`disdat.data_context.DataContext`)
 
         Returns:
             hyperframe.HyperFrameRecord
 
         """
 
+        if data_context is None:
+            data_context = self.curr_context
+
         if new_uuid is None:
-            local_fs_managed_path, new_hfr_uuid, _ = self.curr_context.make_managed_path()
+            local_fs_managed_path, new_hfr_uuid, _ = data_context.make_managed_path()
         else:
             new_hfr_uuid = new_uuid
-            local_fs_managed_path = self.curr_context.implicit_hframe_path(new_uuid)
+            local_fs_managed_path = data_context.implicit_hframe_path(new_uuid)
             s3_managed_path = None  # unused _ above
 
         frame_copies = []
         need_to_copy = False
 
         # Move files in LINK frames to new local destination
-        for fr in hfr.get_frames(self.curr_context):
+        for fr in hfr.get_frames(data_context):
 
             if fr.is_hfr_frame():
                 # CASE 1:  Currently do not support HFR references.
@@ -1075,7 +1079,7 @@ class DisdatFS(object):
                 # For now we copy the remote S3 file to the local bundle.  Requires connectivity.  But
                 # this breaks the implicit dependency.
 
-                possible_fr_copy = self._copy_fr(fr, new_hfr_uuid, local_fs_managed_path)
+                possible_fr_copy = self._copy_fr(fr, new_hfr_uuid, local_fs_managed_path, data_context)
 
                 if possible_fr_copy is not fr:
                     need_to_copy = True
@@ -1138,9 +1142,9 @@ class DisdatFS(object):
 
                 # CASE 2:  If it is a local fs or an s3 frame, then we have to copy
                 if to_remote:
-                    self._copy_fr_links_to_branch(fr, data_context.get_remote_object_dir(), data_context)
+                    self._copy_fr_links_to_branch(fr, data_context.get_remote_object_dir(), data_context, to_remote=to_remote)
                 else:
-                    self._copy_fr_links_to_branch(fr, data_context.get_object_dir(), data_context)
+                    self._copy_fr_links_to_branch(fr, data_context.get_object_dir(), data_context, to_remote=to_remote)
 
         # Push hyperframe to remote
         data_context.write_hframe(hfr, to_remote=to_remote)
@@ -1148,7 +1152,7 @@ class DisdatFS(object):
         return
 
     @staticmethod
-    def _copy_fr_links_to_branch(fr, branch_object_dir, data_context):
+    def _copy_fr_links_to_branch(fr, branch_object_dir, data_context, to_remote):
         """
         Given a non-HyperFrame frame, if a local fs or s3 frame, do the
         copy_in to this branch.
@@ -1159,6 +1163,7 @@ class DisdatFS(object):
             fr:  Frame to possibly copy_in files to managed_path
             branch_object_dir: s3:// or file:/// path of the object directory on the branch
             data_context: The context from which to copy.
+            to_remote (bool): Optional.  Write to the remote on the current context. Default true.
 
         Returns:
             None
@@ -1168,7 +1173,7 @@ class DisdatFS(object):
         if fr.is_local_fs_link_frame() or fr.is_s3_link_frame():
             src_paths = data_context.actualize_link_urls(fr)
             bundle_dir = os.path.join(branch_object_dir, fr.hframe_uuid)
-            _ = DataContext.copy_in_files(src_paths, bundle_dir)
+            _ = data_context.copy_in_files(src_paths, bundle_dir, to_remote)
         return
 
     def _copy_hfr(self, hfr, copy_to='local', force_uuid=None):
@@ -1283,7 +1288,7 @@ class DisdatFS(object):
 
         return need_to_copy
 
-    def _copy_fr(self, fr, new_hfr_uuid, managed_path):
+    def _copy_fr(self, fr, new_hfr_uuid, managed_path, data_context=None):
         """
         Given a non-HyperFrame frame, if a local fs or s3 frame, do the
         copy_in to the managed_path.
@@ -1292,6 +1297,7 @@ class DisdatFS(object):
             fr:  Frame to possibly copy_in files to managed_path
             new_hfr_uuid:  The new uuid of the new enclosing hframe
             managed_path: The s3 path where these files should go.
+            data_context: (`disdat.data_context.DataContext`)
 
         Returns:
             (`hyperframe.FrameRecord`): Return either a fr copy with new paths or same fr
@@ -1303,7 +1309,7 @@ class DisdatFS(object):
             # We should make sure that luigi targets are not copied in.
             assert self.curr_context is not None
             src_paths = self.curr_context.actualize_link_urls(fr)
-            new_paths = DataContext.copy_in_files(src_paths, managed_path)
+            new_paths = data_context.copy_in_files(src_paths, managed_path)
             fr = hyperframe.FrameRecord.make_link_frame(new_hfr_uuid, fr.pb.name, new_paths, managed_path)
         return fr
 
@@ -1394,7 +1400,7 @@ class DisdatFS(object):
             if fr.is_link_frame():
                 src_paths = data_context.actualize_link_urls(fr)
                 for f in src_paths:
-                    DataContext.copy_in_files(f, managed_path)
+                    data_context.copy_in_files(f, managed_path, False)
 
     @staticmethod
     def fast_pull(data_context, localize):

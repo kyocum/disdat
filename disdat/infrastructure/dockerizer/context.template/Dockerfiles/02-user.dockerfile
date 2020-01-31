@@ -37,7 +37,7 @@ RUN if [ -f $BUILD_ROOT/config/$OS_NAME/r.txt ]; then \
      r-recommended \
      libcurl4-openssl-dev; \
 	for pkg in $(cat $BUILD_ROOT/config/$OS_NAME/r.txt); do \
-		R -e "install.packages('$pkg', repos='http://cran.us.r-project.org')"; \
+		R -e "install.packages('$pkg', repos='https://cloud.r-project.org/')"; \
 	done; \
 fi
 

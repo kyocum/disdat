@@ -25,6 +25,7 @@ from sqlalchemy import create_engine
 import pandas as pd
 import numpy as np
 import luigi
+from luigi.contrib.s3 import S3Target
 from six.moves import urllib
 import six
 
@@ -923,8 +924,7 @@ class DataContext(object):
 
         return found.sort(key=lambda hfr: hfr.pb.processing_name)
 
-    @staticmethod
-    def convert_scalar2frame(hfid, name, scalar, managed_path):
+    def convert_scalar2frame(self, hfid, name, scalar, managed_path, incremental_push):
         """
         Convert a scalar into a frame.  First, place inside an ndarray,
         and then hand off to serieslike2frame()
@@ -934,6 +934,7 @@ class DataContext(object):
             name:
             scalar:
             managed_path:
+            incremental_push: Incrementally push bundles to remote
 
         Returns:
             ndarray wrapping scalar
@@ -942,10 +943,9 @@ class DataContext(object):
         assert (not (isinstance(scalar, list) or isinstance(scalar, tuple) or
                      isinstance(scalar,dict) or isinstance(scalar, np.ndarray)) )
         series_like = np.reshape(np.array(scalar), (1))
-        return DataContext.convert_serieslike2frame(hfid, name, series_like, managed_path)
+        return self.convert_serieslike2frame(hfid, name, series_like, managed_path, incremental_push)
 
-    @staticmethod
-    def convert_serieslike2frame(hfid, name, series_like, managed_path):
+    def convert_serieslike2frame(self, hfid, name, series_like, managed_path, incremental_push):
         """
         Convert series-like to a frame.
         If the frame has file paths, we will copy in if the managed path is set.
@@ -955,6 +955,7 @@ class DataContext(object):
             name:
             series_like: a list-like
             managed_path: for copy_in
+            incremental_push: Incrementally push bundles to remote
 
         Returns:
             (`hyperframe.FrameRecord`)
@@ -974,14 +975,13 @@ class DataContext(object):
 
         if hyperframe.FrameRecord.is_link_series(series_like):
             assert managed_path is not None
-            series_like = [DataContext.copy_in_files(x, managed_path) for x in series_like]
+            series_like = [self.copy_in_files(x, managed_path, incremental_push) for x in series_like]
             frame = hyperframe.FrameRecord.make_link_frame(hfid, name, series_like, managed_path)
         else:
             frame = hyperframe.FrameRecord.from_serieslike(hfid, name, series_like)
         return frame
 
-    @staticmethod
-    def convert_df2frames(hfid, df, managed_path):
+    def convert_df2frames(self, hfid, df, managed_path, incremental_push):
         """
         Given a Pandas dataframe, convert this into a set of frames.
 
@@ -995,6 +995,7 @@ class DataContext(object):
             hfid: hyperframe uuid
             df: dataframe of input data
             managed_path: Optional path when the df contains file pointers.
+            incremental_push: Incrementally push bundles to remote
 
         Returns:
             (list:`hyperframe.FrameRecord`)
@@ -1005,7 +1006,7 @@ class DataContext(object):
             if 'Unnamed:' in c:
                 # ignore columsn without names, like default index columns
                 continue
-            frames.append(DataContext.convert_serieslike2frame(hfid, c, df[c], managed_path))
+            frames.append(self.convert_serieslike2frame(hfid, c, df[c], managed_path, incremental_push))
         return frames
 
     @staticmethod
@@ -1040,8 +1041,7 @@ class DataContext(object):
         else:
             return ''
 
-    @staticmethod
-    def copy_in_files(src_files, dst_dir):
+    def copy_in_files(self, src_files, dst_dir, incremental_push):
         """
         Given a set of link URLs, move them to the destination.
 
@@ -1058,7 +1058,8 @@ class DataContext(object):
 
         Args:
             src_files (:list:str):  A single file path or a list of paths
-            dst_dir (str):
+            dst_dir (str): Local or Remote managed dirs
+            incremental_push: Incrementally push bundles to remote
 
         Returns:
             file_set: set of new paths where files were copies.  either one file or a list of files
@@ -1067,29 +1068,45 @@ class DataContext(object):
         file_set = []
         return_one_file = False
 
-        if isinstance(src_files, six.string_types) or isinstance(src_files, luigi.LocalTarget) or isinstance(src_files, DBLink):
+        if isinstance(src_files, six.string_types) or \
+                isinstance(src_files, luigi.LocalTarget) or \
+                isinstance(src_files, S3Target) or \
+                isinstance(src_files, DBLink):
             return_one_file = True
             src_files = [src_files]
 
         dst_scheme = urllib.parse.urlparse(dst_dir).scheme
 
         for src_path in src_files:
-            try:
-                # If this is a luigi LocalTarget and it's in a managed path
-                # space, convert the target to a path name but no copy.
-                if src_path.path.startswith(dst_dir):
-                    file_set.append(urllib.parse.urljoin('file:', src_path.path))
-                    continue
-                else:
-                    src_path = src_path.path
-            except AttributeError:
-                pass
-
+            # TODO: Can we take this out?
             # If DBTarget, just pass it on through.
             if isinstance(src_path, DBLink):
                 file_set.append(src_path)
                 continue
 
+            if isinstance(src_path, luigi.LocalTarget) or isinstance(src_path, S3Target):
+                src_path = src_path.path
+
+            # Do not copy src file in to local if:
+            # 1. Managed Local File or
+            # 2. Managed S3 File (Remote and push should be set)
+            # 3. Non Managed S3 File (Remote and push should be set)
+
+            if src_path.startswith(dst_dir):
+                file_set.append(urllib.parse.urljoin('file:', src_path))
+                continue
+
+            if self.remote_ctxt_url and incremental_push:
+                uuid = os.path.basename(dst_dir.rstrip('/'))
+                managed_path_s3 = os.path.join(self.get_remote_object_dir(), uuid)
+                if src_path.startswith(managed_path_s3):
+                    file_set.append(src_path)
+                    continue
+                if urllib.parse.urlparse(src_path).scheme == 's3' and dst_dir == os.path.join(self.get_object_dir(), uuid):
+                    file_set.append(src_path)
+                    continue
+
+            # TODO: Can we take this out?
             # Detect manual db:// paths and error out.
             if urllib.parse.urlparse(src_path).scheme == 'db':
                 """ At this time we don't support user-supplied db link paths
