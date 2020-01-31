@@ -97,7 +97,7 @@ class BundleWrapperTask(PipeTask):
 
     Two implementation options:
     1.) We add a "add_bundle_dependency()" call to Disdat.  This directly changes how we schedule.
-    2.) We add a special Luigi task (as luigi has for outside files) and use that to produce the
+    2.) We add a special Luigi task (as luigi has for outside files) and use that to proddduce the
     processing_name, when there isn't an actual task creating the data.
 
     Thus this task is mainly to provide a way that

@@ -214,7 +214,7 @@ class Train(PipeTask):
         # Note 2: You can return file paths, directories, or luigi.LocalTarget.
         # If a directory, Disdat takes all files directly under the directory.
 
-        return {'save_files': [save_dir], 'save_dir': ['MNIST_tf_model']}
+        return {'save_files': [save_dir], 'model_name': ['MNIST_tf_model']}
 
 
 class Evaluate(PipeTask):
@@ -257,6 +257,7 @@ class Evaluate(PipeTask):
 
         return report
 
+
 if __name__ == "__main__":
     print ("Using Disdat API to run the pipeline")
-    api.apply('examples', 'Evaluate')
+    api.apply('examples', Evaluate)

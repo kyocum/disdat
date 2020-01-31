@@ -98,8 +98,9 @@ setup(
 
     install_requires=[
         'luigi==2.8.9',
-        'boto3==1.9.209',
-        'botocore<1.13.0,>=1.12.209',  # ensure boto3 botocore compat
+        #'boto3==1.9.209',
+        'boto3',
+        #'botocore<1.13.0,>=1.12.209',  # ensure boto3 botocore compat
         'termcolor==1.1.0',
         'docker==4.0.2',
         'pandas==0.24.2',

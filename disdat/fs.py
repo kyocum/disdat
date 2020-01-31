@@ -1028,7 +1028,7 @@ class DisdatFS(object):
 
     def shallow_hfr_copy(self, hfr, new_uuid=None, tags=None, presentation=None):
         """
-        Take this existing hypeframe, find all the link frames, copy data to a new directory / uuid.
+        Take this existing hyperframe, find all the link frames, copy data to a new directory / uuid.
 
         NOTE: Will mutate this HyperFrameRecord and the pb it contains.  If you read from the disk or you
         read from the sqlite db, we will have already made a copy for you.  I.e., 'get_hframes' makes copies.
@@ -1150,7 +1150,7 @@ class DisdatFS(object):
     @staticmethod
     def _copy_fr_links_to_branch(fr, branch_object_dir, data_context):
         """
-        Given a non-HyperFrame frame, if a local fs or s3 frame, do the
+        Given a frame, if a local fs or s3 frame, do the
         copy_in to this branch.
 
         NOTE: similar to _copy_fr() except we do not make a copy of the fr.
