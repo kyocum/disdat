@@ -60,9 +60,14 @@ class ApplyError(Exception):
         return self.apply_result
 
 
+class ExtDepError(Exception):
+    def __init__(self, message):
+        super(ExtDepError, self).__init__(message)
+
+
 class CatNoBundleError(Exception):
     def __init__(self, message):
-        super(ApplyError, self).__init__(message)
+        super(CatNoBundleError, self).__init__(message)
 
 
 def error(msg, *args, **kwargs):

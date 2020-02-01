@@ -42,16 +42,10 @@ This is a simple Disdat task that just loads that model to validate the data is 
 _logger = logging.getLogger(__name__)
 
 
-example_text= "Neural networks have become an essential part of machine learning workflows."
+example_text = "Neural networks have become an essential part of machine learning workflows."
 
 spacy_path = pkg_resources.resource_filename('pipelines', '')
 
-if sys.version_info > (3, 0):
-    P3 = True
-    P2 = False
-else:
-    P3 = False
-    P2 = True
 
 class SimpleNLP(PipeTask):
     """
@@ -65,10 +59,8 @@ class SimpleNLP(PipeTask):
         global spacy_path
 
         spacy_path = os.path.join(spacy_path, 'en_core_web_sm', 'en_core_web_sm-2.1.0')
-        if not P2:
-            nlp = spacy.load(spacy_path, disable=['parser', 'ner'])
-        else:
-            print ("Python 2.x environment detected.  Spacy has narrow unicode build issues.")
+
+        nlp = spacy.load(spacy_path, disable=['parser', 'ner'])
 
         return True
 
