@@ -38,11 +38,9 @@ import json
 import shutil
 import getpass
 import warnings
-import importlib
 import errno
 
 import luigi
-import pandas as pd
 
 import disdat.apply
 import disdat.run
@@ -184,7 +182,7 @@ class Bundle(HyperFrameRecord):
 
     @property
     def tags(self):
-        return self.tag_dict
+        return self.tag_dict  # from HyperFrameRecord
 
     @property
     def creation_date(self):
@@ -296,7 +294,11 @@ class Bundle(HyperFrameRecord):
                 cv = disdat.fs.CodeVersion(semver="0.1.0", hash="unknown", tstamp="unknown", branch="unknown",
                                       url="unknown", dirty="unknown")
 
-            lr = LineageRecord(hframe_name=self._set_processing_name(), # <--- setting processing name
+            wrapper_task = BundleWrapperTask(name=self.name,
+                                             owner=self.owner,
+                                             tags=self.tags)
+
+            lr = LineageRecord(hframe_name=self._set_processing_name(wrapper_task), # <--- setting processing name
                                hframe_uuid=self.uuid,
                                code_repo=cv.url,
                                code_name='unknown',
@@ -308,7 +310,11 @@ class Bundle(HyperFrameRecord):
 
             self.add_lineage(lr)
 
-            self.replace_tags(self.tags)
+            # Lastly add any parameters associated with this class as tags.
+            # They are differentiated by a special prefix in the key
+            self.add_tags(self._get_params_from_wrapper_task(wrapper_task))
+
+            self.replace_tags(self.tags)  # Intended use of side effect of setting the self.pb.hash as well.
 
             self.data_context.write_hframe(self)
 
@@ -382,7 +388,7 @@ class Bundle(HyperFrameRecord):
         return self
 
     def add_tags(self, tags):
-        """ Add tag to our set of input tags
+        """ Add tags to the bundle.  Updates if existing.
 
         Args:
             k,v (dict): string:string dictionary
@@ -526,7 +532,7 @@ class Bundle(HyperFrameRecord):
         """
         self.depends_on.append((bundle.processing_name, bundle.uuid))
 
-    def _set_processing_name(self):
+    def _set_processing_name(self, wrapper_task):
         """ Set a processing name that may be used to identify bundles that
         were created in the same way -- they used the same task and task paramaters.
         In cases where Luigi tasks create bundles, this is the luigi.Task.taskid()
@@ -535,15 +541,21 @@ class Bundle(HyperFrameRecord):
 
         Returns:
             processing_name(str)
+            wrapper_task(Luigi.Task)
 
         """
-        wrapper_task = BundleWrapperTask(name=self.name,
-                                         owner=self.owner,
-                                         tags=self.tags)
-
         self.pb.processing_name = wrapper_task.pipe_id()
 
         return self.pb.processing_name
+
+    def _get_params_from_wrapper_task(self, wrapper_task):
+        """
+
+        Returns:
+            processing_name(str)
+
+        """
+        return wrapper_task._get_subcls_params()
 
 
 def _get_context(context_name):

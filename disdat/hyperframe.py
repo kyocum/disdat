@@ -917,7 +917,6 @@ class HyperFrameRecord(PBObject):
             hyperframe.HyperFrameRecord
 
         """
-
         self.tag_dict = {}
 
         self.pb.ClearField('tags')

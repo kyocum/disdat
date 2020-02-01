@@ -6,9 +6,9 @@ setup(
     packages=find_packages(exclude=['config']),
     include_package_data=True,
     install_requires=[
-        'luigi==2.8.9',
+        'luigi==2.8.11',
         'spacy',
-        'pandas==0.24.2',
+        'pandas==0.25.3',
         'tensorflow==1.14.0',
     ],
 )

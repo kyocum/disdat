@@ -1413,7 +1413,15 @@ class DisdatFS(object):
 
         MAX_WAIT = 12 * 60
 
-        pool = Pool(processes = cpu_count()) # I/O bound, so let it use at least cpu_count()
+        # MacOS X fails when we multi-process using fork and boto sessions.
+        # One fix is to set this environment variable.   A better fix would be
+        # to find and address the boto session issue.  But there are a lot of reasons
+        # why that might not work either: https://www.wefearchange.org/2018/11/forkmacos.rst.html
+        # and that says why doing os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
+        # fails.  https://www.evanjones.ca/fork-is-dangerous.html
+        # https://github.com/ansible/ansible/issues/32499
+
+        pool = Pool(processes=cpu_count()) # I/O bound, so let it use at least cpu_count()
 
         _logger.debug("Fast Pull Pool using {} processes.".format(cpu_count()))
 
