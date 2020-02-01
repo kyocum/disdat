@@ -9,6 +9,6 @@ setup(
         'luigi==2.8.11',
         'spacy',
         'pandas==0.25.3',
-        'tensorflow==1.14.0',
+        'tensorflow==1.15.2',
     ],
 )
