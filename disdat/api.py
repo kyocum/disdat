@@ -181,16 +181,25 @@ class Bundle(HyperFrameRecord):
         return self.pb.uuid
 
     @property
-    def tags(self):
-        return self.tag_dict  # from HyperFrameRecord
-
-    @property
     def creation_date(self):
         return self.pb.lineage.creation_date
 
     @property
     def lineage(self):
         return self.pb.lineage
+
+    @property
+    def tags(self):
+        return self.tag_dict  # from HyperFrameRecord
+
+    @property
+    def user_tags(self):
+        """ Return the tags that the user set
+        bundle.tags holds all of the tags, including the "hidden" parameter tags.
+        This accesses everything but the parameter tags.
+        bundle.params accesses everything but the user tags
+        """
+        return {k: v for k, v in self.tag_dict.items() if not k.startswith(common.BUNDLE_TAG_PARAMS_PREFIX)}
 
     @property
     def params(self):
