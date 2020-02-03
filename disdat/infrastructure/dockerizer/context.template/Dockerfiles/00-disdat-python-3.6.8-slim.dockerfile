@@ -19,7 +19,7 @@ RUN apt-get upgrade -y
 # disdat uses pyodbc which requires gcc ,hence 'build-essential'
 # sometimes people need to install .deb files, hence gdebi
 RUN apt-get install -y git build-essential unixodbc-dev
-RUN easy_install virtualenv
+RUN pip install virtualenv==16.7.9
 
 # Install the kickstart scripts used by later layers
 COPY kickstart $KICKSTART_ROOT
