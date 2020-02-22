@@ -679,7 +679,7 @@ class DisdatFS(object):
             output_string += ' '.join(tags)
 
         if print_args:
-            tags = ["[{}]:[{}]".format(k.strip(common.BUNDLE_TAG_PARAMS_PREFIX), v)
+            tags = ["[{}]:[{}]".format(k[len(common.BUNDLE_TAG_PARAMS_PREFIX):], v)
                     for k, v in hfr.tag_dict.items() if common.BUNDLE_TAG_PARAMS_PREFIX in k]
             if len(tags) > 0:
                 output_string += '\n\t ARGS: ' + ' '.join(tags)
