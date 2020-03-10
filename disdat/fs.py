@@ -227,7 +227,7 @@ class DisdatFS(object):
 
         """
 
-        pipe_name = pipe_instance.pipe_id()
+        pipe_name = pipe_instance.processing_id()
 
         return DisdatFS.get_path_cache_by_name(pipe_name)
 
@@ -272,7 +272,7 @@ class DisdatFS(object):
             pce or raise KeyError
 
         """
-        pipe_name = pipe_instance.pipe_id()
+        pipe_name = pipe_instance.processing_id()
         pce = PipeCacheEntry(pipe_instance, uuid, path, rerun, is_left_edge_task)
         if pipe_name not in DisdatFS.task_path_cache:
             DisdatFS.task_path_cache[pipe_name] = pce

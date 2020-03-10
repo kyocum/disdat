@@ -78,7 +78,7 @@ class DriverTask(luigi.WrapperTask, PipeBase):
         """
 
         output_tasks = self.deps()
-        output_bundles = [(task.pipe_id(), self.pfs.get_path_cache(task).uuid) for task in output_tasks]
+        output_bundles = [(task.processing_id(), self.pfs.get_path_cache(task).uuid) for task in output_tasks]
 
         return output_bundles
 
@@ -99,7 +99,7 @@ class DriverTask(luigi.WrapperTask, PipeBase):
         """
 
         input_tasks = self.deps()
-        input_bundles = [(task.pipe_id(), self.pfs.get_path_cache(task).uuid) for task in input_tasks]
+        input_bundles = [(task.processing_id(), self.pfs.get_path_cache(task).uuid) for task in input_tasks]
         return input_bundles
 
     def pipe_id(self):

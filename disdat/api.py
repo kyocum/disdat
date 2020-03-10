@@ -119,7 +119,7 @@ class BundleWrapperTask(PipeTask):
         """ Determine input bundles """
         raise NotImplementedError
 
-    def pipeline_id(self):
+    def human_id(self):
         """ default is shortened version of pipe_id
         But here we want it to be the set name """
         return self.name
@@ -553,7 +553,7 @@ class Bundle(HyperFrameRecord):
             wrapper_task(Luigi.Task)
 
         """
-        self.pb.processing_name = wrapper_task.pipe_id()
+        self.pb.processing_name = wrapper_task.processing_id()
 
         return self.pb.processing_name
 

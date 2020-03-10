@@ -697,7 +697,9 @@ class DataContext(object):
         for fr in hfr.get_frames(self):
             hyperframe.w_pb_db(fr, self.local_engine)
 
-        self.prune_uncommitted_history(hfr.pb.human_name)
+        # Todo: Make it an option
+        # Note: We are changing the default human_name to be only the task name
+        # self.prune_uncommitted_history(hfr.pb.human_name)
 
         return result
 

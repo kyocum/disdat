@@ -104,7 +104,7 @@ class PipeTask(luigi.Task, PipeBase):
         For now: Apply Output Bundle "-" Pipe Class Name
         """
 
-        output_bundles = [(self.pipe_id(), self.pfs.get_path_cache(self).uuid)]
+        output_bundles = [(self.processing_id(), self.pfs.get_path_cache(self).uuid)]
         return output_bundles
 
     def bundle_inputs(self):
@@ -120,22 +120,22 @@ class PipeTask(luigi.Task, PipeBase):
         """
 
         input_tasks = self.deps()
-        input_bundles = [(task.pipe_id(), self.pfs.get_path_cache(task).uuid) for task in input_tasks]
+        input_bundles = [(task.processing_id(), self.pfs.get_path_cache(task).uuid) for task in input_tasks]
         return input_bundles
 
-    def pipe_id(self):
+    def processing_id(self):
         """
         Given a pipe instance, return the "processing_name" -- a unique string based on the class name and
         the parameters.  This re-uses Luigi code for getting the unique string.
 
-        NOTE: The PipeTask has a 'driver_output_bundle'.  This the name of the pipline output bundle given by the user.
+        NOTE: The PipeTask has a 'driver_output_bundle'.  This the name of the pipeline output bundle given by the user.
         Because this is a Luigi parameter, it is included in the Luigi self.task_id string and hash.  So we do not
         have to append this separately.
 
         """
         return self.task_id
 
-    def pipeline_id(self):
+    def human_id(self):
         """
         This is the "human readable" name;  a "less unique" id than the unique id.
 
@@ -158,8 +158,8 @@ class PipeTask(luigi.Task, PipeBase):
         elif self.user_set_human_name is not None:
             return self.user_set_human_name
         else:
-            id_parts = self.pipe_id().split('_')
-            return "{}_{}".format(id_parts[0],id_parts[-1])
+            id_parts = self.processing_id().split('_')
+            return "{}".format(id_parts[0])
 
     def get_hframe_uuid(self):
         """ Return the unique ID for this tasks current output hyperframe
@@ -287,8 +287,8 @@ class PipeTask(luigi.Task, PipeBase):
             hfr = PipeBase.make_hframe(frames,
                                        pce.uuid,
                                        cached_bundle_inputs,
-                                       self.pipeline_id(),
-                                       self.pipe_id(),
+                                       self.human_id(),
+                                       self.processing_id(),
                                        self,
                                        start_ts=start,
                                        stop_ts=stop,
@@ -533,7 +533,7 @@ class PipeTask(luigi.Task, PipeBase):
                 hfr = self.pfs.get_latest_hframe(human_name, data_context=self.data_context)
             else:
                 p = task_class(**params)
-                hfr = self.pfs.get_hframe_by_proc(p.pipe_id(), data_context=self.data_context)
+                hfr = self.pfs.get_hframe_by_proc(p.processing_id(), data_context=self.data_context)
 
             if hfr is None:
                 raise ExtDepError("Unable to resolve external bundle made by class ({})".format(task_class))
