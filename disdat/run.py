@@ -529,8 +529,12 @@ def add_arg_parser(parsers):
         "-f",
         "--force",
         action='store_true',
-        help="If there are dependencies, force re-computation."
+        help="Force recomputation of the last task."
     )
+    run_p.add_argument(
+        '--force-all',
+        action='store_true',
+        help="Force re-computation of ALL upstream tasks.")
     run_p.add_argument(
         "--no-submit",
         action='store_true',

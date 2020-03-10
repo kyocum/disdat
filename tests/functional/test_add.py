@@ -91,7 +91,7 @@ def test_single_file(tmpdir):
     # Assert the bundles contain the same data
     bundle_hash, file_hash = get_hash(b.data), get_hash(test_csv_path)
     assert bundle_hash == file_hash, 'Hashes do not match'
-    assert b.tags == tag, 'Tags do not match'
+    assert b.user_tags == tag, 'Tags do not match'
 
     # Remove test .csv
     os.remove(test_csv_path)
@@ -208,7 +208,7 @@ def test_add_directory(tmpdir):
         assert local_path == bundle_path, 'Bundle should have the same directory structure'
 
     # Make sure tags exist
-    assert b.tags == tag, 'Tags do not match'
+    assert b.user_tags == tag, 'Tags do not match'
 
     api.delete_context(TEST_CONTEXT)
 
