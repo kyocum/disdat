@@ -47,6 +47,7 @@ BUNDLE_URI_SCHEME = 'bundle://'
 # Some tags in bundles are special.  They are prefixed with '__'
 BUNDLE_TAG_PARAMS_PREFIX = '__param.'
 BUNDLE_TAG_TRANSIENT = '__transient'
+BUNDLE_TAG_PUSH_META = '__push_meta'
 
 LOCAL_EXECUTION = 'LOCAL_EXECUTION'  # Docker endpoint env variable if we're running a container locally
 
@@ -60,9 +61,14 @@ class ApplyError(Exception):
         return self.apply_result
 
 
+class ExtDepError(Exception):
+    def __init__(self, message):
+        super(ExtDepError, self).__init__(message)
+
+
 class CatNoBundleError(Exception):
     def __init__(self, message):
-        super(ApplyError, self).__init__(message)
+        super(CatNoBundleError, self).__init__(message)
 
 
 def error(msg, *args, **kwargs):

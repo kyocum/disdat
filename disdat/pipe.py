@@ -41,7 +41,7 @@ from disdat.pipe_base import PipeBase
 from disdat.db_link import DBLink
 from disdat.driver import DriverTask
 from disdat.fs import DisdatFS
-from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PARAMS_PREFIX
+from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PUSH_META, BUNDLE_TAG_PARAMS_PREFIX, ExtDepError
 from disdat import logger as _logger
 
 
@@ -312,11 +312,7 @@ class PipeTask(luigi.Task, PipeBase):
 
             self.data_context.write_hframe(hfr)
 
-            transient = False
-            if hfr.get_tag(BUNDLE_TAG_TRANSIENT) is not None:
-                transient = True
-
-            if self.incremental_push and not transient:
+            if self.incremental_push and (hfr.get_tag(BUNDLE_TAG_TRANSIENT) is None):
                 self.pfs.commit(None, None, uuid=pce.uuid, data_context=self.data_context)
                 self.pfs.push(uuid=pce.uuid, data_context=self.data_context)
 
@@ -507,7 +503,7 @@ class PipeTask(luigi.Task, PipeBase):
 
         Args:
             param_name (str): The parameter name this bundle assumes when passed to Pipe.run
-            task_class (:object):  Must always set class name of upstream task.
+            task_class (:object):  Must always set class name of upstream task if it was created from a PipeTask.   May be None if made by API.
             params (:dict):  Dictionary of parameters for this task.  Note if UUID is set, then params are ignored!
             human_name (str): Resolve dependency by human_name, return the latest bundle with that humman_name.  Trumps task_class and params.
             uuid (str): Resolve dependency by explicit UUID, trumps task_class and params, and human_name.
@@ -516,6 +512,7 @@ class PipeTask(luigi.Task, PipeBase):
             None
 
         """
+        # TODO: Store PipeTask class name so look ups by name or uuid do not require user to specify it.
 
         # for the bundle object
         import disdat.api as api
@@ -523,6 +520,9 @@ class PipeTask(luigi.Task, PipeBase):
         if not isinstance(params, dict):
             error = "add_dependency third argument must be a dictionary of parameters"
             raise Exception(error)
+
+        if task_class is None:
+            task_class = api.BundleWrapperTask
 
         assert (param_name not in self.add_deps)
 
@@ -535,18 +535,28 @@ class PipeTask(luigi.Task, PipeBase):
                 p = task_class(**params)
                 hfr = self.pfs.get_hframe_by_proc(p.pipe_id(), data_context=self.data_context)
 
+            if hfr is None:
+                raise ExtDepError("Unable to resolve external bundle made by class ({})".format(task_class))
+
             bundle = api.Bundle(self.data_context.get_local_name(), 'unknown')
 
             bundle.fill_from_hfr(hfr)
 
+            # if we found by uuid or human name, the hfr should have the params with which
+            # the task was called, so we need to grab them.
             if uuid is not None or human_name is not None:
                 params = task_class._put_subcls_params(bundle.params)
 
-            self.add_deps[param_name] = (luigi.task.externalize(task_class), params)
-
+        except ExtDepError as error:
+            bundle = None
         except Exception as error:
-            _logger.warning("Unable to resolve external bundle made by class ({}): {}".format(task_class, error))
-            return None
+            _logger.warning("Unable to resolve external bundle class[{}] name[{}] uuid[{}]: error [{}]".format(task_class,
+                                                                                                               human_name,
+                                                                                                               uuid,
+                                                                                                               error))
+            bundle = None
+        finally:
+            self.add_deps[param_name] = (luigi.task.externalize(task_class), params)
 
         return bundle
 
@@ -784,7 +794,7 @@ class PipeTask(luigi.Task, PipeBase):
         """
         self._mark_force = True
 
-    def mark_transient(self):
+    def mark_transient(self, push_meta=True):
         """
         Disdat Pipe API Function
 
@@ -797,7 +807,13 @@ class PipeTask(luigi.Task, PipeBase):
         And the entrypoint investigates the tag if we are not pushing incrementally.
         Otherwise, normal push commands from the CLI or api will work, i.e., manual pushes continue to work.
 
+        Args:
+            push_meta (bool): Push the meta-data but not the data. Else, push nothing.
+
         Returns:
             None
         """
-        self.add_tags({BUNDLE_TAG_TRANSIENT: 'True'})
+        if push_meta:
+            self.add_tags({BUNDLE_TAG_TRANSIENT: 'True', BUNDLE_TAG_PUSH_META: 'True'})
+        else:
+            self.add_tags({BUNDLE_TAG_TRANSIENT: 'True'})

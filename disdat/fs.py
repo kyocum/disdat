@@ -679,7 +679,7 @@ class DisdatFS(object):
             output_string += ' '.join(tags)
 
         if print_args:
-            tags = ["[{}]:[{}]".format(k.strip(common.BUNDLE_TAG_PARAMS_PREFIX), v)
+            tags = ["[{}]:[{}]".format(k[len(common.BUNDLE_TAG_PARAMS_PREFIX):], v)
                     for k, v in hfr.tag_dict.items() if common.BUNDLE_TAG_PARAMS_PREFIX in k]
             if len(tags) > 0:
                 output_string += '\n\t ARGS: ' + ' '.join(tags)
@@ -1073,7 +1073,7 @@ class DisdatFS(object):
     @staticmethod
     def _copy_fr_links_to_branch(fr, branch_object_dir, data_context):
         """
-        Given a non-HyperFrame frame, if a local fs or s3 frame, do the
+        Given a frame, if a local fs or s3 frame, do the
         copy_in to this branch.
 
         NOTE: similar to _copy_fr() except we do not make a copy of the fr.
@@ -1200,7 +1200,15 @@ class DisdatFS(object):
 
         MAX_WAIT = 12 * 60
 
-        pool = Pool(processes = cpu_count()) # I/O bound, so let it use at least cpu_count()
+        # MacOS X fails when we multi-process using fork and boto sessions.
+        # One fix is to set this environment variable.   A better fix would be
+        # to find and address the boto session issue.  But there are a lot of reasons
+        # why that might not work either: https://www.wefearchange.org/2018/11/forkmacos.rst.html
+        # and that says why doing os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
+        # fails.  https://www.evanjones.ca/fork-is-dangerous.html
+        # https://github.com/ansible/ansible/issues/32499
+
+        pool = Pool(processes=cpu_count()) # I/O bound, so let it use at least cpu_count()
 
         _logger.debug("Fast Pull Pool using {} processes.".format(cpu_count()))
 
