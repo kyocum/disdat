@@ -1080,7 +1080,7 @@ class DisdatFS(object):
 
         Args:
             fr:  Frame to possibly copy_in files to managed_path
-            branch_object_dir: s3:// or file:/// path of the object directo  bnry on the branch
+            branch_object_dir: s3:// or file:/// path of the object directory on the branch
             data_context: The context from which to copy.
 
         Returns:
