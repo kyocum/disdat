@@ -74,7 +74,7 @@ class PipeBase(object):
         pass
 
     @abstractmethod
-    def pipe_id(self):
+    def processing_id(self):
         """
         Given a pipe instance, return a unique string based on the class name and
         the parameters.
@@ -84,7 +84,7 @@ class PipeBase(object):
         pass
 
     @abstractmethod
-    def pipeline_id(self):
+    def human_id(self):
         """
         This is a "less unique" id than the unique id.  It is supposed to be the "human readable" name of the stage
         this pipe occupies in the pipesline.
@@ -116,9 +116,9 @@ class PipeBase(object):
 
         if pce is None:
             # This can happen when the pipe has been created with non-deterministic parameters
-            _logger.error("add_bundle_meta_files: could not find pce for task {}".format(pipe_task.pipe_id()))
+            _logger.error("add_bundle_meta_files: could not find pce for task {}".format(pipe_task.processing_id()))
             _logger.error("It is possible one of your tasks is parameterized in a non-deterministic fashion.")
-            raise Exception("add_bundle_meta_files: Unable to find pce for task {}".format(pipe_task.pipe_id()))
+            raise Exception("add_bundle_meta_files: Unable to find pce for task {}".format(pipe_task.processing_id()))
 
         hframe = {PipeBase.HFRAME: luigi.LocalTarget(os.path.join(pce.path, HyperFrameRecord.make_filename(pce.uuid)))}
 
@@ -320,7 +320,7 @@ class PipeBase(object):
 
         elif isinstance(val, HyperFrameRecord):
             presentation = hyperframe_pb2.HF
-            frames.append(FrameRecord.make_hframe_frame(hfid, pipe.pipeline_id(), [val]))
+            frames.append(FrameRecord.make_hframe_frame(hfid, pipe.human_id(), [val]))
 
         elif isinstance(val, np.ndarray) or isinstance(val, list):
             presentation = hyperframe_pb2.TENSOR
