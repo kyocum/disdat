@@ -16,7 +16,6 @@
 import pytest
 from disdat.pipe import PipeTask
 import disdat.api as api
-from disdat import common
 
 
 class ContextTest(PipeTask):

@@ -280,7 +280,9 @@ class PipeTask(luigi.Task, PipeBase):
             raise
 
         try:
-            presentation, frames = PipeBase.parse_return_val(pce.uuid, user_rtn_val, self.data_context)
+            presentation, frames = PipeBase.parse_return_val(pce.uuid,
+                                                             user_rtn_val,
+                                                             self.data_context)
 
             hfr = PipeBase.make_hframe(frames,
                                        pce.uuid,
@@ -600,18 +602,41 @@ class PipeTask(luigi.Task, PipeBase):
         """
         Disdat Pipe API Function
 
-        Pass in the name of your file, and get back an object to which you can write.
-        Under the hood, this is a Luigi.Target.
+        Pass in the name of your file, and get back a Luigi target object to which you can write.
 
         Args:
-            filename:  The name of your file, not the path.
+            filename (str, dict, list): A basename, dictionary of basenames, or list of basenames.
 
         Returns:
-            (`luigi.Target`):
+            (`luigi.LocalTarget`): Singleton, list, or dictionary of Luigi Target objects.
+        """
+
+        pce = self.pfs.get_path_cache(self)
+        assert (pce is not None)
+        output_dir = pce.path
+        return self.filename_to_luigi_targets(output_dir, filename)
+
+    def create_output_file_remote(self, filename):
+        """
+        Disdat Pipe API Function
+
+        Pass in the name of your file, and get back an object to which you can write on S3.
+
+        NOTE: Managed S3 paths are created only if a) remote is set (otherwise where would we put them?)
+        and b) incremental_push flag is True  (if we don't push bundle metadata, then the locations may be lost).
+
+        Args:
+            filename (str, dict, list): A basename, dictionary of basenames, or list of basenames.
+
+        Returns:
+            (`luigi.contrib.s3.S3Target`): Singleton, list, or dictionary of Luigi Target objects.
 
         """
 
-        return self.make_luigi_targets_from_basename(filename)
+        pce = self.pfs.get_path_cache(self)
+        assert (pce is not None)
+        output_dir = self.get_output_dir_remote()
+        return self.filename_to_luigi_targets(output_dir, filename)
 
     def create_output_dir(self, dirname):
         """
@@ -638,6 +663,26 @@ class PipeTask(luigi.Task, PipeBase):
 
         return fqp
 
+    def create_output_dir_remote(self, dirname):
+        """
+        Disdat Pipe API Function
+
+        Given basename directory name, return a fully qualified path whose prefix is the
+        remote output directory for this bundle in the current context.
+
+        NOTE: The current context must have a remote attached.
+
+        Args:
+            dirname (str): The name of the output directory, i.e., "models"
+
+        Returns:
+            output_dir (str):  Fully qualified path of a directory whose prefix is the bundle's remote output directory.
+
+        """
+        prefix_dir = self.get_output_dir_remote()
+        fqp = os.path.join(prefix_dir, dirname)
+        return fqp
+
     def get_output_dir(self):
         """
         Disdat Pipe API Function
@@ -649,12 +694,29 @@ class PipeTask(luigi.Task, PipeBase):
             output_dir (str):  The bundle's output directory
 
         """
-
-        # Find the path cache entry for this pipe to find its output path
         pce = self.pfs.get_path_cache(self)
         assert(pce is not None)
-
         return pce.path
+
+    def get_output_dir_remote(self):
+        """
+        Disdat Pipe API Function
+
+        Retrieve the output directory for this task's bundle.  You may place
+        files directly into this directory.
+
+        Returns:
+            output_dir (str):  The bundle's output directory on S3
+
+        """
+        pce = self.pfs.get_path_cache(self)
+        assert(pce is not None)
+        if self.data_context.remote_ctxt_url and self.incremental_push:
+            output_dir = os.path.join(self.data_context.get_remote_object_dir(), pce.uuid)
+        else:
+            raise Exception('Managed S3 path creation needs a) remote context and b) incremental push to be set')
+        return output_dir
+
 
     def set_bundle_name(self, human_name):
         """
