@@ -924,7 +924,7 @@ class DataContext(object):
 
         return found.sort(key=lambda hfr: hfr.pb.processing_name)
 
-    def convert_scalar2frame(self, hfid, name, scalar, managed_path, incremental_push):
+    def convert_scalar2frame(self, hfid, name, scalar, managed_path):
         """
         Convert a scalar into a frame.  First, place inside an ndarray,
         and then hand off to serieslike2frame()
@@ -934,7 +934,6 @@ class DataContext(object):
             name:
             scalar:
             managed_path:
-            incremental_push: Incrementally push bundles to remote
 
         Returns:
             ndarray wrapping scalar
@@ -943,19 +942,22 @@ class DataContext(object):
         assert (not (isinstance(scalar, list) or isinstance(scalar, tuple) or
                      isinstance(scalar,dict) or isinstance(scalar, np.ndarray)) )
         series_like = np.reshape(np.array(scalar), (1))
-        return self.convert_serieslike2frame(hfid, name, series_like, managed_path, incremental_push)
+        return self.convert_serieslike2frame(hfid, name, series_like, managed_path)
 
-    def convert_serieslike2frame(self, hfid, name, series_like, managed_path, incremental_push):
+    def convert_serieslike2frame(self, hfid, name, series_like, managed_path):
         """
         Convert series-like to a frame.
         If the frame has file paths, we will copy in if the managed path is set.
+
+        Note: This is called from parse_pipe_return_vals().   The user might have
+         created managed s3 paths and we do not need to copy the data to this local
+         context.
 
         Args:
             hfid:
             name:
             series_like: a list-like
             managed_path: for copy_in
-            incremental_push: Incrementally push bundles to remote
 
         Returns:
             (`hyperframe.FrameRecord`)
@@ -975,13 +977,13 @@ class DataContext(object):
 
         if hyperframe.FrameRecord.is_link_series(series_like):
             assert managed_path is not None
-            series_like = [self.copy_in_files(x, managed_path, incremental_push) for x in series_like]
+            series_like = [self.copy_in_files(x, managed_path, localize=False) for x in series_like]
             frame = hyperframe.FrameRecord.make_link_frame(hfid, name, series_like, managed_path)
         else:
             frame = hyperframe.FrameRecord.from_serieslike(hfid, name, series_like)
         return frame
 
-    def convert_df2frames(self, hfid, df, managed_path, incremental_push):
+    def convert_df2frames(self, hfid, df, managed_path):
         """
         Given a Pandas dataframe, convert this into a set of frames.
 
@@ -995,7 +997,6 @@ class DataContext(object):
             hfid: hyperframe uuid
             df: dataframe of input data
             managed_path: Optional path when the df contains file pointers.
-            incremental_push: Incrementally push bundles to remote
 
         Returns:
             (list:`hyperframe.FrameRecord`)
@@ -1006,7 +1007,7 @@ class DataContext(object):
             if 'Unnamed:' in c:
                 # ignore columsn without names, like default index columns
                 continue
-            frames.append(self.convert_serieslike2frame(hfid, c, df[c], managed_path, incremental_push))
+            frames.append(self.convert_serieslike2frame(hfid, c, df[c], managed_path))
         return frames
 
     @staticmethod
@@ -1041,7 +1042,7 @@ class DataContext(object):
         else:
             return ''
 
-    def copy_in_files(self, src_files, dst_dir, incremental_push):
+    def copy_in_files(self, src_files, dst_dir, localize=True):
         """
         Given a set of link URLs, move them to the destination.
 
@@ -1059,10 +1060,10 @@ class DataContext(object):
         Args:
             src_files (:list:str):  A single file path or a list of paths
             dst_dir (str): Local or Remote managed dirs
-            incremental_push: Incrementally push bundles to remote
+            localize (bool): If True, then copy src s3 -> dst file:/// (Default).  Else do not copy.
 
         Returns:
-            file_set: set of new paths where files were copies.  either one file or a list of files
+            file_set: set of new paths where files were copied.  Either one file or a list of files
 
         """
         file_set = []
@@ -1078,43 +1079,39 @@ class DataContext(object):
         dst_scheme = urllib.parse.urlparse(dst_dir).scheme
 
         for src_path in src_files:
-            # TODO: Can we take this out?
-            # If DBTarget, just pass it on through.
-            if isinstance(src_path, DBLink):
-                file_set.append(src_path)
-                continue
 
             if isinstance(src_path, luigi.LocalTarget) or isinstance(src_path, S3Target):
                 src_path = src_path.path
 
             # Do not copy src file in to local if:
             # 1. Managed Local File or
-            # 2. Managed S3 File (Remote and push should be set)
+            # 2. Managed S3 File (Remote and push should be set (checked at the time the user gets a managed path))
             # 3. Non Managed S3 File (Remote and push should be set)
 
             if src_path.startswith(dst_dir):
                 file_set.append(urllib.parse.urljoin('file:', src_path))
                 continue
 
-            if self.remote_ctxt_url and incremental_push:
+            if self.remote_ctxt_url:
+                """ If there is a remote and we see a source S3 path
+                If the destination is local, this is a pull (someone wants to localize)
+                If the destination is remote, this is a push (someone wants to push files up).
+                In the second case, if the s3 file is already managed, there is no reason to re-push the data. 
+                Either they pulled but did not localize, or created a managed s3 path. 
+                We assume to get the managed path, the user must have set incremental_push to True.   
+                    
+                If the user adds un-managed S3 paths, then we assume they meant to copy it in locally. 
+                If they don't want that, they should make managed paths.  
+                """
                 uuid = os.path.basename(dst_dir.rstrip('/'))
                 managed_path_s3 = os.path.join(self.get_remote_object_dir(), uuid)
-                if src_path.startswith(managed_path_s3):
+                if src_path.startswith(managed_path_s3) and not localize:
                     file_set.append(src_path)
                     continue
-                if urllib.parse.urlparse(src_path).scheme == 's3' and dst_dir == os.path.join(self.get_object_dir(), uuid):
-                    file_set.append(src_path)
-                    continue
-
-            # TODO: Can we take this out?
-            # Detect manual db:// paths and error out.
-            if urllib.parse.urlparse(src_path).scheme == 'db':
-                """ At this time we don't support user-supplied db link paths
-                Instead we assume these are managed.   Which means the db table already exists
-                and doesn't need to be 'copied-in'.   """
-                _logger.warn("Disdat does not copy-in database references[{}].  Assume user stored table as file.".format(src_path))
-                file_set.append(src_path)
-                continue
+                # If we want to change the policy to not copy in unmanaged s3 locally . . .
+                #if urllib.parse.urlparse(src_path).scheme == 's3' and dst_dir == os.path.join(self.get_object_dir(), uuid):
+                #    file_set.append(src_path)
+                #    continue
 
             # Src path can contain a sub-directory.
             sub_dir = DataContext.find_subdir(src_path, dst_dir)
@@ -1151,7 +1148,7 @@ class DataContext(object):
                         else:
                             raise Exception("copy_in_files: copy s3 to unsupported scheme {}".format(dst_scheme))
 
-                    elif o.scheme == 'db':
+                    elif o.scheme == 'db':  # left for back compat for now
                         _logger.debug("Skipping a db file on bundle add")
 
                     elif o.scheme == 'file':

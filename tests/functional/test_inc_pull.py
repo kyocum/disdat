@@ -24,6 +24,7 @@ author: Kenneth Yocum
 import boto3
 import luigi
 import moto
+import pytest
 
 from disdat.pipe import PipeTask
 import disdat.api as api
@@ -144,3 +145,7 @@ def test_add_with_treat_as_bundle():
             assert data_path.startswith('s3://'), 'Data should be in S3'
 
     api.delete_context(TEST_CONTEXT)
+
+
+if __name__ == '__main__':
+    pytest.main([__file__])

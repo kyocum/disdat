@@ -197,32 +197,6 @@ class PipeBase(object):
 
         assert False
 
-    def make_luigi_targets_from_fqp(self, output_value):
-        """
-        Given Fully Qualified Path -- Determine the Luigi objects
-
-        This is called from the output of PipeExternalBundle.
-
-        Given [], return [] of Luigi targets.
-        If len([]) == 1, return without []
-
-
-        Args:
-            output_value:
-
-        Returns:
-
-        """
-
-        if isinstance(output_value, list) or isinstance(output_value, tuple) or isinstance(output_value, dict):
-            assert False
-        else:
-            # This is principally for PipesExternalBundle, in which there is no index.
-            luigi_outputs = self._interpret_scheme(output_value)
-            print("OUTPUT VAL {} output {}".format(output_value, luigi_outputs))
-
-        return luigi_outputs
-
     @staticmethod
     def filename_to_luigi_targets(output_dir, output_value):
         """
@@ -255,39 +229,6 @@ class PipeBase(object):
             luigi_outputs = PipeBase._interpret_scheme(full_path)
 
         return luigi_outputs
-
-    def make_luigi_targets_from_basename(self, output_value, data_context, remote, incremental_push):
-        """
-        Determine the output paths AND create the Luigi objects.
-
-        Return the same object type as output_value, but with Luigi.Targets instead.
-
-        Note that we get the path from the DisdatFS Path Cache.   The path cache is a dictionary from
-        pipe.unique_id() to a path_cache_entry, which contains the fields: instance uuid path rerun
-
-        Args:
-            output_value (str, dict, list): A basename, dictionary of basenames, or list of basenames.
-            data_context (DataContext): The data context into which to place this value
-            remote: Managed file in local or remote
-            incremental_push: Incrementally push bundles to remote
-
-        Return:
-            (`luigi.LocalTarget`, `luigi.contrib.s3.S3Target`): Singleton, list, or dictionary of Luigi Target objects.
-        """
-        # Find the path cache entry for this pipe to find its output path
-        pce = self.pfs.get_path_cache(self)
-        assert (pce is not None)
-
-        # Managed S3 path is created only if a) remote is set and b) incremental_push flag is True
-        if remote:
-            if data_context.remote_ctxt_url and incremental_push:
-                output_dir = os.path.join(data_context.get_remote_object_dir(), pce.uuid)
-            else:
-                raise Exception('Managed S3 path creation needs a) remote context and b) incremental push to be set')
-        else:
-            output_dir = pce.path
-
-        return self.filename_to_luigi_targets(output_dir, output_value)
 
     @staticmethod
     def rm_bundle_dir(output_path, uuid, db_targets):
@@ -323,7 +264,7 @@ class PipeBase(object):
                 uuid, why))
 
     @staticmethod
-    def parse_return_val(hfid, val, data_context, incremental_push):
+    def parse_return_val(hfid, val, data_context):
         """
         Interpret the return values and create an HFrame to wrap them.
         This means setting the correct presentation bit in the HFrame so that
@@ -339,7 +280,6 @@ class PipeBase(object):
             hfid (str): UUID
             val (object): A scalar, dict, tuple, list, dataframe
             data_context (DataContext): The data context into which to place this value
-            incremental_push: Incrementally push bundles to remote
 
         Returns:
             (presentation, frames[])
@@ -376,7 +316,7 @@ class PipeBase(object):
         if val is None:
             """ None's stored as json.dumps([None]) or '[null]' """
             presentation = hyperframe_pb2.JSON
-            frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path, incremental_push))
+            frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
 
         elif isinstance(val, HyperFrameRecord):
             presentation = hyperframe_pb2.HF
@@ -386,12 +326,12 @@ class PipeBase(object):
             presentation = hyperframe_pb2.TENSOR
             if isinstance(val, list):
                 val = np.array(val)
-            frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path, incremental_push))
+            frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
 
         elif isinstance(val, tuple):
             presentation = hyperframe_pb2.ROW
             for i, _ in enumerate(val):
-                frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':{}'.format(i), val, managed_path, incremental_push))
+                frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':{}'.format(i), val, managed_path))
 
         elif isinstance(val, dict):
             presentation = hyperframe_pb2.ROW
@@ -399,18 +339,21 @@ class PipeBase(object):
                 if not isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, collections.Sequence)):
                     # assuming this is a scalar
                     assert isinstance(v, possible_scalar_types), 'Disdat requires dictionary values to be one of {} not {}'.format(possible_scalar_types, type(v))
-                    frames.append(data_context.convert_scalar2frame(hfid, k, v, managed_path, incremental_push))
+                    frames.append(data_context.convert_scalar2frame(hfid, k, v, managed_path))
                 else:
                     assert isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, collections.Sequence))
-                    frames.append(data_context.convert_serieslike2frame(hfid, k, v, managed_path, incremental_push))
+                    frames.append(data_context.convert_serieslike2frame(hfid, k, v, managed_path))
 
         elif isinstance(val, pd.DataFrame):
             presentation = hyperframe_pb2.DF
-            frames.extend(data_context.convert_df2frames(hfid, val, managed_path, incremental_push))
+            frames.extend(data_context.convert_df2frames(hfid, val, managed_path))
 
         else:
             presentation = hyperframe_pb2.SCALAR
-            frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path, incremental_push))
+            frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
+
+
+
 
         return presentation, frames
 

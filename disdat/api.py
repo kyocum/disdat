@@ -282,7 +282,7 @@ class Bundle(HyperFrameRecord):
 
         try:
 
-            presentation, frames = PipeBase.parse_return_val(self.uuid, self.data, self.data_context, False)
+            presentation, frames = PipeBase.parse_return_val(self.uuid, self.data, self.data_context)
 
             self.add_frames(frames)
 
