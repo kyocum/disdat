@@ -31,6 +31,7 @@ RUN files=$(echo $BUILD_ROOT/config/$OS_NAME/*.deb); if [ "$files" != $BUILD_ROO
 fi
 # Install R and packages
 RUN if [ -f $BUILD_ROOT/config/$OS_NAME/r.txt ]; then \
+    apt-get update -y; \
     apt-get install -y \
      r-base \
      r-base-dev \
