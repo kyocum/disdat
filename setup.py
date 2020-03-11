@@ -106,7 +106,7 @@ setup(
         'enum34==1.1.6',
         'sqlalchemy==1.3.13',
         'protobuf==3.11.2',
-        'six==1.12.0',
+        'six==1.13.0',
         'docutils<0.16,>=0.10'
     ],
 
