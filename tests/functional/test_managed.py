@@ -22,7 +22,6 @@ push to remote context
 author: Sayantan Satpati
 """
 import boto3
-import luigi
 import moto
 import pandas as pd
 import pytest
@@ -191,9 +190,9 @@ def test_remote_push_non_managed_s3():
     api.apply(TEST_CONTEXT, NonManagedS3, incremental_push=True)
     print(api.cat(TEST_CONTEXT, 'b2'))
 
-    # Local context should be empty
-    assert not os.path.exists(api.search(TEST_CONTEXT, search_name='b2')[0].data['file'][0]), \
-        'Non Managed S3 file should not be copied to local'
+    # Local context should contain file -- users must use managed to avoid this behavior.
+    assert os.path.exists(api.search(TEST_CONTEXT, search_name='b2')[0].data['file'][0]), \
+        'Non Managed S3 file should be copied to local'
 
     # Get objects from remote
     objects = s3_client.list_objects(Bucket=TEST_BUCKET_OTHER)
@@ -324,6 +323,9 @@ def test_no_remote_no_push_non_managed_s3():
     assert os.path.exists(api.search(TEST_CONTEXT, search_name='b2')[0].data['file'][0]), \
         'Non Managed S3 file should be copied to local'
 
+
+if __name__ == '__main__':
+    pytest.main([__file__])
 
 
 

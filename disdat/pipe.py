@@ -41,7 +41,7 @@ from disdat.pipe_base import PipeBase
 from disdat.db_link import DBLink
 from disdat.driver import DriverTask
 from disdat.fs import DisdatFS
-from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PARAMS_PREFIX
+from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PUSH_META, BUNDLE_TAG_PARAMS_PREFIX, ExtDepError
 from disdat import logger as _logger
 
 
@@ -104,7 +104,7 @@ class PipeTask(luigi.Task, PipeBase):
         For now: Apply Output Bundle "-" Pipe Class Name
         """
 
-        output_bundles = [(self.pipe_id(), self.pfs.get_path_cache(self).uuid)]
+        output_bundles = [(self.processing_id(), self.pfs.get_path_cache(self).uuid)]
         return output_bundles
 
     def bundle_inputs(self):
@@ -120,22 +120,22 @@ class PipeTask(luigi.Task, PipeBase):
         """
 
         input_tasks = self.deps()
-        input_bundles = [(task.pipe_id(), self.pfs.get_path_cache(task).uuid) for task in input_tasks]
+        input_bundles = [(task.processing_id(), self.pfs.get_path_cache(task).uuid) for task in input_tasks]
         return input_bundles
 
-    def pipe_id(self):
+    def processing_id(self):
         """
         Given a pipe instance, return the "processing_name" -- a unique string based on the class name and
         the parameters.  This re-uses Luigi code for getting the unique string.
 
-        NOTE: The PipeTask has a 'driver_output_bundle'.  This the name of the pipline output bundle given by the user.
+        NOTE: The PipeTask has a 'driver_output_bundle'.  This the name of the pipeline output bundle given by the user.
         Because this is a Luigi parameter, it is included in the Luigi self.task_id string and hash.  So we do not
         have to append this separately.
 
         """
         return self.task_id
 
-    def pipeline_id(self):
+    def human_id(self):
         """
         This is the "human readable" name;  a "less unique" id than the unique id.
 
@@ -158,8 +158,8 @@ class PipeTask(luigi.Task, PipeBase):
         elif self.user_set_human_name is not None:
             return self.user_set_human_name
         else:
-            id_parts = self.pipe_id().split('_')
-            return "{}_{}".format(id_parts[0],id_parts[-1])
+            id_parts = self.processing_id().split('_')
+            return "{}".format(id_parts[0])
 
     def get_hframe_uuid(self):
         """ Return the unique ID for this tasks current output hyperframe
@@ -282,14 +282,13 @@ class PipeTask(luigi.Task, PipeBase):
         try:
             presentation, frames = PipeBase.parse_return_val(pce.uuid,
                                                              user_rtn_val,
-                                                             self.data_context,
-                                                             self.incremental_push)
+                                                             self.data_context)
 
             hfr = PipeBase.make_hframe(frames,
                                        pce.uuid,
                                        cached_bundle_inputs,
-                                       self.pipeline_id(),
-                                       self.pipe_id(),
+                                       self.human_id(),
+                                       self.processing_id(),
                                        self,
                                        start_ts=start,
                                        stop_ts=stop,
@@ -313,11 +312,7 @@ class PipeTask(luigi.Task, PipeBase):
 
             self.data_context.write_hframe(hfr)
 
-            transient = False
-            if hfr.get_tag(BUNDLE_TAG_TRANSIENT) is not None:
-                transient = True
-
-            if self.incremental_push and not transient:
+            if self.incremental_push and (hfr.get_tag(BUNDLE_TAG_TRANSIENT) is None):
                 self.pfs.commit(None, None, uuid=pce.uuid, data_context=self.data_context)
                 self.pfs.push(uuid=pce.uuid, data_context=self.data_context)
 
@@ -508,7 +503,7 @@ class PipeTask(luigi.Task, PipeBase):
 
         Args:
             param_name (str): The parameter name this bundle assumes when passed to Pipe.run
-            task_class (:object):  Must always set class name of upstream task.
+            task_class (:object):  Must always set class name of upstream task if it was created from a PipeTask.   May be None if made by API.
             params (:dict):  Dictionary of parameters for this task.  Note if UUID is set, then params are ignored!
             human_name (str): Resolve dependency by human_name, return the latest bundle with that humman_name.  Trumps task_class and params.
             uuid (str): Resolve dependency by explicit UUID, trumps task_class and params, and human_name.
@@ -517,6 +512,7 @@ class PipeTask(luigi.Task, PipeBase):
             None
 
         """
+        # TODO: Store PipeTask class name so look ups by name or uuid do not require user to specify it.
 
         # for the bundle object
         import disdat.api as api
@@ -524,6 +520,9 @@ class PipeTask(luigi.Task, PipeBase):
         if not isinstance(params, dict):
             error = "add_dependency third argument must be a dictionary of parameters"
             raise Exception(error)
+
+        if task_class is None:
+            task_class = api.BundleWrapperTask
 
         assert (param_name not in self.add_deps)
 
@@ -534,20 +533,30 @@ class PipeTask(luigi.Task, PipeBase):
                 hfr = self.pfs.get_latest_hframe(human_name, data_context=self.data_context)
             else:
                 p = task_class(**params)
-                hfr = self.pfs.get_hframe_by_proc(p.pipe_id(), data_context=self.data_context)
+                hfr = self.pfs.get_hframe_by_proc(p.processing_id(), data_context=self.data_context)
+
+            if hfr is None:
+                raise ExtDepError("Unable to resolve external bundle made by class ({})".format(task_class))
 
             bundle = api.Bundle(self.data_context.get_local_name(), 'unknown')
 
             bundle.fill_from_hfr(hfr)
 
+            # if we found by uuid or human name, the hfr should have the params with which
+            # the task was called, so we need to grab them.
             if uuid is not None or human_name is not None:
                 params = task_class._put_subcls_params(bundle.params)
 
-            self.add_deps[param_name] = (luigi.task.externalize(task_class), params)
-
+        except ExtDepError as error:
+            bundle = None
         except Exception as error:
-            _logger.warning("Unable to resolve external bundle made by class ({}): {}".format(task_class, error))
-            return None
+            _logger.warning("Unable to resolve external bundle class[{}] name[{}] uuid[{}]: error [{}]".format(task_class,
+                                                                                                               human_name,
+                                                                                                               uuid,
+                                                                                                               error))
+            bundle = None
+        finally:
+            self.add_deps[param_name] = (luigi.task.externalize(task_class), params)
 
         return bundle
 
@@ -593,35 +602,41 @@ class PipeTask(luigi.Task, PipeBase):
         """
         Disdat Pipe API Function
 
-        Pass in the name of your file, and get back an object to which you can write.
-        Under the hood, this is a Luigi.Target.
+        Pass in the name of your file, and get back a Luigi target object to which you can write.
 
         Args:
-            filename:  The name of your file, not the path.
+            filename (str, dict, list): A basename, dictionary of basenames, or list of basenames.
 
         Returns:
-            (`luigi.Target`):
-
+            (`luigi.LocalTarget`): Singleton, list, or dictionary of Luigi Target objects.
         """
 
-        return self.make_luigi_targets_from_basename(filename, self.data_context, False, self.incremental_push)
+        pce = self.pfs.get_path_cache(self)
+        assert (pce is not None)
+        output_dir = pce.path
+        return self.filename_to_luigi_targets(output_dir, filename)
 
     def create_output_file_remote(self, filename):
         """
         Disdat Pipe API Function
 
         Pass in the name of your file, and get back an object to which you can write on S3.
-        Under the hood, this is a Luigi.contrib.s3.S3Target.
+
+        NOTE: Managed S3 paths are created only if a) remote is set (otherwise where would we put them?)
+        and b) incremental_push flag is True  (if we don't push bundle metadata, then the locations may be lost).
 
         Args:
-            filename:  The name of your file, not the path.
+            filename (str, dict, list): A basename, dictionary of basenames, or list of basenames.
 
         Returns:
-            (`luigi.Target`):
+            (`luigi.contrib.s3.S3Target`): Singleton, list, or dictionary of Luigi Target objects.
 
         """
 
-        return self.make_luigi_targets_from_basename(filename, self.data_context, True, self.incremental_push)
+        pce = self.pfs.get_path_cache(self)
+        assert (pce is not None)
+        output_dir = self.get_output_dir_remote()
+        return self.filename_to_luigi_targets(output_dir, filename)
 
     def create_output_dir(self, dirname):
         """
@@ -648,6 +663,26 @@ class PipeTask(luigi.Task, PipeBase):
 
         return fqp
 
+    def create_output_dir_remote(self, dirname):
+        """
+        Disdat Pipe API Function
+
+        Given basename directory name, return a fully qualified path whose prefix is the
+        remote output directory for this bundle in the current context.
+
+        NOTE: The current context must have a remote attached.
+
+        Args:
+            dirname (str): The name of the output directory, i.e., "models"
+
+        Returns:
+            output_dir (str):  Fully qualified path of a directory whose prefix is the bundle's remote output directory.
+
+        """
+        prefix_dir = self.get_output_dir_remote()
+        fqp = os.path.join(prefix_dir, dirname)
+        return fqp
+
     def get_output_dir(self):
         """
         Disdat Pipe API Function
@@ -659,12 +694,29 @@ class PipeTask(luigi.Task, PipeBase):
             output_dir (str):  The bundle's output directory
 
         """
-
-        # Find the path cache entry for this pipe to find its output path
         pce = self.pfs.get_path_cache(self)
         assert(pce is not None)
-
         return pce.path
+
+    def get_output_dir_remote(self):
+        """
+        Disdat Pipe API Function
+
+        Retrieve the output directory for this task's bundle.  You may place
+        files directly into this directory.
+
+        Returns:
+            output_dir (str):  The bundle's output directory on S3
+
+        """
+        pce = self.pfs.get_path_cache(self)
+        assert(pce is not None)
+        if self.data_context.remote_ctxt_url and self.incremental_push:
+            output_dir = os.path.join(self.data_context.get_remote_object_dir(), pce.uuid)
+        else:
+            raise Exception('Managed S3 path creation needs a) remote context and b) incremental push to be set')
+        return output_dir
+
 
     def set_bundle_name(self, human_name):
         """
@@ -742,7 +794,7 @@ class PipeTask(luigi.Task, PipeBase):
         """
         self._mark_force = True
 
-    def mark_transient(self):
+    def mark_transient(self, push_meta=True):
         """
         Disdat Pipe API Function
 
@@ -755,7 +807,13 @@ class PipeTask(luigi.Task, PipeBase):
         And the entrypoint investigates the tag if we are not pushing incrementally.
         Otherwise, normal push commands from the CLI or api will work, i.e., manual pushes continue to work.
 
+        Args:
+            push_meta (bool): Push the meta-data but not the data. Else, push nothing.
+
         Returns:
             None
         """
-        self.add_tags({BUNDLE_TAG_TRANSIENT: 'True'})
+        if push_meta:
+            self.add_tags({BUNDLE_TAG_TRANSIENT: 'True', BUNDLE_TAG_PUSH_META: 'True'})
+        else:
+            self.add_tags({BUNDLE_TAG_TRANSIENT: 'True'})

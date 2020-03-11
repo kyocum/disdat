@@ -227,7 +227,7 @@ class DisdatFS(object):
 
         """
 
-        pipe_name = pipe_instance.pipe_id()
+        pipe_name = pipe_instance.processing_id()
 
         return DisdatFS.get_path_cache_by_name(pipe_name)
 
@@ -272,7 +272,7 @@ class DisdatFS(object):
             pce or raise KeyError
 
         """
-        pipe_name = pipe_instance.pipe_id()
+        pipe_name = pipe_instance.processing_id()
         pce = PipeCacheEntry(pipe_instance, uuid, path, rerun, is_left_edge_task)
         if pipe_name not in DisdatFS.task_path_cache:
             DisdatFS.task_path_cache[pipe_name] = pce
@@ -679,7 +679,7 @@ class DisdatFS(object):
             output_string += ' '.join(tags)
 
         if print_args:
-            tags = ["[{}]:[{}]".format(k.strip(common.BUNDLE_TAG_PARAMS_PREFIX), v)
+            tags = ["[{}]:[{}]".format(k[len(common.BUNDLE_TAG_PARAMS_PREFIX):], v)
                     for k, v in hfr.tag_dict.items() if common.BUNDLE_TAG_PARAMS_PREFIX in k]
             if len(tags) > 0:
                 output_string += '\n\t ARGS: ' + ' '.join(tags)
@@ -1026,85 +1026,6 @@ class DisdatFS(object):
 
         return found_link_frames
 
-    def shallow_hfr_copy(self, hfr, new_uuid=None, tags=None, presentation=None, data_context=None):
-        """
-        Take this existing hypeframe, find all the link frames, copy data to a new directory / uuid.
-
-        NOTE: Will mutate this HyperFrameRecord and the pb it contains.  If you read from the disk or you
-        read from the sqlite db, we will have already made a copy for you.  I.e., 'get_hframes' makes copies.
-
-        ASSUME: Local copy.
-
-        If there is a hframe frame in this hyperframe, then we error out.  See _copy_hfr for a more sophisticated copy
-        that looks at hfr's that can refer to other hyperframes.
-
-        Args:
-            hfr:
-            new_uuid: Optional new uuid to use for this new copy
-            tags (:dict): Optional new set of tags to place on this copy.
-            presentation: Optional new presentation
-            data_context (`disdat.data_context.DataContext`)
-
-        Returns:
-            hyperframe.HyperFrameRecord
-
-        """
-
-        if data_context is None:
-            data_context = self.curr_context
-
-        if new_uuid is None:
-            local_fs_managed_path, new_hfr_uuid, _ = data_context.make_managed_path()
-        else:
-            new_hfr_uuid = new_uuid
-            local_fs_managed_path = data_context.implicit_hframe_path(new_uuid)
-            s3_managed_path = None  # unused _ above
-
-        frame_copies = []
-        need_to_copy = False
-
-        # Move files in LINK frames to new local destination
-        for fr in hfr.get_frames(data_context):
-
-            if fr.is_hfr_frame():
-                # CASE 1:  Currently do not support HFR references.
-                raise Exception("Disdat shallow_hfr_copy used on a hyperframe that refers to other hyperframes.")
-            else:
-                # CASE 2:  Local or S3 LINK frames
-                # If a local fs frame, copy files to this new managed path.
-                # If s3 paths, then they have to be in a bundle in a context.
-                # If I change the s3 paths to reflect the new uuid, then I should push that to S3.
-                # If I don't change them, then we have an implicit reference to another bundle. *** easiest ***
-                # OR we copy the files from s3 to this local drive.  *** this is expensive but safest ***
-                # For now we copy the remote S3 file to the local bundle.  Requires connectivity.  But
-                # this breaks the implicit dependency.
-
-                possible_fr_copy = self._copy_fr(fr, new_hfr_uuid, local_fs_managed_path, data_context)
-
-                if possible_fr_copy is not fr:
-                    need_to_copy = True
-                else:
-                    # must update these frames - they must point to the right uuid and have new uuids
-                    possible_fr_copy = possible_fr_copy.mod_hfr_uuid(new_hfr_uuid)
-
-                frame_copies.append(possible_fr_copy)
-
-        # update UUID -- must do this before other mods (especially mod_frames)!
-        hfr = hfr.mod_uuid(new_hfr_uuid)
-
-        # Update frames if there were LINK frames
-        hfr = hfr.mod_frames(frame_copies)
-
-        # update TAGS
-        if tags is not None:
-            hfr = hfr.replace_tags(tags)
-
-        # update Presentation
-        if presentation is not None:
-            hfr = hfr.mod_presentation(presentation)
-
-        return hfr
-
     def _copy_hfr_to_branch(self, hfr, data_context, to_remote=True):
         """
         Copy this HyperFrameRecord to a different branch.  Note that this works because
@@ -1133,18 +1054,16 @@ class DisdatFS(object):
         for fr in hfr.get_frames(data_context):
 
             if fr.is_hfr_frame():
-
                 # CASE 1: A frame containing HFRs.   Descend recursively.
                 for next_hfr in fr.get_hframes():
                     self._copy_hfr_to_branch(next_hfr, data_context, to_remote=to_remote)
-
             else:
-
                 # CASE 2:  If it is a local fs or an s3 frame, then we have to copy
                 if to_remote:
-                    self._copy_fr_links_to_branch(fr, data_context.get_remote_object_dir(), data_context, to_remote=to_remote)
+                    obj_dir = data_context.get_remote_object_dir()
                 else:
-                    self._copy_fr_links_to_branch(fr, data_context.get_object_dir(), data_context, to_remote=to_remote)
+                    obj_dir = data_context.get_object_dir()
+                self._copy_fr_links_to_branch(fr, obj_dir, data_context)
 
         # Push hyperframe to remote
         data_context.write_hframe(hfr, to_remote=to_remote)
@@ -1152,9 +1071,9 @@ class DisdatFS(object):
         return
 
     @staticmethod
-    def _copy_fr_links_to_branch(fr, branch_object_dir, data_context, to_remote):
+    def _copy_fr_links_to_branch(fr, branch_object_dir, data_context):
         """
-        Given a non-HyperFrame frame, if a local fs or s3 frame, do the
+        Given a frame, if a local fs or s3 frame, do the
         copy_in to this branch.
 
         NOTE: similar to _copy_fr() except we do not make a copy of the fr.
@@ -1163,7 +1082,6 @@ class DisdatFS(object):
             fr:  Frame to possibly copy_in files to managed_path
             branch_object_dir: s3:// or file:/// path of the object directory on the branch
             data_context: The context from which to copy.
-            to_remote (bool): Optional.  Write to the remote on the current context. Default true.
 
         Returns:
             None
@@ -1173,145 +1091,8 @@ class DisdatFS(object):
         if fr.is_local_fs_link_frame() or fr.is_s3_link_frame():
             src_paths = data_context.actualize_link_urls(fr)
             bundle_dir = os.path.join(branch_object_dir, fr.hframe_uuid)
-            _ = data_context.copy_in_files(src_paths, bundle_dir, to_remote)
+            _ = data_context.copy_in_files(src_paths, bundle_dir)
         return
-
-    def _copy_hfr(self, hfr, copy_to='local', force_uuid=None):
-        """
-        Copy this HyperFrameRecord to a new HyperFrameRecord for S3 destination
-
-        NOTE: Will mutate this HyperFrameRecord and the pb it contains.  If you read from the disk or you
-        read from the sqlite db, we will have already made a copy for you.  I.e., 'get_hframes' makes copies.
-
-        NOTE: It is OK that the frames aren't copied.
-
-        NOTE: This will push up external files and PBs.
-
-        Copy top-level HFR, copy all Frames.
-        If Frame is local FS -- copy_in to new directory
-        If Frame is local FS and to_remote -- Make correct s3 paths, push files to s3
-        If Frame is s3 -- Copy_in files to new s3 path and fix path (optimize in future)
-        If Frame is db -- Do nothing
-
-        Args:
-            hfr:
-            copy_to: 'local' or 'remote'
-
-        Returns:
-            (bool) : whether we modified this hyperframe, i.e., made a "copy"
-        """
-
-        # Currently we don't have a use for creating new copies of a bundle and assigning
-        # branch new uuids.   This, though, could be useful in the future.
-        raise Exception("Current Dead Code")
-
-        # We may or may not make a new HFR, but if so make a new path / uuid
-        # throw them away if we don't use them.
-        # note that we make an s3 key
-
-        #print "---------------COPYHFR WITH ROOT_HFR {}  ".format(hfr.pb.uuid)
-
-        local_fs_managed_path, new_hfr_uuid, s3_managed_path = self.curr_context.make_managed_path(uuid=force_uuid)
-
-        if copy_to == 'local':
-            managed_path = local_fs_managed_path
-        elif copy_to == 'remote':
-            managed_path = s3_managed_path
-        else:
-            _logger.error("copy_hfr has unknown copy_to argument {}.  Should be 'local' or 'remote'".format(copy_to))
-
-        frame_copies = []
-        need_to_copy = False
-
-        for fr in hfr.get_frames(self.curr_context):
-
-            if fr.is_hfr_frame():
-
-                # CASE 1: A frame containing HFRs.   Descend recursively.
-                # If we did need to copy, then make a new frame.
-                hfr_copies = []
-
-                for next_hfr in fr.get_hframes():
-                    possible_hfr_copy = self._copy_hfr(next_hfr, copy_to=copy_to)
-                    if possible_hfr_copy: # is not next_hfr:
-                        need_to_copy = True
-                    hfr_copies.append(next_hfr) # NOTE: Use existing, because we modify in place!
-
-                if need_to_copy:
-                    # Make a new FrameRecord because at least one hfr needed to be a copy.
-                    new_frame = hyperframe.FrameRecord.make_hframe_frame(new_hfr_uuid, fr.pb.name, hfr_copies)
-                else:
-                    new_frame = fr
-
-                frame_copies.append(new_frame)
-
-            else:
-
-                # CASE 2:  This is a different kind of frame
-                # If it is a local fs or an s3 frame, then we have to copy
-                # the files over.  It's a new frame.
-                possible_fr_copy = self._copy_fr(fr, new_hfr_uuid, managed_path)
-
-                if possible_fr_copy is not fr:
-                    need_to_copy = True
-                    # If we copy any of them
-
-                frame_copies.append(possible_fr_copy)
-
-        # We have iterated through all of our frames.  Some might have needed copies, if so, make a new
-        # HFR and return it.  The new HFR uses the frames in frame_copies(), uses a new UUID, and a new creation
-        # date and frame_cache().
-        if need_to_copy or force_uuid is not None:
-            # Modify in place!  By construction, this HFR is *already* a copy.
-            # print "---------------ROOT_HFR {}  MAKING NEW HFR {}  LOCAL ".format(hfr.pb.uuid, new_hfr_uuid)
-            # update UUID -- must do this before other mods (especially mod_frames)!
-
-            # Some frames are new and there may be some old frames that are unmodified
-            # But we need to make a new HFR.  That means, we need all new frames.
-            # The new frames have the new hfr_uuid and they have new uuids
-            # But the old frames point to the prior hfr and have old uuids.
-            # Here we copy over all the frames, so all need new frame (not hyperframe) uuids.
-            # This is a hack, we iterate over all, and give them all new uuids.  The new ones
-            # already have new uuids, but no one has written them out yet.
-            for fr in frame_copies:
-                fr = fr.mod_hfr_uuid(new_hfr_uuid)
-
-            hfr = hfr.mod_uuid(new_hfr_uuid)
-            hfr = hfr.mod_frames(frame_copies)
-            # Need to write this hyperframe locally (with all paths pointing at s3)
-            self.curr_context.write_hframe(hfr)
-
-        # TODO: someone needs to check if it's already there!
-        # make sure all hyperframes are on remote
-        # print "---------------ROOT_HFR {}  MAKING NEW HFR {}  REMOTE".format(hfr.pb.uuid, new_hfr_uuid)
-        self.curr_context.write_hframe(hfr, to_remote=True)
-
-        return need_to_copy
-
-    def _copy_fr(self, fr, new_hfr_uuid, managed_path, data_context=None):
-        """
-        Given a non-HyperFrame frame, if a local fs or s3 frame, do the
-        copy_in to the managed_path.
-
-        Args:
-            fr:  Frame to possibly copy_in files to managed_path
-            new_hfr_uuid:  The new uuid of the new enclosing hframe
-            managed_path: The s3 path where these files should go.
-            data_context: (`disdat.data_context.DataContext`)
-
-        Returns:
-            (`hyperframe.FrameRecord`): Return either a fr copy with new paths or same fr
-        """
-        if fr.is_local_fs_link_frame() or fr.is_s3_link_frame():
-            # Each frame has a list of bundle://<name> paths.
-            # Everything in a frame is either local or it is remote
-            # Ensure copy_in does not copy from a managed path to the same managed path.
-            # We should make sure that luigi targets are not copied in.
-            assert self.curr_context is not None
-            src_paths = self.curr_context.actualize_link_urls(fr)
-            new_paths = data_context.copy_in_files(src_paths, managed_path)
-            fr = hyperframe.FrameRecord.make_link_frame(new_hfr_uuid, fr.pb.name, new_paths, managed_path)
-        return fr
 
     def push(self, human_name=None, uuid=None, tags=None, data_context=None):
         """
@@ -1400,7 +1181,7 @@ class DisdatFS(object):
             if fr.is_link_frame():
                 src_paths = data_context.actualize_link_urls(fr)
                 for f in src_paths:
-                    data_context.copy_in_files(f, managed_path, False)
+                    data_context.copy_in_files(f, managed_path)
 
     @staticmethod
     def fast_pull(data_context, localize):
@@ -1419,7 +1200,15 @@ class DisdatFS(object):
 
         MAX_WAIT = 12 * 60
 
-        pool = Pool(processes = cpu_count()) # I/O bound, so let it use at least cpu_count()
+        # MacOS X fails when we multi-process using fork and boto sessions.
+        # One fix is to set this environment variable.   A better fix would be
+        # to find and address the boto session issue.  But there are a lot of reasons
+        # why that might not work either: https://www.wefearchange.org/2018/11/forkmacos.rst.html
+        # and that says why doing os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
+        # fails.  https://www.evanjones.ca/fork-is-dangerous.html
+        # https://github.com/ansible/ansible/issues/32499
+
+        pool = Pool(processes=cpu_count()) # I/O bound, so let it use at least cpu_count()
 
         _logger.debug("Fast Pull Pool using {} processes.".format(cpu_count()))
 

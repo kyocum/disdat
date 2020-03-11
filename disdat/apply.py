@@ -294,7 +294,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
     # 1.) Get output bundle for pipe_id (the specific pipeline/transform/param hash).
 
     if verbose:
-        print("resolve_bundle: looking up bundle {}".format(pipe.pipe_id()))
+        print("resolve_bundle: looking up bundle {}".format(pipe.processing_id()))
 
     if pipe._mark_force and not worker._is_external(pipe):
         # Forcing recomputation through a manual annotation in the pipe.pipe_requires() itself
@@ -312,9 +312,9 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
         return regen_bundle
 
-    bndls = pfs.get_hframe_by_proc(pipe.pipe_id(), getall=True, data_context=data_context)
+    bndls = pfs.get_hframe_by_proc(pipe.processing_id(), getall=True, data_context=data_context)
     if bndls is None or len(bndls) <= 0:
-        if verbose: print("resolve_bundle: No bundle with proc_name {}, getting new output bundle.\n".format(pipe.pipe_id()))
+        if verbose: print("resolve_bundle: No bundle with proc_name {}, getting new output bundle.\n".format(pipe.processing_id()))
         # no bundle, force recompute
         pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
         return regen_bundle
@@ -342,7 +342,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
     # because, at the moment, we make new bundles when we change name.  When in some sense
     # it's just a tag set that should include other names and the data should be the same.
 
-    current_human_name = pipe.pipeline_id()
+    current_human_name = pipe.human_id()
     found = False
     for bndl in bndls:
         if current_human_name == bndl.get_human_name():

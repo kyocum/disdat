@@ -51,7 +51,6 @@ fi
 
 # Install user Python sdist package dependencies
 # NOTE: Since PIP 19.0 fails with --no-cache-dir, removed '-n' flag on kickstart-python.py script
-# NOTE: need to test with Python 3.6+
 RUN files=$(echo $BUILD_ROOT/config/python-sdist/*.tar.gz); if [ "$files" != $BUILD_ROOT/config/python-sdist/'*.tar.gz' ]; then \
 	$KICKSTART_ROOT/bin/kickstart-python.sh $VIRTUAL_ENV $i; \
 	for i in $files; do \
