@@ -15,11 +15,8 @@
 #
 
 
-import os
-import hashlib
+
 import pytest
-import pandas as pd
-from numpy import random
 
 import disdat.api as api
 from tests.functional.common import run_test, TEST_CONTEXT

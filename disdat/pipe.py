@@ -34,6 +34,7 @@ author: Kenneth Yocum
 
 import os
 import time
+import hashlib
 
 import luigi
 
@@ -86,6 +87,8 @@ class PipeTask(luigi.Task, PipeBase):
 
         super(PipeTask, self).__init__(*args, **kwargs)
 
+        self._cached_processing_id = None
+
         # Instance variables to track various user wishes
         self.user_set_human_name = None  # self.set_bundle_name()
         self.user_tags = {}              # self.add_tags()
@@ -119,8 +122,8 @@ class PipeTask(luigi.Task, PipeBase):
 
         """
 
-        input_tasks = self.deps()
-        input_bundles = [(task.processing_id(), self.pfs.get_path_cache(task).uuid) for task in input_tasks]
+        input_bundles = [(task.processing_id(), self.pfs.get_path_cache(task).uuid) for task in self.deps()]
+
         return input_bundles
 
     def processing_id(self):
@@ -128,12 +131,53 @@ class PipeTask(luigi.Task, PipeBase):
         Given a pipe instance, return the "processing_name" -- a unique string based on the class name and
         the parameters.  This re-uses Luigi code for getting the unique string.
 
+        processing_id = task_class_name + hash(task params +  [ dep0_task_name + hash(dep0_params),
+                        dep1_task_name + hash(dep1_params),...])
+
+        In typical Luigi workflows, a task's parameters uniquely determine the requires function outputs.
+
+        Thus there is no need to include the data inputs in the uniqueness of the processing name.
+
+        But, some facilities on top of Disdat might build dynamic classes.   In these cases, upper layer code
+        might define a pipeline in python like:
+        ```
+        @punch.task
+        def adder(a,b):
+            return a+b
+
+        def pipeline(X):
+            u = adder(a=1, b=2)
+            v = adder(a=u, b=X+1)
+            w = adder(a=v, b=X+2)
+        ```
+
+        In this case, there is a new task for each `adder`.  Each`adder`'s requirements are defined in a scope outside
+         of the dynamic classes requires method.
+
         NOTE: The PipeTask has a 'driver_output_bundle'.  This the name of the pipeline output bundle given by the user.
         Because this is a Luigi parameter, it is included in the Luigi self.task_id string and hash.  So we do not
         have to append this separately.
 
         """
-        return self.task_id
+
+        if self._cached_processing_id is not None:
+            return self._cached_processing_id
+
+        deps = self.requires()
+
+        assert(isinstance(deps, dict))
+
+        input_task_processing_ids = [(deps[k]).processing_id() for k in sorted(deps)]
+
+        as_one_str = '.'.join(input_task_processing_ids)
+
+        param_hash = hashlib.md5(as_one_str.encode('utf-8')).hexdigest()
+
+        processing_id = self.task_id + '_' + param_hash[:luigi.task.TASK_ID_TRUNCATE_HASH]
+
+        self._cached_processing_id = processing_id
+
+        return processing_id
 
     def human_id(self):
         """
@@ -180,7 +224,7 @@ class PipeTask(luigi.Task, PipeBase):
             (:list:`hyperframe.HyperFrameRecord`): list of upstream hyperframes
         """
 
-        tasks = self.requires()
+        tasks = self.deps()
         hfrs = []
         for t in tasks:
             hfid = t.get_hframe_uuid()
@@ -196,7 +240,10 @@ class PipeTask(luigi.Task, PipeBase):
         1.) The input_df so far stays the same for all upstream pipes.
         2.) However, when we resolve the location of the outputs, we need to do so correctly.
 
-        :return:
+        Args:
+
+        Returns:
+            (dict): arg_name: task_class
         """
 
         kwargs = self.prepare_pipe_kwargs()
@@ -206,9 +253,9 @@ class PipeTask(luigi.Task, PipeBase):
         rslt = self.add_deps
 
         if len(self.add_deps) == 0:
-            return []
+            return {}
 
-        tasks = []
+        tasks = {}
 
         for user_arg_name, cls_and_params in rslt.items():
             pipe_class, params = cls_and_params[0], cls_and_params[1]
@@ -226,7 +273,7 @@ class PipeTask(luigi.Task, PipeBase):
                 'incremental_push': self.incremental_push,  # propagate the choice to push incremental data.
                 'incremental_pull': self.incremental_pull  # propagate the choice to incrementally pull data.
             })
-            tasks.append(pipe_class(**params))
+            tasks[user_arg_name] = pipe_class(**params)
 
         return tasks
 
@@ -385,7 +432,6 @@ class PipeTask(luigi.Task, PipeBase):
             (dict): A dictionary with the arguments.
 
         """
-
         kwargs = dict()
 
         # Place upstream task outputs into the kwargs.  Thus the user does not call
@@ -397,7 +443,7 @@ class PipeTask(luigi.Task, PipeBase):
             self._input_tags = {}
             self._input_bundle_uuids = {}
 
-            upstream_tasks = [(t.user_arg_name, self.pfs.get_path_cache(t)) for t in self.requires()]
+            upstream_tasks = [(t.user_arg_name, self.pfs.get_path_cache(t)) for t in self.deps()]
             for user_arg_name, pce in [u for u in upstream_tasks if u[1] is not None]:
                 hfr = self.pfs.get_hframe_by_uuid(pce.uuid, data_context=self.data_context)
                 assert hfr.is_presentable()
@@ -433,7 +479,6 @@ class PipeTask(luigi.Task, PipeBase):
         Returns:
 
         """
-
         return None
 
     def pipe_run(self, **kwargs):
@@ -451,7 +496,6 @@ class PipeTask(luigi.Task, PipeBase):
         Returns:
 
         """
-
         raise NotImplementedError()
 
     def add_dependency(self, name, task_class, params):
@@ -469,7 +513,6 @@ class PipeTask(luigi.Task, PipeBase):
             None
 
         """
-
         if not isinstance(params, dict):
             error = "add_dependency third argument must be a dictionary of parameters"
             raise Exception(error)
@@ -632,7 +675,6 @@ class PipeTask(luigi.Task, PipeBase):
             (`luigi.contrib.s3.S3Target`): Singleton, list, or dictionary of Luigi Target objects.
 
         """
-
         pce = self.pfs.get_path_cache(self)
         assert (pce is not None)
         output_dir = self.get_output_dir_remote()
@@ -653,7 +695,6 @@ class PipeTask(luigi.Task, PipeBase):
             output_dir (str):  Fully qualified path of a directory whose prefix is the bundle's local output directory.
 
         """
-
         prefix_dir = self.get_output_dir()
         fqp = os.path.join(prefix_dir, dirname)
         try:
@@ -717,7 +758,6 @@ class PipeTask(luigi.Task, PipeBase):
             raise Exception('Managed S3 path creation needs a) remote context and b) incremental push to be set')
         return output_dir
 
-
     def set_bundle_name(self, human_name):
         """
         Disdat Pipe API Function
@@ -732,7 +772,6 @@ class PipeTask(luigi.Task, PipeBase):
             None
 
         """
-
         self.user_set_human_name = human_name
 
     def add_tags(self, tags):
