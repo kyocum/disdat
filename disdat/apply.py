@@ -319,7 +319,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
         return regen_bundle
 
-    bndl = bndls[0]  # our best guess is the most recent bundle with the same pipe_id()
+    bndl = bndls[0]  # our best guess is the most recent bundle with the same processing_id()
 
     # 2.) Bundle exists - lineage object tells us input bundles.
     lng = bndl.get_lineage()
@@ -355,7 +355,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         return regen_bundle
 
     # 4.) Check the inputs -- assumes we have processed upstream tasks already
-    for task in pipe.requires():
+    for task in pipe.deps():
         """ Are we re-running an upstream input (look in path cache)?
         At this time the only bundles a task depends on are the ones created by its upstream tasks.
         We have to look through its *current* list of possible upstream tasks, not the ones it had
@@ -390,15 +390,15 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
             # this can happen with bundles created by other pipelines.
             # still surface the warning, but no longer raise exception
             _logger.info(
-                "Resolve bundles: input bundle {} with no path cache entry.  Likely produced by other pipesline".format(
-                    task.task_id))
+                "Resolve bundles: input bundle {} with no path cache entry.  Likely an externally produced bundle".format(
+                    task.processing_id()))
         else:
             if pce.rerun:
                 if verbose: print("Resolve_bundle: an upstream task is in the pce and is being re-run, so we need to reun. getting new output bundle.\n")
                 pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
                 return regen_bundle
 
-            local_bundle = pfs.get_hframe_by_proc(task.task_id, data_context=data_context)
+            local_bundle = pfs.get_hframe_by_proc(task.processing_id(), data_context=data_context)
             assert(local_bundle is not None)
 
             """ Now we need to check if we should re-run this task because an upstream input exists and has been updated        
@@ -410,8 +410,8 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
             """
             for tup in lng.pb.depends_on:
                 if tup.hframe_name == local_bundle.pb.processing_name and tup.hframe_uuid != local_bundle.pb.uuid:
-                    if verbose: print("Resolve_bundle: prior input bundle {} {} has new uuid {}\n".format(
-                        task.task_id,
+                    if verbose: print("Resolve_bundle: prior input bundle {} uuid {} has new uuid {}\n".format(
+                        task.processing_id(),
                         tup.hframe_uuid,
                         local_bundle.pb.uuid))
                     pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
