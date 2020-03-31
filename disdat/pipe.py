@@ -87,6 +87,8 @@ class PipeTask(luigi.Task, PipeBase):
 
         super(PipeTask, self).__init__(*args, **kwargs)
 
+        self._cached_processing_id = None
+
         # Instance variables to track various user wishes
         self.user_set_human_name = None  # self.set_bundle_name()
         self.user_tags = {}              # self.add_tags()
@@ -158,6 +160,9 @@ class PipeTask(luigi.Task, PipeBase):
 
         """
 
+        if self._cached_processing_id is not None:
+            return self._cached_processing_id
+
         deps = self.requires()
 
         assert(isinstance(deps, dict))
@@ -169,6 +174,8 @@ class PipeTask(luigi.Task, PipeBase):
         param_hash = hashlib.md5(as_one_str.encode('utf-8')).hexdigest()
 
         processing_id = self.task_id + '_' + param_hash[:luigi.task.TASK_ID_TRUNCATE_HASH]
+
+        self._cached_processing_id = processing_id
 
         return processing_id
 
@@ -425,7 +432,6 @@ class PipeTask(luigi.Task, PipeBase):
             (dict): A dictionary with the arguments.
 
         """
-
         kwargs = dict()
 
         # Place upstream task outputs into the kwargs.  Thus the user does not call
@@ -473,7 +479,6 @@ class PipeTask(luigi.Task, PipeBase):
         Returns:
 
         """
-
         return None
 
     def pipe_run(self, **kwargs):
@@ -491,7 +496,6 @@ class PipeTask(luigi.Task, PipeBase):
         Returns:
 
         """
-
         raise NotImplementedError()
 
     def add_dependency(self, name, task_class, params):
@@ -509,7 +513,6 @@ class PipeTask(luigi.Task, PipeBase):
             None
 
         """
-
         if not isinstance(params, dict):
             error = "add_dependency third argument must be a dictionary of parameters"
             raise Exception(error)
@@ -672,7 +675,6 @@ class PipeTask(luigi.Task, PipeBase):
             (`luigi.contrib.s3.S3Target`): Singleton, list, or dictionary of Luigi Target objects.
 
         """
-
         pce = self.pfs.get_path_cache(self)
         assert (pce is not None)
         output_dir = self.get_output_dir_remote()
@@ -693,7 +695,6 @@ class PipeTask(luigi.Task, PipeBase):
             output_dir (str):  Fully qualified path of a directory whose prefix is the bundle's local output directory.
 
         """
-
         prefix_dir = self.get_output_dir()
         fqp = os.path.join(prefix_dir, dirname)
         try:
@@ -757,7 +758,6 @@ class PipeTask(luigi.Task, PipeBase):
             raise Exception('Managed S3 path creation needs a) remote context and b) incremental push to be set')
         return output_dir
 
-
     def set_bundle_name(self, human_name):
         """
         Disdat Pipe API Function
@@ -772,7 +772,6 @@ class PipeTask(luigi.Task, PipeBase):
             None
 
         """
-
         self.user_set_human_name = human_name
 
     def add_tags(self, tags):
