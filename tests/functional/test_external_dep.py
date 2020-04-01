@@ -57,7 +57,7 @@ class PipelineB(PipeTask):
         self.set_bundle_name('pipeline_b')
         b = self.add_external_dependency('ext_input',
                                          ExternalPipeline,
-                                         {'test_param': EXT_TASK_PARAM_VAL},
+                                         {},
                                          uuid=self.ext_uuid)
         assert list(b.data) == BUNDLE_CONTENTS
 
@@ -73,7 +73,7 @@ class PipelineC(PipeTask):
         self.set_bundle_name('pipeline_b')
         b = self.add_external_dependency('ext_input',
                                          ExternalPipeline,
-                                         {'test_param': EXT_TASK_PARAM_VAL},
+                                         {},
                                          human_name=self.ext_name)
         assert list(b.data) == BUNDLE_CONTENTS
 

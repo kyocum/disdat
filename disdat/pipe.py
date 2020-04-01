@@ -546,26 +546,20 @@ class PipeTask(luigi.Task, PipeBase):
 
         Args:
             param_name (str): The parameter name this bundle assumes when passed to Pipe.run
-            task_class (:object):  Must always set class name of upstream task if it was created from a PipeTask.   May be None if made by API.
-            params (:dict):  Dictionary of parameters for this task.  Note if UUID is set, then params are ignored!
+            task_class (object):  Class name of upstream task if looking for external bundle by processing_id.
+            params (dict):  Dictionary of parameters if looking for external bundle by processing_id.
             human_name (str): Resolve dependency by human_name, return the latest bundle with that humman_name.  Trumps task_class and params.
-            uuid (str): Resolve dependency by explicit UUID, trumps task_class and params, and human_name.
+            uuid (str): Resolve dependency by explicit UUID, trumps task_class, params and human_name.
 
         Returns:
             None
 
         """
-        # TODO: Store PipeTask class name so look ups by name or uuid do not require user to specify it.
-
-        # for the bundle object
         import disdat.api as api
 
-        if not isinstance(params, dict):
-            error = "add_dependency third argument must be a dictionary of parameters"
+        if task_class is not None and not isinstance(params, dict):
+            error = "add_external_dependency requires parameter dictionary"
             raise Exception(error)
-
-        if task_class is None:
-            task_class = api.BundleWrapperTask
 
         assert (param_name not in self.add_deps)
 
@@ -587,10 +581,10 @@ class PipeTask(luigi.Task, PipeBase):
 
             bundle.fill_from_hfr(hfr)
 
-            # if we found by uuid or human name, the hfr should have the params with which
-            # the task was called, so we need to grab them.
+            # if we found by uuid or human name, create ersatz ExternalDepTask parameterized by uuid
             if uuid is not None or human_name is not None:
-                local_params = task_class._put_subcls_params(bundle.params)
+                task_class = ExternalDepTask
+                local_params = {'uuid': bundle.uuid}
 
         except ExtDepError as error:
             bundle = None
@@ -858,3 +852,17 @@ class PipeTask(luigi.Task, PipeBase):
             self.add_tags({BUNDLE_TAG_TRANSIENT: 'True', BUNDLE_TAG_PUSH_META: 'True'})
         else:
             self.add_tags({BUNDLE_TAG_TRANSIENT: 'True'})
+
+
+class ExternalDepTask(PipeTask):
+    """ This task is only here as a shell.
+    If the user specifies an external dependency, we look it up in add_external_dependency.
+    We look it up, b/c we want to hand them the bundle in requires.
+    If they look up the bundle via UUID or human name, there is no reason for them to
+    pass in the class.  Especially for human name, where they cannot know it.
+    And, if it exists, there is no reason to look it up again in apply.resolve_bundle().
+    Thus we create an ExternalDepTask() parameterized by the UUID and apply.resolve_bundle()
+    The default output() function will create this tasks processing_id() which will be a hash
+    of this task's params, which will include a unique UUID.   And so should be unique.
+    """
+    uuid = luigi.Parameter(default=None)
