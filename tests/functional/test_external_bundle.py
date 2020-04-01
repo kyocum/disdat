@@ -19,23 +19,19 @@ import pandas as pd
 import numpy as np
 from disdat.pipe import PipeTask
 import disdat.api as api
+import pytest
+
+from tests.functional.common import run_test, TEST_CONTEXT # autouse fixture to setup / tear down context
 
 
-TEST_CONTEXT = '_test_context_'
-TEST_NAME    = 'test_bundle'
-
-
-def test():
+def test(run_test):
     """ Purpose of this test is to have one task that produces a bundle.
     And another task that requires it.
 
-    1.) Create external dep -- also creates PreMaker_auf_datamaker
-    dsdt apply - - test_external_bundle.DataMaker --int_array '[1000,2000,3000]'
-
-    2.) Remove Premaker_auf_datamaker
-    dsdt rm PreMaker_auf_datamaker
-
-    3.) Try to run Root -- it should find DataMaker but not re-create it or PreMaker_auf_datamaker
+    1.) Run DataMaker which runs PreMaker
+    2.) Assert that those ran, and remove PreMaker
+    3.) run Root_1 which needs DataMaker (external dep) and PreMaker
+    4.) assert that premaker re-ran and root ran successfully (getting external dependency)
 
     """
 
@@ -43,16 +39,18 @@ def test():
 
     api.apply(TEST_CONTEXT, DataMaker, params={'int_array': [1000, 2000, 3000]})
 
-    b = api.get(TEST_CONTEXT, 'PreMaker_auf_datamaker')
-
+    b = api.get(TEST_CONTEXT, 'PreMaker')
     assert(b is not None)
-
+    pm_uuid = b.uuid
     b.rm()
 
     api.apply(TEST_CONTEXT, Root_1)
 
-    b = api.get(TEST_CONTEXT, 'PreMaker_auf_root')
+    b = api.get(TEST_CONTEXT, 'PreMaker')
+    assert(b is not None)
+    assert(b.uuid != pm_uuid)
 
+    b = api.get(TEST_CONTEXT, 'Root_1')
     assert(b is not None)
 
     api.delete_context(TEST_CONTEXT)
@@ -66,7 +64,7 @@ class DataMaker(PipeTask):
 
     def pipe_requires(self):
         self.set_bundle_name("DataMaker")
-        self.add_dependency('premaker', PreMaker, {'printme': "auf_datamaker"})
+        self.add_dependency('premaker', PreMaker, params={})
         return
 
     def pipe_run(self, premaker=None):
@@ -79,7 +77,6 @@ class PreMaker(PipeTask):
     printme = luigi.Parameter(default="snarky")
 
     def pipe_requires(self):
-        self.set_bundle_name("PreMaker_{}".format(self.printme))
         return
 
     def pipe_run(self):
@@ -92,15 +89,14 @@ class PreMaker(PipeTask):
 class Root_1(PipeTask):
 
     def pipe_requires(self):
-        self.add_dependency('premaker', PreMaker, {'printme': "auf_root"})
+        self.add_dependency('premaker', PreMaker, params={})
         self.add_external_dependency('datamaker', DataMaker, {'int_array': [1000, 2000, 3000]})
 
     def pipe_run(self, premaker=None, datamaker=None):
-
         print ("Root received a datamaker {}".format(datamaker))
-
         return
 
 
 if __name__ == '__main__':
-    test()
+    pytest.main([__file__])
+    #test()

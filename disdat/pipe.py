@@ -202,8 +202,8 @@ class PipeTask(luigi.Task, PipeBase):
         elif self.user_set_human_name is not None:
             return self.user_set_human_name
         else:
-            id_parts = self.processing_id().split('_')
-            return "{}".format(id_parts[0])
+            default_human_name = type(self).__name__
+            return "{}".format(default_human_name)
 
     def get_hframe_uuid(self):
         """ Return the unique ID for this tasks current output hyperframe
@@ -569,13 +569,15 @@ class PipeTask(luigi.Task, PipeBase):
 
         assert (param_name not in self.add_deps)
 
+        local_params = dict(params) # to avoid mucking up input parameter dictionary
+
         try:
             if uuid is not None:
                 hfr = self.pfs.get_hframe_by_uuid(uuid, data_context=self.data_context)
             elif human_name is not None:
                 hfr = self.pfs.get_latest_hframe(human_name, data_context=self.data_context)
             else:
-                p = task_class(**params)
+                p = task_class(**local_params)
                 hfr = self.pfs.get_hframe_by_proc(p.processing_id(), data_context=self.data_context)
 
             if hfr is None:
@@ -588,7 +590,7 @@ class PipeTask(luigi.Task, PipeBase):
             # if we found by uuid or human name, the hfr should have the params with which
             # the task was called, so we need to grab them.
             if uuid is not None or human_name is not None:
-                params = task_class._put_subcls_params(bundle.params)
+                local_params = task_class._put_subcls_params(bundle.params)
 
         except ExtDepError as error:
             bundle = None
@@ -599,7 +601,7 @@ class PipeTask(luigi.Task, PipeBase):
                                                                                                                error))
             bundle = None
         finally:
-            self.add_deps[param_name] = (luigi.task.externalize(task_class), params)
+            self.add_deps[param_name] = (luigi.task.externalize(task_class), local_params)
 
         return bundle
 

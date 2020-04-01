@@ -94,7 +94,7 @@ def create_bundle_from_pipeline():
     return b.uuid
 
 
-def test_ord_external_dependency():
+def test_ord_external_dependency(run_test):
 
     uuid = create_bundle_from_pipeline()
 
@@ -104,7 +104,7 @@ def test_ord_external_dependency():
     api.apply(TEST_CONTEXT, PipelineA)
 
 
-def test_uuid_external_dependency():
+def test_uuid_external_dependency(run_test):
 
     uuid = create_bundle_from_pipeline()
 
@@ -114,7 +114,7 @@ def test_uuid_external_dependency():
     api.apply(TEST_CONTEXT, PipelineB, params={'ext_uuid': uuid})
 
 
-def test_name_external_dependency():
+def test_name_external_dependency(run_test):
 
     uuid = create_bundle_from_pipeline()
 
