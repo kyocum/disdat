@@ -391,17 +391,17 @@ class DisdatFS(object):
         """
         return self.curr_context and self.curr_context.is_valid()
 
-    def reuse_hframe(self, pipe, hframe, is_left_edge_task, data_context=None):
+    def reuse_hframe(self, pipe, hfr_uuid, is_left_edge_task, data_context=None):
         """
         Re-use this bundle, everything stays the same, just put in the cache
         Note: Currently doesn't use this FS instance, but to be consistent with
         new_output_bundle below.
 
         Args:
-            pipe:
-            hframe:
-            is_left_edge_task:
-            data_context:
+            pipe (`pipe.PipeTask`): The pipe task that should not be re-run.
+            hfr_uuid (str): The UUID of the hyperframe to re-use.
+            is_left_edge_task (bool): Is this at the top of the DAG.
+            data_context: The context containing this bundle with UUID hfr_uuid.
 
         Returns:
             None
@@ -417,8 +417,8 @@ class DisdatFS(object):
         if data_context is None:
             data_context = self.curr_context
 
-        dir = data_context.implicit_hframe_path(hframe.pb.uuid)
-        DisdatFS.put_path_cache(pipe, hframe.pb.uuid, dir, False, is_left_edge_task)
+        dir = data_context.implicit_hframe_path(hfr_uuid)
+        DisdatFS.put_path_cache(pipe, hfr_uuid, dir, False, is_left_edge_task)
 
     def new_output_hframe(self, pipe, is_left_edge_task, force_uuid=None, data_context=None):
         """

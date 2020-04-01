@@ -34,6 +34,7 @@ from luigi import build, worker
 import disdat.common as common  # config, especially logging, before luigi ever loads
 import disdat.fs as fs
 import disdat.driver as driver
+from disdat.pipe import ExternalDepTask
 from disdat import logger as _logger
 
 
@@ -312,6 +313,11 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
         return regen_bundle
 
+    if worker._is_external(pipe) and isinstance(pipe, ExternalDepTask):
+        if verbose: print("resolve_bundle: found ExternalDepTask re-using bundle with UUID[{}].\n".format(pipe.uuid))
+        pfs.reuse_hframe(pipe, pipe.uuid, is_left_edge_task, data_context=data_context)
+        return use_bundle
+
     bndls = pfs.get_hframe_by_proc(pipe.processing_id(), getall=True, data_context=data_context)
     if bndls is None or len(bndls) <= 0:
         if verbose: print("resolve_bundle: No bundle with proc_name {}, getting new output bundle.\n".format(pipe.processing_id()))
@@ -419,7 +425,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
 
     # 5.) Woot!  Reuse the found bundle.
     if verbose: print("resolve_bundle: reusing bundle\n")
-    pfs.reuse_hframe(pipe, bndl, is_left_edge_task, data_context=data_context)
+    pfs.reuse_hframe(pipe, bndl.pb.uuid, is_left_edge_task, data_context=data_context)
     return use_bundle
 
 
