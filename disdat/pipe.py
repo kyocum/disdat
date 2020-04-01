@@ -547,9 +547,9 @@ class PipeTask(luigi.Task, PipeBase):
         Args:
             param_name (str): The parameter name this bundle assumes when passed to Pipe.run
             task_class (:object):  Must always set class name of upstream task if it was created from a PipeTask.   May be None if made by API.
-            params (:dict):  Dictionary of parameters for this task.  Note if UUID is set, then params are ignored!
-            human_name (str): Resolve dependency by human_name, return the latest bundle with that humman_name.  Trumps task_class and params.
-            uuid (str): Resolve dependency by explicit UUID, trumps task_class and params, and human_name.
+            params (:dict):  Dictionary of parameters for this task.  Note if UUID or human_name is set, then params are ignored!
+            human_name (str): Resolve dependency by human_name, return the latest bundle with that humman_name.  Trumps params.
+            uuid (str): Resolve dependency by explicit UUID, trumps params and human_name.
 
         Returns:
             None
