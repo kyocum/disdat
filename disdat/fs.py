@@ -809,9 +809,11 @@ class DisdatFS(object):
                 if self.curr_context is not None and self.curr_context is ctxt:
                     cprint("*", "white", end='')
                     cprint("\t{}".format(ctxt_name), "green", end='')
-                    cprint("\t[{}@{}]".format(ctxt.remote_ctxt, self.curr_context.remote_ctxt_url))
+                    cprint("\t[{}@{}]".format(ctxt.remote_ctxt,
+                                              DataContext.s3_remote_from_url(self.curr_context.remote_ctxt_url)))
                 else:
-                    print("\t{}\t[{}@{}]".format(ctxt.local_ctxt, ctxt.remote_ctxt, ctxt.remote_ctxt_url))
+                    print("\t{}\t[{}@{}]".format(ctxt.local_ctxt, ctxt.remote_ctxt,
+                                                 DataContext.s3_remote_from_url(ctxt.remote_ctxt_url)))
             return 0
 
         remote_context, local_context = DisdatFS._parse_fq_context_name(fq_context_name)
@@ -1381,40 +1383,6 @@ class DisdatFS(object):
 
         ctxt_obj.bind_remote_ctxt(remote_context, s3_url, force=force)
 
-    def status(self, human_name):
-        """
-
-        Args:
-            human_name:
-
-        Returns:
-
-        """
-        return_strings = []
-
-        if not self.in_context():
-            return_strings.append('[None]')
-        else:
-            return_strings.append("Disdat Context {}".format(self.curr_context.get_repo_name()))
-            return_strings.append("On local context {}".format(self.curr_context.get_local_name()))
-            if self.curr_context.get_remote_object_dir() is not None:
-                return_strings.append("Remote @ {}".format(self.curr_context.get_remote_object_dir()))
-            else:
-                return_strings.append("No remote set.")
-        if False:
-            try:
-                hfrs = self.curr_context.get_hframes(human_name=human_name)
-                if len(hfrs) > 0:
-                    return_strings.append("Most recent object with this name is:")
-                    return_strings.extend(DisdatFS._pretty_print_hframe(hfrs[0]))
-                    return_strings.append("Older versions of this object are:")
-                    for hfr in hfrs[1:]:
-                        return_strings.extend(DisdatFS._pretty_print_hframe(hfr))
-            except KeyError:
-                return_strings.append('No hyperframe with that name found')
-
-        return return_strings
-
 
 def _branch(fs, args):
     if args.delete:
@@ -1540,11 +1508,6 @@ def _cat(fs, args):
         print("Disdat cat found no bundle with name {} or uuid {}".format(args.bundle, args.uuid))
 
 
-def _status(fs, args):
-    for f in fs.status(args.bundle):
-        print(f)
-
-
 def init_fs_cl(subparsers):
     """Initialize a command line set of subparsers with file system commands.
 
@@ -1631,11 +1594,6 @@ def init_fs_cl(subparsers):
                        help="Save output dataframe as csv without index to specified file")
     cat_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to cat')
     cat_p.set_defaults(func=lambda args: _cat(fs, args))
-
-    # status
-    status_p = subparsers.add_parser('status')
-    status_p.add_argument('bundle', type=str, help='A bundle in the current context')
-    status_p.set_defaults(func=lambda args: _status(fs, args))
 
     # remote add <name> <s3_url>
     remote_p = subparsers.add_parser('remote')
