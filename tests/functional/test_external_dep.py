@@ -113,6 +113,8 @@ def test_uuid_external_dependency(run_test):
     # Ext dep by specific UUID
     api.apply(TEST_CONTEXT, PipelineB, params={'ext_uuid': uuid})
 
+    api.apply(TEST_CONTEXT, PipelineB, params={'ext_uuid': uuid})
+
 
 def test_name_external_dependency(run_test):
 
@@ -125,9 +127,10 @@ def test_name_external_dependency(run_test):
 
 
 if __name__ == '__main__':
-    #api.context(context_name=TEST_CONTEXT)
-    #try:
-    #    test_external_dependency()
-    #finally:
-    #    api.delete_context(context_name=TEST_CONTEXT)
-    pytest.main([__file__])
+    api.context(context_name=TEST_CONTEXT)
+    try:
+        test_uuid_external_dependency(run_test)
+    finally:
+        pass
+        #api.delete_context(context_name=TEST_CONTEXT)
+    #pytest.main([__file__])

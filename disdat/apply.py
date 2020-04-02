@@ -297,7 +297,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
     if verbose:
         print("resolve_bundle: looking up bundle {}".format(pipe.processing_id()))
 
-    if pipe._mark_force and not worker._is_external(pipe):
+    if pipe._mark_force and not isinstance(pipe, ExternalDepTask):
         # Forcing recomputation through a manual annotation in the pipe.pipe_requires() itself
         # If it is external, we don't recompute in any case.
         _logger.debug("resolve_bundle: pipe.mark_force forcing a new output bundle.")
@@ -305,7 +305,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
         return regen_bundle
 
-    if pipe.force and not worker._is_external(pipe):
+    if pipe.force and not isinstance(pipe, ExternalDepTask):
         # Forcing recomputation through a manual --force directive
         # If it is external, do not recompute in any case
         _logger.debug("resolve_bundle: --force forcing a new output bundle.")
@@ -313,7 +313,8 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
         return regen_bundle
 
-    if worker._is_external(pipe) and isinstance(pipe, ExternalDepTask):
+    if isinstance(pipe, ExternalDepTask):
+        assert worker._is_external(pipe)
         if verbose: print("resolve_bundle: found ExternalDepTask re-using bundle with UUID[{}].\n".format(pipe.uuid))
         pfs.reuse_hframe(pipe, pipe.uuid, is_left_edge_task, data_context=data_context)
         return use_bundle
@@ -404,8 +405,19 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
                 pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
                 return regen_bundle
 
-            local_bundle = pfs.get_hframe_by_proc(task.processing_id(), data_context=data_context)
-            assert(local_bundle is not None)
+            # Upstream Task
+            # Resolve to a bundle
+            # Resolve to a bundle UUID and a processing name
+            # If it is an ordinary task in a workflow, we resolve via the processing name
+            if worker._is_external(task) and isinstance(task, ExternalDepTask):
+                upstream_dep_uuid = task.uuid
+                upstream_dep_processing_name = task.processing_name
+            else:
+                local_bundle = pfs.get_hframe_by_proc(task.processing_id(), data_context=data_context)
+                assert(local_bundle is not None)
+                upstream_dep_uuid = local_bundle.pb.uuid
+                upstream_dep_processing_name = local_bundle.pb.processing_name
+                assert(upstream_dep_processing_name == task.processing_id())
 
             """ Now we need to check if we should re-run this task because an upstream input exists and has been updated        
             Go through each of the inputs used for this current task.  
@@ -415,11 +427,11 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
             XXX TODO: Add date to the depends_on pb data structure to enforce 2 XXX
             """
             for tup in lng.pb.depends_on:
-                if tup.hframe_name == local_bundle.pb.processing_name and tup.hframe_uuid != local_bundle.pb.uuid:
+                if tup.hframe_name == upstream_dep_processing_name and tup.hframe_uuid != upstream_dep_uuid:
                     if verbose: print("Resolve_bundle: prior input bundle {} uuid {} has new uuid {}\n".format(
                         task.processing_id(),
                         tup.hframe_uuid,
-                        local_bundle.pb.uuid))
+                        upstream_dep_uuid))
                     pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
                     return regen_bundle
 

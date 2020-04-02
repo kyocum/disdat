@@ -115,8 +115,8 @@ class BundleWrapperTask(PipeTask):
         """ Determine input bundles """
         raise NotImplementedError
 
-    def bundle_outputs(self):
-        """ Determine input bundles """
+    def bundle_output(self):
+        """ Determine output bundle """
         raise NotImplementedError
 
     def human_id(self):
