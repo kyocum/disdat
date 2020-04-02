@@ -279,6 +279,14 @@ class DataContext(object):
         """
         return os.path.join(self._get_local_context_dir(), constants._MANAGED_OBJECTS)
 
+    @staticmethod
+    def s3_remote_from_url(remote_ctxt_url):
+        """ remove '/context' """
+        if remote_ctxt_url is None:
+            return 'None'
+        else:
+            return remote_ctxt_url[:-len('/context')]
+
     def get_remote_object_dir(self):
         """
         Where objects live on remote.
