@@ -103,6 +103,8 @@ def test_ord_external_dependency(run_test):
     # Ordinary ext dep
     api.apply(TEST_CONTEXT, PipelineA)
 
+    api.apply(TEST_CONTEXT, PipelineA)
+
 
 def test_uuid_external_dependency(run_test):
 
@@ -125,12 +127,14 @@ def test_name_external_dependency(run_test):
     # Ext dep by human name
     api.apply(TEST_CONTEXT, PipelineC, params={'ext_name': EXT_BUNDLE_NAME})
 
+    api.apply(TEST_CONTEXT, PipelineC, params={'ext_name': EXT_BUNDLE_NAME})
+
 
 if __name__ == '__main__':
-    api.context(context_name=TEST_CONTEXT)
-    try:
-        test_uuid_external_dependency(run_test)
-    finally:
-        pass
+    #api.context(context_name=TEST_CONTEXT)
+    #try:
+    #    test_uuid_external_dependency(run_test)
+    #finally:
+    #    pass
         #api.delete_context(context_name=TEST_CONTEXT)
-    #pytest.main([__file__])
+    pytest.main([__file__])
