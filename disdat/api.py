@@ -235,6 +235,8 @@ class Bundle(HyperFrameRecord):
         self.depends_on = hfr.pb.lineage.depends_on
         self.data = self.data_context.present_hfr(hfr)
 
+        return self
+
     """ Python Context Manager Interface """
 
     def __enter__(self):

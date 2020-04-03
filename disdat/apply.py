@@ -97,6 +97,17 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force, 
     # Increment the reference count for this process
     apply.reference_count += 1
 
+    def cleanup_pce():
+        """
+        After running, decrement our reference count (which tells how many simultaneous apply methods are
+        running nested in this process.  Once the last one completes, blow away our path cache and git hash.
+        Needed if we're run twice (from scratch) in the same process.
+        """
+        apply.reference_count -= 1
+        if not apply.reference_count:
+            fs.DisdatFS().clear_pipe_version()
+            fs.DisdatFS().clear_path_cache()
+
     # Re-execute logic -- make copy of task DAG
     # Creates a cache of {pipe:path_cache_entry} in the pipesFS object.
     # This "task_path_cache" is used throughout execution to find output bundles.
@@ -113,7 +124,13 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force, 
     if force:
         users_root_task.mark_force()
 
-    did_work = resolve_workflow_bundles(reexecute_dag, data_context)
+    # Resolve bundles.  Calls requires.  User may throw exceptions.
+    # OK, but we have to clean up PCE.
+    try:
+        did_work = resolve_workflow_bundles(reexecute_dag, data_context)
+    except Exception as e:
+        cleanup_pce()
+        raise
 
     # At this point the path cache should be full of existing or new UUIDs.
     # we are going to replace the final pipe's UUID if the user has passed one in.
@@ -134,13 +151,7 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force, 
 
     success = build([reexecute_dag], local_scheduler=not central_scheduler, workers=workers)
 
-    # After running, decrement our reference count (which tells how many simultaneous apply methods are
-    # running nested in this process.  Once the last one completes, blow away our path cache and git hash.
-    # Needed if we're run twice (from scratch) in the same process.
-    apply.reference_count -= 1
-    if not apply.reference_count:
-        fs.DisdatFS().clear_pipe_version()
-        fs.DisdatFS().clear_path_cache()
+    cleanup_pce()
 
     return {'success': success, 'did_work': did_work}
 
