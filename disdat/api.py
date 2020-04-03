@@ -16,17 +16,11 @@
 
 
 """
-API
+A Disdat API for creating, publishing, and finding bundles.
 
-A Disdat API for creating and publishing bundles.
-
-These calls are note thread safe.  If they operate on a context, they
+These calls are not thread safe.  If they operate on a context, they
 require the user to specify the context.   This is unlike the CLI that maintains state on disk
-that keeps track of your current context between calls.   The API won't change the context you're in
-in the CLI and vice versa.
-
-To make this work we get a pointer to the singelton FS object, and we temporarily change the context (it will
-automatically assume the context of the CLI) and perform our operation.
+that keeps track of your current context between calls.   The API won't change the CLI's context and vice versa.
 
 Author: Kenneth Yocum
 """
@@ -240,6 +234,8 @@ class Bundle(HyperFrameRecord):
 
         self.depends_on = hfr.pb.lineage.depends_on
         self.data = self.data_context.present_hfr(hfr)
+
+        return self
 
     """ Python Context Manager Interface """
 

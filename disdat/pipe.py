@@ -579,23 +579,29 @@ class PipeTask(luigi.Task, PipeBase):
                 hfr = self.pfs.get_hframe_by_proc(p.processing_id(), data_context=self.data_context)
 
             if hfr is None:
-                raise ExtDepError("Unable to resolve external bundle made by class ({})".format(task_class))
+                error_str = "Disdat can't resolve external bundle from class[{}] params[{}] name[{}] uuid[{}]".format(task_class,
+                                                                                                                   params,
+                                                                                                                   human_name,
+                                                                                                                   uuid)
+                raise ExtDepError(error_str)
 
-            bundle = api.Bundle(self.data_context.get_local_name(), 'unknown')
+            bundle = api.Bundle(self.data_context.get_local_name(), 'unknown').fill_from_hfr(hfr)
 
-            bundle.fill_from_hfr(hfr)
-
-        except ExtDepError as error:
+        except ExtDepError as error:  # Swallow and allow Luigi to determine task is not available.
+            _logger.error(error_str)
             bundle = None
+
         except Exception as error:
-            _logger.warning("Unable to resolve external bundle class[{}] name[{}] uuid[{}]: error [{}]".format(task_class,
-                                                                                                               human_name,
-                                                                                                               uuid,
-                                                                                                               error))
             bundle = None
+
         finally:
-            self.add_deps[param_name] = (luigi.task.externalize(ExternalDepTask), {'uuid': bundle.uuid,
-                                                                                   'processing_name': bundle.processing_name})
+            if bundle is None:
+                self.add_deps[param_name] = (luigi.task.externalize(ExternalDepTask), {'uuid': 'None',
+                                                                                       'processing_name': 'None'})
+            else:
+                self.add_deps[param_name] = (luigi.task.externalize(ExternalDepTask), {'uuid': bundle.uuid,
+                                                                                       'processing_name': bundle.processing_name})
+
 
         return bundle
 
