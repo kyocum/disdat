@@ -41,12 +41,14 @@ class ExternalPipeline(PipeTask):
 
 class PipelineA(PipeTask):
     test_param = luigi.Parameter(default=EXT_TASK_PARAM_VAL)
+    throw_assert = luigi.BoolParameter(default=True)
 
     def pipe_requires(self):
         self.set_bundle_name('pipeline_a')
         b = self.add_external_dependency('ext_input', ExternalPipeline, {'test_param': self.test_param})
-        assert b is not None
-        assert list(b.data) == BUNDLE_CONTENTS
+        if self.throw_assert:
+            assert b is not None
+            assert list(b.data) == BUNDLE_CONTENTS
 
     def pipe_run(self, ext_input=None):
         assert list(ext_input) == BUNDLE_CONTENTS
@@ -147,6 +149,10 @@ def test_ord_external_dependency_fail(run_test):
 
     uuid = create_bundle_from_pipeline()
 
+    result = api.apply(TEST_CONTEXT, PipelineA, params={'test_param': 'never run before',
+                                                        'throw_assert': False})
+    assert result['did_work'] is False
+
     try:
         result = api.apply(TEST_CONTEXT, PipelineA, params={'test_param': 'never run before'})
     except AssertionError as ae:
@@ -194,8 +200,6 @@ def test_name_external_dependency_fail(run_test):
     except AssertionError as ae:
         print("ERROR: {}".format(ae))
         return
-
-
 
 
 if __name__ == '__main__':
