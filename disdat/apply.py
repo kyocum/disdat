@@ -325,6 +325,9 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         return regen_bundle
 
     if isinstance(pipe, ExternalDepTask):
+        # NOTE: Even if add_external_dependency() fails to find the bundle we still succeed here.
+        # Thus it can look like we reuse a bundle, when in fact we don't.  We error either
+        # within the user's requires, add_external_dependency(), or when Luigi can't find the task (current approach)
         assert worker._is_external(pipe)
         if verbose: print("resolve_bundle: found ExternalDepTask re-using bundle with UUID[{}].\n".format(pipe.uuid))
         pfs.reuse_hframe(pipe, pipe.uuid, is_left_edge_task, data_context=data_context)
