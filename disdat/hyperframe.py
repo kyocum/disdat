@@ -69,7 +69,7 @@ HyperFrameTuple = namedtuple('HyperFrameTuple', 'columns, links, uuid, tags')
 # We can ROLLBACK, ABORT, FAIL, IGNORE, and REPLACE
 # Most cases we want to REPLACE (UPSERT)
 UPSERT_POLICY = 'FAIL'
-
+HFRAMES_TABLE = 'hframes'
 
 class RecordState(enum.Enum):
     """
@@ -324,6 +324,17 @@ def _tag_query(tags):
     return s
 
 
+def bundle_count(engine_g):
+
+    s = text("SELECT count(*) FROM {}".format(HFRAMES_TABLE))
+
+    with engine_g.connect() as conn:
+        result = conn.execute(s)
+        count = result.fetchone()[0]
+
+    return count
+
+
 def select_hfr_db(engine_g, uuid=None, owner=None, human_name=None,
                   processing_name=None, tags=None, state=None,
                   orderby=False, groupby=False, maxbydate=False,
@@ -388,7 +399,7 @@ def select_hfr_db(engine_g, uuid=None, owner=None, human_name=None,
 
     with engine_g.connect() as conn:
         result = conn.execute(s)
-        hfrs = pb_cls.from_row(result) # returns rows if no pb in rows
+        hfrs = pb_cls.from_row(result)  # returns rows if no pb in rows
 
     return hfrs
 
@@ -798,7 +809,7 @@ class HyperFrameRecord(PBObject):
     This is the in-python representation.   Each can import / export to PBs and DBs (via named tuples)
     """
 
-    table_name = 'hframes'
+    table_name = HFRAMES_TABLE
 
     def __init__(self, owner='', human_name='', processing_name='', uuid='',
                  frames=None, lin_obj=None, tags=None, presentation=hyperframe_pb2.DEFAULT):

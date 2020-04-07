@@ -50,26 +50,25 @@ class PipeBase(object):
         return DisdatFS()
 
     @abstractmethod
-    def bundle_outputs(self):
+    def bundle_output(self):
         """
         Given this pipe, return the set of bundles created by this pipe.
         Mirrors Luigi task.outputs()
 
-        :param pipe_task:  A PipeTask or a DriverTask (both implement PipeBase)
-        :return:  list of bundle names
+        Returns:
+            (processing_name, uuid)
         """
         pass
 
     @abstractmethod
     def bundle_inputs(self):
         """
-
         Given this pipe, return the set of bundles created by the input pipes.
         Mirrors Luigi task.inputs()
 
         :param pipe_task:  A PipeTask or a DriverTask (both implement PipeBase)
-        Returns
-            [(bundle_name, uuid), ... ]
+        Returns:
+            [(processing_name, uuid), ... ]
         """
         pass
 

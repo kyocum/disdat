@@ -98,17 +98,12 @@ class PipeTask(luigi.Task, PipeBase):
         self._input_bundle_uuids = {}    # self.get_bundle_uuid() of upstream tasks
         self._mark_force = False         # self.mark_force()
 
-    def bundle_outputs(self):
+    def bundle_output(self):
         """
-        Each pipe creates an output bundle name
-
-        Idea:  WorkflowName + task.task_id == [Pipe Class Name + params + hash]
-
-        For now: Apply Output Bundle "-" Pipe Class Name
+        Return the processing_name and uuid of the output bundle of this task.
+        NOTE: Currently un-used.  Consider removing.
         """
-
-        output_bundles = [(self.processing_id(), self.pfs.get_path_cache(self).uuid)]
-        return output_bundles
+        return self.processing_id(), self.pfs.get_path_cache(self).uuid
 
     def bundle_inputs(self):
         """
@@ -122,7 +117,12 @@ class PipeTask(luigi.Task, PipeBase):
 
         """
 
-        input_bundles = [(task.processing_id(), self.pfs.get_path_cache(task).uuid) for task in self.deps()]
+        input_bundles = []
+        for task in self.deps():
+            if isinstance(task, ExternalDepTask):
+                input_bundles.append((task.processing_name, task.uuid))
+            else:
+                input_bundles.append((task.processing_id(), self.pfs.get_path_cache(task).uuid))
 
         return input_bundles
 
@@ -531,6 +531,10 @@ class PipeTask(luigi.Task, PipeBase):
         flatten(self.requires())).  And what that means is that this requirement can only be satisfied
         by the bundle actually existing.
 
+        Create ersatz ExternalDepTask parameterized by uuid and processing_name
+        Note: it is possible to use class/params when searching by class, params, but this makes all external
+        dependencies look the same in the code.  Win.
+
         NOTE: if you add an external dependency by name, it is possible that someone adds a bundle during
         execution and that your requires function is no longer deterministic.   You must add caching to your
         requires function to handle this scenario.
@@ -544,32 +548,26 @@ class PipeTask(luigi.Task, PipeBase):
             bundle = self.add_external_dependency('_', MyTaskClass, {}, uuid=self.bundle_uuid)
         ``
 
+        TODO: Consider pushing caching into this layer.
+
         Args:
             param_name (str): The parameter name this bundle assumes when passed to Pipe.run
-            task_class (:object):  Must always set class name of upstream task if it was created from a PipeTask.   May be None if made by API.
-            params (:dict):  Dictionary of parameters for this task.  Note if UUID or human_name is set, then params are ignored!
-            human_name (str): Resolve dependency by human_name, return the latest bundle with that humman_name.  Trumps params.
-            uuid (str): Resolve dependency by explicit UUID, trumps params and human_name.
+            task_class (object):  Class name of upstream task if looking for external bundle by processing_id.
+            params (dict):  Dictionary of parameters if looking for external bundle by processing_id.
+            human_name (str): Resolve dependency by human_name, return the latest bundle with that humman_name.  Trumps task_class and params.
+            uuid (str): Resolve dependency by explicit UUID, trumps task_class, params and human_name.
 
         Returns:
-            None
+            `api.Bundle` or None
 
         """
-        # TODO: Store PipeTask class name so look ups by name or uuid do not require user to specify it.
-
-        # for the bundle object
         import disdat.api as api
 
-        if not isinstance(params, dict):
-            error = "add_dependency third argument must be a dictionary of parameters"
+        if task_class is not None and not isinstance(params, dict):
+            error = "add_external_dependency requires parameter dictionary"
             raise Exception(error)
 
-        if task_class is None:
-            task_class = api.BundleWrapperTask
-
         assert (param_name not in self.add_deps)
-
-        local_params = dict(params) # to avoid mucking up input parameter dictionary
 
         try:
             if uuid is not None:
@@ -577,31 +575,33 @@ class PipeTask(luigi.Task, PipeBase):
             elif human_name is not None:
                 hfr = self.pfs.get_latest_hframe(human_name, data_context=self.data_context)
             else:
-                p = task_class(**local_params)
+                p = task_class(**params)
                 hfr = self.pfs.get_hframe_by_proc(p.processing_id(), data_context=self.data_context)
 
             if hfr is None:
-                raise ExtDepError("Unable to resolve external bundle made by class ({})".format(task_class))
+                error_str = "Disdat can't resolve external bundle from class[{}] params[{}] name[{}] uuid[{}]".format(task_class,
+                                                                                                                   params,
+                                                                                                                   human_name,
+                                                                                                                   uuid)
+                raise ExtDepError(error_str)
 
-            bundle = api.Bundle(self.data_context.get_local_name(), 'unknown')
+            bundle = api.Bundle(self.data_context.get_local_name(), 'unknown').fill_from_hfr(hfr)
 
-            bundle.fill_from_hfr(hfr)
-
-            # if we found by uuid or human name, the hfr should have the params with which
-            # the task was called, so we need to grab them.
-            if uuid is not None or human_name is not None:
-                local_params = task_class._put_subcls_params(bundle.params)
-
-        except ExtDepError as error:
+        except ExtDepError as error:  # Swallow and allow Luigi to determine task is not available.
+            _logger.error(error_str)
             bundle = None
+
         except Exception as error:
-            _logger.warning("Unable to resolve external bundle class[{}] name[{}] uuid[{}]: error [{}]".format(task_class,
-                                                                                                               human_name,
-                                                                                                               uuid,
-                                                                                                               error))
             bundle = None
+
         finally:
-            self.add_deps[param_name] = (luigi.task.externalize(task_class), local_params)
+            if bundle is None:
+                self.add_deps[param_name] = (luigi.task.externalize(ExternalDepTask), {'uuid': 'None',
+                                                                                       'processing_name': 'None'})
+            else:
+                self.add_deps[param_name] = (luigi.task.externalize(ExternalDepTask), {'uuid': bundle.uuid,
+                                                                                       'processing_name': bundle.processing_name})
+
 
         return bundle
 
@@ -858,3 +858,30 @@ class PipeTask(luigi.Task, PipeBase):
             self.add_tags({BUNDLE_TAG_TRANSIENT: 'True', BUNDLE_TAG_PUSH_META: 'True'})
         else:
             self.add_tags({BUNDLE_TAG_TRANSIENT: 'True'})
+
+
+class ExternalDepTask(PipeTask):
+    """ This task is only here as a shell.
+    If the user specifies an external dependency, we look it up in add_external_dependency.
+    We look it up, b/c we want to hand them the bundle in requires.
+    If they look up the bundle via UUID or human name, there is no reason for them to
+    pass in the class.  Especially for human name, where they cannot know it.
+    And, if it exists, there is no reason to look it up again in apply.resolve_bundle().
+    Thus we create an ExternalDepTask() parameterized by the UUID and apply.resolve_bundle()
+    The default output() function will create this tasks processing_id() which will be a hash
+    of this task's params, which will include a unique UUID.   And so should be unique.
+    """
+    uuid = luigi.Parameter(default=None)
+    processing_name = luigi.Parameter(default=None)
+
+    def bundle_output(self):
+        """ External bundles have no outputs
+        """
+        return None
+
+    def bundle_inputs(self):
+        """ External bundles output are in lineage.
+        Note: this is only called in apply for now.  And this task can never
+        be called by apply directly.
+        """
+        assert False, "An ExternalDepTask should never be run directly."

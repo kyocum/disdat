@@ -18,6 +18,7 @@ import luigi
 import pytest
 
 from disdat.pipe import PipeTask
+from disdat.common import ExtDepError
 import disdat.api as api
 from tests.functional.common import run_test, TEST_CONTEXT # autouse fixture to setup / tear down context
 
@@ -39,11 +40,15 @@ class ExternalPipeline(PipeTask):
 
 
 class PipelineA(PipeTask):
+    test_param = luigi.Parameter(default=EXT_TASK_PARAM_VAL)
+    throw_assert = luigi.BoolParameter(default=True)
 
     def pipe_requires(self):
         self.set_bundle_name('pipeline_a')
-        b = self.add_external_dependency('ext_input', ExternalPipeline, {'test_param': EXT_TASK_PARAM_VAL})
-        assert list(b.data) == BUNDLE_CONTENTS
+        b = self.add_external_dependency('ext_input', ExternalPipeline, {'test_param': self.test_param})
+        if self.throw_assert:
+            assert b is not None
+            assert list(b.data) == BUNDLE_CONTENTS
 
     def pipe_run(self, ext_input=None):
         assert list(ext_input) == BUNDLE_CONTENTS
@@ -57,8 +62,9 @@ class PipelineB(PipeTask):
         self.set_bundle_name('pipeline_b')
         b = self.add_external_dependency('ext_input',
                                          ExternalPipeline,
-                                         {'test_param': EXT_TASK_PARAM_VAL},
+                                         {},
                                          uuid=self.ext_uuid)
+        assert b is not None
         assert list(b.data) == BUNDLE_CONTENTS
 
     def pipe_run(self, ext_input=None):
@@ -73,8 +79,9 @@ class PipelineC(PipeTask):
         self.set_bundle_name('pipeline_b')
         b = self.add_external_dependency('ext_input',
                                          ExternalPipeline,
-                                         {'test_param': EXT_TASK_PARAM_VAL},
+                                         {},
                                          human_name=self.ext_name)
+        assert b is not None
         assert list(b.data) == BUNDLE_CONTENTS
 
     def pipe_run(self, ext_input=None):
@@ -98,36 +105,119 @@ def test_ord_external_dependency(run_test):
 
     uuid = create_bundle_from_pipeline()
 
-    print ("UUID of created bundle is {}".format(uuid))
-
-    # Ordinary ext dep
     api.apply(TEST_CONTEXT, PipelineA)
+
+    result = api.apply(TEST_CONTEXT, PipelineA)
+    assert result['success'] is True
+    assert result['did_work'] is False
 
 
 def test_uuid_external_dependency(run_test):
 
     uuid = create_bundle_from_pipeline()
 
-    print ("UUID of created bundle is {}".format(uuid))
-
-    # Ext dep by specific UUID
     api.apply(TEST_CONTEXT, PipelineB, params={'ext_uuid': uuid})
+
+    result = api.apply(TEST_CONTEXT, PipelineB, params={'ext_uuid': uuid})
+    assert result['success'] is True
+    assert result['did_work'] is False
 
 
 def test_name_external_dependency(run_test):
 
     uuid = create_bundle_from_pipeline()
 
-    print ("UUID of created bundle is {}".format(uuid))
-
-    # Ext dep by human name
     api.apply(TEST_CONTEXT, PipelineC, params={'ext_name': EXT_BUNDLE_NAME})
+
+    result = api.apply(TEST_CONTEXT, PipelineC, params={'ext_name': EXT_BUNDLE_NAME})
+    assert result['success'] is True
+    assert result['did_work'] is False
+
+
+def test_ord_external_dependency_fail(run_test):
+    """ Test ability to handle a failed lookup.
+    Note: Disdat/Luigi swallows exceptions in tasks.  Here our tasks
+    assert that they get back a bundle on their lookup.  If we catch it, then the
+    test succeeds.
+
+    Args:
+        run_test:
+
+    Returns:
+
+    """
+
+    uuid = create_bundle_from_pipeline()
+
+    result = api.apply(TEST_CONTEXT, PipelineA, params={'test_param': 'never run before',
+                                                        'throw_assert': False})
+
+    assert result['success'] is True
+
+    try:
+        result = api.apply(TEST_CONTEXT, PipelineA, params={'test_param': 'never run before'})
+    except AssertionError as ae:
+        print("ERROR: {}".format(ae))
+        return
+
+
+def test_uuid_external_dependency_fail(run_test):
+    """ Test ability to handle a failed lookup.
+    Note: Disdat/Luigi swallows exceptions in tasks.  Here our tasks
+    assert that they get back a bundle on their lookup.  If we catch it, then the
+    test succeeds.
+
+    Args:
+        run_test:
+
+    Returns:
+
+    """
+
+    uuid = create_bundle_from_pipeline()
+    try:
+        result = api.apply(TEST_CONTEXT, PipelineB, params={'ext_uuid': 'not a valid uuid'})
+    except AssertionError as ae:
+        print("ERROR: {}".format(ae))
+        return
+
+
+def test_name_external_dependency_fail(run_test):
+    """ Test ability to handle a failed lookup.
+    Note: Disdat/Luigi swallows exceptions in tasks.  Here our tasks
+    assert that they get back a bundle on their lookup.  If we catch it, then the
+    test succeeds.
+
+    Args:
+        run_test:
+
+    Returns:
+
+    """
+
+    uuid = create_bundle_from_pipeline()
+    try:
+        result = api.apply(TEST_CONTEXT, PipelineC, params={'ext_name': 'not a bundle name'})
+    except AssertionError as ae:
+        print("ERROR: {}".format(ae))
+        return
 
 
 if __name__ == '__main__':
-    #api.context(context_name=TEST_CONTEXT)
-    #try:
-    #    test_external_dependency()
-    #finally:
-    #    api.delete_context(context_name=TEST_CONTEXT)
-    pytest.main([__file__])
+    if False:
+        api.delete_context(context_name=TEST_CONTEXT)
+        api.context(context_name=TEST_CONTEXT)
+
+        test_ord_external_dependency_fail(run_test)
+
+        api.delete_context(context_name=TEST_CONTEXT)
+        api.context(context_name=TEST_CONTEXT)
+
+        test_uuid_external_dependency_fail(run_test)
+
+        api.delete_context(context_name=TEST_CONTEXT)
+        api.context(context_name=TEST_CONTEXT)
+
+        test_name_external_dependency_fail(run_test)
+    else:
+        pytest.main([__file__])
