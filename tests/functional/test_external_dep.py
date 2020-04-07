@@ -151,7 +151,8 @@ def test_ord_external_dependency_fail(run_test):
 
     result = api.apply(TEST_CONTEXT, PipelineA, params={'test_param': 'never run before',
                                                         'throw_assert': False})
-    assert result['did_work'] is False
+
+    assert result['success'] is True
 
     try:
         result = api.apply(TEST_CONTEXT, PipelineA, params={'test_param': 'never run before'})
