@@ -306,10 +306,8 @@ class DataContext(object):
 
     def init_remote_db(self):
         """
-        NOTE: Not sure what this was supposed to do...
-
-        Returns:
-
+        Currently a no-op.  Will connect to something like dynamodb
+        when we have external indices for objects in cloud storage (aka S3).
         """
         pass
 
@@ -511,6 +509,15 @@ class DataContext(object):
         #print "hframes {}".format(hframes)
         #print "frames {}".format(frames)
         #print "auths {}".format(auths)
+
+    def bundle_count(self):
+        """ Determine how many bundles in the current local context
+        Returns:
+            (int): Count of bundles in this local context
+        """
+        assert self.local_engine is not None
+
+        return hyperframe.bundle_count(self.local_engine)
 
     def dbck(self):
         """

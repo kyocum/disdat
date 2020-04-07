@@ -26,12 +26,15 @@ import os
 import pkg_resources
 from getpass import getuser
 import six
+from multiprocessing import Pool, cpu_count
 
 from botocore.exceptions import ClientError
 import boto3 as b3
 from six.moves import urllib
 
 from disdat import logger as _logger
+
+S3_LS_USE_MP_THRESH = 4000  # the threshold after which we should use MP to look up bundles on s3
 
 
 def batch_get_job_definition_name(pipeline_image_name):
@@ -285,46 +288,104 @@ def s3_bucket_exists(bucket):
     return exists
 
 
-def ls_s3_url_objects(s3_url):
-    """
-    Return aws boto3 ObjectSummary's
+def s3_list_objects_at_prefix(bucket, prefix):
+    """ List out the objects at this prefix.
+    Returns a list of the keys found at this bucket.
+    We do so because boto objects aren't serializable under multiprocessing
 
-    Note: There is no current way in boto3 to do globs -- you filter on the client side.
+    Note: Do *not* use with multi-processing. This version uses boto Collections.
+    That means all the filtering is done on the client side, which makes this a
+    bad choice for multiprocessing as all the work is done for each call.
+
+    Args:
+        bucket(str): The s3 bucket
+        prefix(str): The s3 key prefix you wish to search
 
     Returns:
-        list:str: list of ObjectSummary's under this path
+        (list): List of item keys
+    """
+    s3 = b3.resource('s3')
+    result = []
+    try:
+        s3_b = s3.Bucket(bucket)
+        for i in s3_b.objects.filter(Prefix=prefix, MaxKeys=1024):
+            result.append(i.key)
+    except Exception as e:
+        _logger.error("s3_list_objects_starting_hex: failed with exception {}".format(e))
+        raise
+    return result
+
+
+def s3_list_objects_at_prefix_v2(bucket, prefix):
+    """ List out the objects at this prefix
+    Returns a list of the keys found at this bucket.
+    We do so because boto objects aren't serializable under multiprocessing
+
+    Note: Use v2 for multi-processing, since this filters on the server side!
+
+    Args:
+        bucket(str): The s3 bucket
+        prefix(str): The s3 key prefix you wish to search
+
+    Returns:
+        (list): List of item keys
     """
     result = []
+    client = b3.client('s3')
+    try:
+        paginator = client.get_paginator('list_objects_v2')
+        page_iterator = paginator.paginate(Bucket=bucket, Prefix=prefix)
+        for page in page_iterator:
+            if 'Contents' not in page:
+                continue
+            result += [obj['Key'] for obj in page['Contents']]
+    except Exception as e:
+        _logger.error("s3_list_objects_starting_hex: failed with exception {}".format(e))
+        raise
+    return result
 
+
+def ls_s3_url_objects(s3_url, is_object_directory=False):
+    """
+    List all objects at this s3_url.  If `is_object_directory` is True, then
+    treat this `s3_url` as a Disdat object directory, consisting of uuids that start
+    with one of 16 ascii characters.  This allows the ls operation to run in parallel.
+
+    Note: We convert ObjectSummary's of each object into simply a string of the key.
+
+    Args:
+        s3_url(str): The bucket and key of the "directory" under which to search
+        is_object_directory(bool): Search a disdat object directory in parallel. Only faster for +1k objects
+
+    Returns:
+        list (str): list of keys under the bucket in the s3_path
+    """
     if s3_url[-1] is not '/':
         s3_url += '/'
 
     bucket, s3_path = split_s3_url(s3_url)
 
-    #if not s3_bucket_exists(bucket):
-    #    return result
+    hexes = '0123456789abcdef'
 
-    if False:
-        client = b3.client('s3')
-        paginator = client.get_paginator('list_objects_v2')
-        # use delimiter to groupby, which means, list things only at this level.
-        #page_iterator = paginator.paginate(Bucket=bucket, Delimiter='/', Prefix=s3_path)
-        page_iterator = paginator.paginate(Bucket=bucket,Prefix=s3_path)
-        for page in page_iterator:
-            result += [obj['Key'] for obj in page['Contents']]
+    MAX_WAIT = 12 * 60
+    multiple_results = []
+    pool = Pool(processes=cpu_count()) # I/O bound, so let it use at least cpu_count()
+
+    prefixes = ['']
+    if is_object_directory:
+        prefixes = [f'{c}{d}' for c in hexes for d in hexes]
+
+    if is_object_directory:
+        for i, prefix in enumerate(prefixes):
+            prefix = os.path.join(s3_path, prefix)
+            multiple_results.append(pool.apply_async(s3_list_objects_at_prefix_v2, (bucket, prefix)))
+        pool.close()
+        results = [item for res in multiple_results for item in res.get(timeout=MAX_WAIT)]
+        pool.join()
     else:
-        s3 = b3.resource('s3')
-        try:
-            s3_b = s3.Bucket(bucket)
-            for i in s3_b.objects.filter(Prefix=s3_path, MaxKeys=1024):
-                result.append(i)
-            if len(result) == 1024:
-                _logger.warn("ls_s3_url_objects: hit MaxKeys 1024 limit in result set.")
-        except Exception as e:
-            _logger.error("ls_s3_url_objects: failed with exception {}".format(e))
-            raise
+        results = s3_list_objects_at_prefix_v2(bucket, s3_path)
 
-    return result
+    return results
 
 
 def ls_s3_url(s3_url):
@@ -445,8 +506,9 @@ def get_s3_key(bucket, key, filename=None):
     Returns:
 
     """
+    import multiprocessing
 
-    #print "PID({}) START bkt[] key[{}] file[{}]".format(multiprocessing.current_process(),key,filename)
+    # print ("PID({}) START bkt[] key[{}] file[{}]".format(multiprocessing.current_process(), bucket, key,filename))
 
     dl_retry = 3
 
