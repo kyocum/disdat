@@ -71,6 +71,7 @@ HyperFrameTuple = namedtuple('HyperFrameTuple', 'columns, links, uuid, tags')
 UPSERT_POLICY = 'FAIL'
 HFRAMES_TABLE = 'hframes'
 
+
 class RecordState(enum.Enum):
     """
     Database records of hyperframes can be valid or deleted.

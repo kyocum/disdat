@@ -45,6 +45,8 @@ from disdat.fs import DisdatFS
 from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PUSH_META, BUNDLE_TAG_PARAMS_PREFIX, ExtDepError
 from disdat import logger as _logger
 
+import disdat.api as api
+
 
 class PipeTask(luigi.Task, PipeBase):
     """
@@ -436,7 +438,6 @@ class PipeTask(luigi.Task, PipeBase):
 
         # Place upstream task outputs into the kwargs.  Thus the user does not call
         # self.inputs().  If they did, they would get a list of output targets for the bundle
-        # that isn't very helpful.
         if for_run:
 
             # Reset the stored tags, in case this instance is run multiple times.
@@ -445,22 +446,21 @@ class PipeTask(luigi.Task, PipeBase):
 
             upstream_tasks = [(t.user_arg_name, self.pfs.get_path_cache(t)) for t in self.deps()]
             for user_arg_name, pce in [u for u in upstream_tasks if u[1] is not None]:
-                hfr = self.pfs.get_hframe_by_uuid(pce.uuid, data_context=self.data_context)
-                assert hfr.is_presentable()
 
-                # Download any data that is not local (the linked files are not present).
+                b = api.get(self.data_context.get_local_name(), None, uuid=pce.uuid)
+                assert b.is_presentable
+
+                # Download data that is not local (the linked files are not present).
                 # This is the default behavior when running in a container.
-                # The non-default is to download and localize ALL bundles in the context before we run.
-                # That's in-efficient.   We only need meta-data to determine what to re-run.
                 if self.incremental_pull:
-                    DisdatFS()._localize_hfr(hfr, pce.uuid, self.data_context)
+                    b.pull(localize=True)
 
                 if pce.instance.user_arg_name in kwargs:
                     _logger.warning('Task human name {} reused when naming task dependencies: Dependency hyperframe shadowed'.format(pce.instance.user_arg_name))
 
-                self._input_tags[user_arg_name] = hfr.tag_dict
+                self._input_tags[user_arg_name] = b.tags
                 self._input_bundle_uuids[user_arg_name] = pce.uuid
-                kwargs[user_arg_name] = self.data_context.present_hfr(hfr)
+                kwargs[user_arg_name] = b.data
 
         return kwargs
 

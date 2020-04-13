@@ -519,6 +519,7 @@ class DataContext(object):
 
         return hyperframe.bundle_count(self.local_engine)
 
+
     def dbck(self):
         """
         Do a database check.
