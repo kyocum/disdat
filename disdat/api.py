@@ -27,24 +27,20 @@ Author: Kenneth Yocum
 from __future__ import print_function
 
 import os
-import sys
 import json
 import shutil
 import getpass
 import warnings
 import errno
 import collections
-
-import luigi
+import hashlib
 
 import disdat.apply
 import disdat.run
 import disdat.fs
 import disdat.common as common
 from disdat.pipe_base import PipeBase
-from disdat.fs import DisdatFS
 
-from disdat.pipe import PipeTask
 from disdat.hyperframe import HyperFrameRecord, LineageRecord
 from disdat.run import Backend, run_entry
 from disdat.dockerize import dockerize_entry
@@ -70,8 +66,9 @@ def _get_fs():
 def set_aws_profile(aws_profile):
     os.environ['AWS_PROFILE'] = aws_profile
 
+PROC_ID_TRUNCATE_HASH = 10  # 10 ls hex digits
 
-GitInfo = collections.namedtuple('GitInfo', 'repo commit branch')
+VcInfo = collections.namedtuple('VcInfo', 'repo commit branch')
 
 
 class Bundle(HyperFrameRecord):
@@ -86,7 +83,7 @@ class Bundle(HyperFrameRecord):
                  params=None,
                  dependencies=None,
                  code_method=None,
-                 git_info=None,
+                 vc_info=None,
                  start_time=0,
                  stop_time=0
                  ):
@@ -113,28 +110,32 @@ class Bundle(HyperFrameRecord):
             params (dict(str:str)): Dictionary of parameters that <code_method> used to produce this output.
             dependencies (dict(str:bundle)):  Dictionary of argname: bundle, Bundles used to produce this output.
             code_method (str):  A reference to code that created this bundle. Default None
-            git_info (namedtuple):  git_repo and git_commit at the time of bundle creation. Default None
+            vc_info (tuple):  Version control information triple: e.g. tuple(git_repo , git_commit, branch)
             start_time (float):  Start time of the process that produced the bundle. Default time.now()
             stop_time (float):   Stop time of the process that produced the bundle. Default time.now()
 
         """
 
-        self.fs = _get_fs()
+        self._fs = _get_fs()
 
         try:
-            self.data_context = self.fs.get_context(local_context)
+            self.data_context = self._fs.get_context(local_context)
         except Exception as e:
             _logger.error("Unable to allocate bundle in context: {} ".format(local_context, e))
             return
 
-        self.local_dir = None
-        self.remote_dir = None
-        self.open = False       # Bundle is mutable
-        self.closed = False     # Bundle is closed and immutable
-        self.depends_on = []    # list of argname, processing_name, uuid on which processing depends
-        self.code_ref = None
-        self.git_info = None
-        self.data = None        # The df, array, dictionary the user wants to store
+        self._local_dir = None
+        self._remote_dir = None
+        self._open = False       # Bundle is mutable
+        self._closed = False     # Bundle is closed and immutable
+        #self._depends_on = []    # list of argname, processing_name, uuid on which processing depends
+        #self._git_info = VcInfo('unknown', 'unknown', 'unknown')
+        #self._code_ref = 'unknown'
+        #self._start_time = 0
+        #self._stop_time = 0
+        self._data = None        # The df, array, dictionary the user wants to store
+
+        self._lr = LineageRecord()
 
         if data is None:
             super(Bundle, self).__init__(human_name=name,
@@ -144,7 +145,7 @@ class Bundle(HyperFrameRecord):
                                          owner='' if owner is None else owner,
                                          processing_name='' if processing_name is None else processing_name
                                          )
-            self._open()
+            self._open_bundle()
             if tags is not None:
                 self.add_tags(tags)
             if params is not None:
@@ -153,32 +154,39 @@ class Bundle(HyperFrameRecord):
                 self.add_dependencies(dependencies.values(), dependencies.keys())
             if code_method is not None:
                 self.add_code_ref(code_method)
-            if git_info is not None:
-                self.add_git_info(git_info)
+            if vc_info is not None:
+                self.add_git_info(vc_info)
             self.add_timing(start_time, stop_time)
-            self._close()
+            self._close_bundle()
 
-    """ Convenience accessors """
+    def _check_open(self):
+        assert self._open and not self._closed, "Bundle must be open (not closed) for editing."
+
+    """ Getters """
+
+    @property
+    def data(self):
+        return self._data
 
     @property
     def name(self):
-        return self.pb.human_name
+        return self._pb.human_name
 
     @property
     def processing_name(self):
-        return self.pb.processing_name
+        return self._pb.processing_name
 
     @property
     def owner(self):
-        return self.pb.owner
+        return self._pb.owner
 
     @property
     def uuid(self):
-        return self.pb.uuid
+        return self._pb.uuid
 
     @property
     def creation_date(self):
-        return self.pb.lineage.creation_date
+        return self._pb.lineage.creation_date
 
     @property
     def tags(self):
@@ -187,7 +195,7 @@ class Bundle(HyperFrameRecord):
         This accesses everything but the parameter tags.
         bundle.params accesses everything but the user tags
         """
-        assert self.closed, "May only read meta-information from closed bundles."
+        assert self._closed, "May only read meta-information from closed bundles."
         return {k: v for k, v in self.tag_dict.items() if not k.startswith(common.BUNDLE_TAG_PARAMS_PREFIX)}
 
     @property
@@ -197,7 +205,7 @@ class Bundle(HyperFrameRecord):
         Note that we currently use Luigi Parameter parse and serialize to go from string and to string.
         Luigi does so to interpret command-line arguments.
         """
-        assert self.closed, "May only read meta-information from closed bundles."
+        assert self._closed, "May only read meta-information from closed bundles."
         return {k[len(common.BUNDLE_TAG_PARAMS_PREFIX):]: v for k, v in self.tag_dict.items() if k.startswith(common.BUNDLE_TAG_PARAMS_PREFIX)}
 
     @property
@@ -211,7 +219,7 @@ class Bundle(HyperFrameRecord):
         Returns:
             dict: (arg_name:(proc_name, uuid))
         """
-        assert self.closed, "May only read meta-information from closed bundles."
+        assert self._closed, "May only read meta-information from closed bundles."
         return {k: v for k, v in self.get_lineage().pb.depends_on.items()}
 
     @property
@@ -220,7 +228,7 @@ class Bundle(HyperFrameRecord):
         Returns:
             str: The string representing the name of the code that produced this bundle
         """
-        return self.pb.lineage.code_method
+        return self._pb.lineage.code_method
 
     @property
     def timing(self):
@@ -228,7 +236,7 @@ class Bundle(HyperFrameRecord):
         Returns:
             (float, float): (start_time, stop_time)
         """
-        return self.pb.lineage.start_time, self.pb.lineage.stop_time
+        return self._pb.lineage.start_time, self._pb.lineage.stop_time
 
     @property
     def git_info(self):
@@ -237,7 +245,7 @@ class Bundle(HyperFrameRecord):
         Returns:
             (str, str, str): (repo, hash, branch)
         """
-        return self.pb.lineage.code_repo, self.pb.lineage.code_hash, self.pb.lineage.code_branch
+        return self._pb.lineage.code_repo, self._pb.lineage.code_hash, self._pb.lineage.code_branch
 
     @property
     def is_presentable(self):
@@ -248,6 +256,142 @@ class Bundle(HyperFrameRecord):
             (bool): Where this bundle has a Python presentation
         """
         return super(Bundle, self).is_presentable()
+
+    """ Setters """
+
+    @name.setter
+    def name(self, name):
+        """ Add the name to the bundle
+        Args:
+            name (str): The "human readable" name of this data
+
+        Returns:
+            self
+        """
+        self._pb.name = name
+
+    @processing_name.setter
+    def processing_name(self, processing_name):
+        """ Add the processing name to the bundle
+        Args:
+            processing_name (str): Another way to denote versioning "sameness"
+        Returns:
+            self
+        """
+        self._pb.processing_name = processing_name
+
+    def add_tags(self, tags):
+        """ Add tags to the bundle.  Updates if existing.
+
+        Args:
+            k,v (dict): string:string dictionary
+
+        Returns:
+            self
+        """
+        self._check_open()
+        super(Bundle, self).add_tags(tags)
+        return self
+
+    def add_params(self, params):
+        """ Add (str,str) params to bundle
+        """
+        self._check_open()
+        assert isinstance(params, dict)
+        params = {f'{common.BUNDLE_TAG_PARAMS_PREFIX}{k}': v for k, v in params}
+        self.add_tags(params)
+
+    def add_dependencies(self, bundles, argnames=None):
+        """ Add one or more upstream bundles as dependencies
+
+        Note: Metadata for correct re-use of re-execution semantics.
+
+        Args:
+            bundles (Union[list `api.Bundle`, `api.Bundle`]): Another bundle that may have been used to produce this one
+            argnames (list[str]): argument names of the dependencies.  Optional, otherwise default 'arg_<i>' used.
+
+        Returns:
+            self
+        """
+        self._check_open()
+        if isinstance(bundles, list):
+            if argnames is None:
+                argnames = ['_arg_{}'.format(i) for i in range(0,len(bundles))]
+            for an, b in zip(argnames, bundles):
+                self._lr.add_dependencies( list((an, b.processing_name, b.uuid))
+        else:
+            if argnames is None:
+                argnames = '_arg_0'
+            self._depends_on.append((argnames, bundles.processing_name, bundles.uuid))
+        return self
+
+    def add_code_ref(self, code_ref):
+        """ Add a string referring to the code
+        that generated this data.   For example, if Python, one could use
+        "package.module.class.method"
+
+        Note: Optional metadata for lineage.
+
+        Args:
+            code_ref (str):  String that refers to the code generating the data
+        Returns:
+              self
+        """
+        self._check_open()
+        self._code_ref = code_ref
+        return self
+
+    def add_git_info(self, repo, commit, branch):
+        """ Add a string referring to the code
+        that generated this data.   For example, if Python, one could use
+        "package.module.class.method"
+
+        Note: Optional metadata for lineage.
+
+        Args:
+            repo (str):  Repository URL: e.g., "https://github.com/bamboozle/some-project"
+            commit (str):  Commit hash: e.g.,  "010b867012ee3f45c63d0435f4af1dc87612a0fd"
+            branch (str):  Repo branch: e.g., "HEAD"
+        Returns:
+              self
+        """
+        self._check_open()
+        self._git_info = VcInfo(repo, commit, branch)
+        return self
+
+    def add_timing(self, start_time, stop_time):
+        """ The start and end of the processing.
+
+        Note: Optional metadata.
+
+        Args:
+            start_time (float): start timestamp
+            stop_time  (float): end timestamp
+        """
+        self._check_open()
+        self._start_time = start_time
+        self._stop_time = stop_time
+        return self
+
+    def add_data(self, data):
+        """ Attach data to a bundle.   The bundle must be open and not closed.
+            One attaches one data item to a bundle (dictionary, list, tuple, scalar, or dataframe).
+            Calling this replaces the latest item -- only the latest will be included in the bundle on close.
+
+            Note: One uses `add_data_row` or `add_data` but not both.  Adding a row after `add_data`
+            removes the data.   Using `add_data` after `add_data_row` removes all previously added rows.
+
+        Args:
+            data (list|tuple|dict|scalar|`pandas.DataFrame`):
+
+        Returns:
+            self
+        """
+        self._check_open()
+        if self._data is not None:
+            _logger.warning("Disdat API add_data replacing existing data on bundle")
+        self._data = data
+        return self
 
     """ Alternative construction post allocation """
 
@@ -269,16 +413,16 @@ class Bundle(HyperFrameRecord):
 
         """
 
-        assert(not self.open and not self.closed)  # assume this is a brand-new bundle
+        assert(not self._open and not self._closed)  # assume this is a brand-new bundle
 
-        self.open = False
-        self.closed = True
+        self._open = False
+        self._closed = True
 
-        self.pb = hfr.pb
+        self._pb = hfr.pb
         self.init_internal_state()
 
-        self.depends_on = hfr.pb.lineage.depends_on
-        self.data = self.data_context.present_hfr(hfr)
+        self._depends_on = hfr.pb.lineage.depends_on
+        self._data = self.data_context.present_hfr(hfr)
 
         return self
 
@@ -287,15 +431,15 @@ class Bundle(HyperFrameRecord):
     def __enter__(self):
         """ 'open'
         """
-        return self._open()
+        return self._open_bundle()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """ 'close'
         If there has been an exception, let the user deal with the written created bundle.
         """
-        self._close()
+        self._close_bundle()
 
-    def _open(self):
+    def _open_bundle(self):
         """ Add the bundle to this local context
 
         Note, we don't need to checkout this context, we just need the relevant context object.
@@ -305,17 +449,17 @@ class Bundle(HyperFrameRecord):
         Returns:
             None
         """
-        if self.open:
+        if self._open:
             _logger.warn("Bundle is already open.")
             return
-        elif not self.closed:
-            self.local_dir, self.pb.uuid, self.remote_dir = self.data_context.make_managed_path()
-            self.open = True
+        elif not self._closed:
+            self._local_dir, self._pb.uuid, self._remote_dir = self.data_context.make_managed_path()
+            self._open = True
         else:
             _logger.warn("Bundle is closed -- unable to re-open.")
         return self
 
-    def _close(self):
+    def _close_bundle(self):
         """ Write out this bundle as a hyperframe.
 
         Parse the data, set presentation, create lineage, and
@@ -328,34 +472,21 @@ class Bundle(HyperFrameRecord):
         """
 
         try:
-
-            presentation, frames = PipeBase.parse_return_val(self.uuid, self.data, self.data_context)
+            presentation, frames = PipeBase.parse_return_val(self.uuid, self._data, self.data_context)
 
             self.add_frames(frames)
 
-            self.pb.presentation = presentation
+            self._pb.presentation = presentation
 
-            # TODO: we should let user decide which file under git or explicitly set hash
-            if False:
-                pipeline_path = os.path.dirname(sys.modules[BundleWrapperTask.__module__].__file__)
-                cv = DisdatFS().get_pipe_version(pipeline_path)
-            else:
-                cv = disdat.fs.CodeVersion(semver="0.1.0", hash="unknown", tstamp="unknown", branch="unknown",
-                                      url="unknown", dirty="unknown")
-
-            wrapper_task = BundleWrapperTask(name=self.name,
-                                             owner=self.owner,
-                                             tags=self.tags)
-
-            lr = LineageRecord(hframe_name=self._set_processing_name(wrapper_task), # <--- setting processing name
+            lr = LineageRecord(hframe_name=self.processing_name,  # <--- setting processing name
                                hframe_uuid=self.uuid,
-                               code_repo=cv.url,
+                               code_repo=self._git_info.repo,
                                code_name='unknown',
-                               code_semver=cv.semver,
-                               code_hash=cv.hash,
-                               code_branch=cv.branch,
-                               code_method='unknown', # TODO: capture pkg.mod.class.method that creates bundle
-                               depends_on=self.depends_on)
+                               code_semver='unknown',
+                               code_hash=self._git_info.hash,
+                               code_branch=self._git_info.branch,
+                               code_method=self._code_ref,
+                               depends_on=self._depends_on)
 
             self.add_lineage(lr)
 
@@ -369,11 +500,11 @@ class Bundle(HyperFrameRecord):
 
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
-            PipeBase.rm_bundle_dir(self.local_dir, self.uuid, []) # [] means no db-targets
+            PipeBase.rm_bundle_dir(self._local_dir, self.uuid, []) # [] means no db-targets
             raise
 
-        self.closed = True
-        self.open = False
+        self._closed = True
+        self._open = False
 
         return self
 
@@ -384,16 +515,16 @@ class Bundle(HyperFrameRecord):
         The data is already present in .data
 
         """
-        assert(self.closed and not self.open)
-        return self.data
+        assert(self._closed and not self._open)
+        return self._data
 
     def rm(self):
         """ Remove bundle from the current context associated with this bundle object
         Only remove this bundle with this uuid.
         This only makes sense if the bundle is closed.
         """
-        assert(self.closed and not self.open)
-        self.fs.rm(uuid=self.uuid, data_context=self.data_context)
+        assert(self._closed and not self._open)
+        self._fs.rm(uuid=self.uuid, data_context=self.data_context)
         return self
 
     def commit(self):
@@ -402,7 +533,7 @@ class Bundle(HyperFrameRecord):
         Returns:
             self
         """
-        self.fs.commit(None, None, uuid=self.uuid, data_context=self.data_context)
+        self._fs.commit(None, None, uuid=self.uuid, data_context=self.data_context)
         return self
 
     def push(self):
@@ -413,13 +544,13 @@ class Bundle(HyperFrameRecord):
 
         """
 
-        assert(self.closed and not self.open)
+        assert(self._closed and not self._open)
 
         if self.data_context.get_remote_object_dir() is None:
             raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(self.data_context.get_remote_name(),
                                                                                           self.data_context.get_local_name()))
 
-        self.fs.push(uuid=self.uuid, data_context=self.data_context)
+        self._fs.push(uuid=self.uuid, data_context=self.data_context)
 
         return self
 
@@ -429,121 +560,11 @@ class Bundle(HyperFrameRecord):
         Note if localizing, then we update this bundle to reflect the possibility of new, local links
 
         """
-        assert( (not self.open and not self.closed) or (not self.open and self.closed) )
-        self.fs.pull(uuid=self.uuid, localize=localize, data_context=self.data_context)
+        assert((not self._open and not self._closed) or (not self._open and self._closed))
+        self._fs.pull(uuid=self.uuid, localize=localize, data_context=self.data_context)
         if localize:
             assert self.is_presentable
-            self.data = self.data_context.present_hfr(self) # actualize link urls
-        return self
-
-    def add_tags(self, tags):
-        """ Add tags to the bundle.  Updates if existing.
-
-        Args:
-            k,v (dict): string:string dictionary
-
-        Returns:
-            self
-        """
-        if not self.open:
-            _logger.warn("Open the bundle to modify tags.")
-            return
-        if self.closed:
-            _logger.warn("Unable to modify tags in a closed bundle.")
-            return
-        super(Bundle, self).add_tags(tags)
-        return self
-
-    def add_params(self, params):
-        """ Add (str,str) params to bundle
-        """
-        assert isinstance(params, dict)
-        params = {f'{common.BUNDLE_TAG_PARAMS_PREFIX}{k}': v for k, v in params}
-        self.add_tags(params)
-
-    def add_dependencies(self, bundles, argnames=None):
-        """ Add one or more upstream bundles as dependencies
-
-        Note: Metadata for correct re-use of re-execution semantics.
-
-        Args:
-            bundles (Union[list `api.Bundle`, `api.Bundle`]): Another bundle that may have been used to produce this one
-            argnames (list[str]): argument names of the dependencies.  Optional, otherwise default 'arg_<i>' used.
-
-        Returns:
-            self
-        """
-        if isinstance(bundles, list):
-            if argnames is None:
-                argnames = ['_arg_{}'.format(i) for i in range(0,len(bundles))]
-            for an, b in zip(argnames, bundles):
-                self.depends_on.append((an, b.processing_name, b.uuid))
-        else:
-            if argnames is None:
-                argnames = '_arg_0'
-            self.depends_on.append((argnames, bundles.processing_name, bundles.uuid))
-        return self
-
-    def add_code_ref(self, code_ref):
-        """ Add a string referring to the code
-        that generated this data.   For example, if Python, one could use
-        "package.module.class.method"
-
-        Note: Optional metadata for lineage.
-
-        Args:
-            code_ref (str):  String that refers to the code generating the data
-        Returns:
-              self
-        """
-        self.code_ref = code_ref
-        return self
-
-    def add_git_info(self, repo, commit, branch):
-        """ Add a string referring to the code
-        that generated this data.   For example, if Python, one could use
-        "package.module.class.method"
-
-        Note: Optional metadata for lineage.
-
-        Args:
-            repo (str):  Repository URL: e.g., "https://github.com/bamboozle/some-project"
-            commit (str):  Commit hash: e.g.,  "010b867012ee3f45c63d0435f4af1dc87612a0fd"
-            branch (str):  Repo branch: e.g., "HEAD"
-        Returns:
-              self
-        """
-        self.code_ref = GitInfo(repo, commit, branch)
-        return self
-
-    def add_timing(self, start_time, stop_time):
-        """ The start and end of the processing.
-
-        Note: Optional metadata.
-
-        Args:
-            start_time (float): start timestamp
-            stop_time  (float): end timestamp
-        """
-
-    def add_data(self, data):
-        """ Attach data to a bundle.   The bundle must be open and not closed.
-            One attaches one data item to a bundle (dictionary, list, tuple, scalar, or dataframe).
-            Calling this replaces the latest item -- only the latest will be included in the bundle on close.
-
-            Note: One uses `add_data_row` or `add_data` but not both.  Adding a row after `add_data`
-            removes the data.   Using `add_data` after `add_data_row` removes all previously added rows.
-
-        Args:
-            data (list|tuple|dict|scalar|`pandas.DataFrame`):
-
-        Returns:
-            self
-        """
-        assert(self.open and not self.closed)
-        if self.data is not None:
-            _logger.warning("Disdat API add_data replacing existing data on bundle")
-        self.data = data
+            self._data = self.data_context.present_hfr(self) # actualize link urls
         return self
 
     def make_directory(self, dir_name):
@@ -562,16 +583,16 @@ class Bundle(HyperFrameRecord):
         Returns:
             str: A directory path managed by disdat
         """
-        assert (self.open and not self.closed)
+        assert (self._open and not self._closed)
 
         # remove the prefix iff it exists
-        dst_base_path = dir_name.replace(self.local_dir, '')
+        dst_base_path = dir_name.replace(self._local_dir, '')
 
         # if the user erroneously passes in the directory of the bundle, return same
         if dst_base_path == '':
-            return self.local_dir
+            return self._local_dir
 
-        fqp = os.path.join(self.local_dir, dst_base_path.lstrip('/'))
+        fqp = os.path.join(self._local_dir, dst_base_path.lstrip('/'))
         try:
             os.makedirs(fqp)
         except OSError as why:
@@ -598,9 +619,9 @@ class Bundle(HyperFrameRecord):
         Returns:
             `luigi.LocalTarget` or `luigi.s3.S3Target`
         """
-        assert (self.open and not self.closed)
+        assert (self._open and not self._closed)
 
-        return PipeBase.filename_to_luigi_targets(self.local_dir, filename)
+        return PipeBase.filename_to_luigi_targets(self._local_dir, filename)
 
     def copy_in_file(self, existing_file):
         """ This function copies the file 'existing_file' into the output bundle.  This is used when you have
@@ -615,40 +636,60 @@ class Bundle(HyperFrameRecord):
             `luigi.LocalTarget` or `luigi.s3.S3Target`
 
         """
-        assert (self.open and not self.closed)
+        assert (self._open and not self._closed)
 
         file_basename = os.path.basename(existing_file)
-        target = PipeBase.filename_to_luigi_targets(self.local_dir, file_basename)
+        target = PipeBase.filename_to_luigi_targets(self._local_dir, file_basename)
 
         with target.temporary_path() as temp_path:
             shutil.copyfile(existing_file, temp_path)
 
         return target
 
-    def _set_processing_name(self, wrapper_task):
-        """ Set a processing name that may be used to identify bundles that
-        were created in the same way -- they used the same task and task paramaters.
-        In cases where Luigi tasks create bundles, this is the luigi.Task.taskid()
-        Here we use a wrapper luigi task to do the same.
-        Note that we assume you have placed your parameters as tags.
+    @staticmethod
+    def calc_default_processing_name(code_ref, params, dep_proc_ids):
+        """
+        Args:
+            code_ref (str): The code ref string
+            params (dict): argname:str
+            dep_proc_ids (dict):  dict of argname:processing_id of upstream dependencies
 
         Returns:
-            processing_name(str)
-            wrapper_task(Luigi.Task)
-
+            (str): The processing name
         """
-        self.pb.processing_name = wrapper_task.processing_id()
+        def sorted_md5(input_dict):
+            ids = [input_dict[k] for k in sorted(input_dict)]
+            as_one_str = '.'.join(ids)
+            return hashlib.md5(as_one_str.encode('utf-8')).hexdigest()
 
-        return self.pb.processing_name
+        dep_hash = sorted_md5(dep_proc_ids)[:PROC_ID_TRUNCATE_HASH]
+        param_hash = sorted_md5(params)[:PROC_ID_TRUNCATE_HASH]
+        processing_id = code_ref + '_' + param_hash + '_' + dep_hash
 
-    def _get_params_from_wrapper_task(self, wrapper_task):
-        """
+        return processing_id
+
+    def default_processing_name(self):
+        """ The default processing name defines the set of bundles that were ostensibly created
+        from the same code and parameters.  These bundles share the
+        same code_ref, parameters, and dependency processing_names.   Thus different versions
+        might very well be different because the code changed (but not the code_ref).  Or the code
+        might read an external DB whose tables change.
+
+        The name is <code_ref>_<param_hash>_<hash(dependencies.processing_name)
+
+        Note: Cache the processing name so other bundles
 
         Returns:
-            processing_name(str)
-
+            processing_name(str): The processing name.
         """
-        return wrapper_task._get_subcls_params()
+
+        if self._closed and not self._open:
+            return self._pb.processing_name
+
+        # Iterate through dependencies dict argname: (processing_name, uuid)
+        dep_proc_ids = {k: v[0] for k, v in self.dependencies.items()}
+
+        return Bundle.calc_default_processing_name(self.code_ref, self.params, dep_proc_ids)
 
 
 def _get_context(context_name):
@@ -1006,7 +1047,7 @@ def add(local_context, bundle_name, path, tags=None):
                     # /x/y/z/a/fileB
                     dst_base_path = root.replace(base_path, '')
                     if dst_base_path == '':
-                        dst_base_path = b.local_dir
+                        dst_base_path = b._local_dir
                     else:
                         dst_base_path = b.make_directory(dst_base_path)
                     for name in files:

@@ -793,14 +793,14 @@ class PBObject(object):
         return objs
 
     def ser(self):
-        assert (self.pb is not None)
-        assert (self.pb.IsInitialized())
-        return self.pb.SerializeToString()
+        assert (self._pb is not None)
+        assert (self._pb.IsInitialized())
+        return self._pb.SerializeToString()
 
     def deser(self, byte_str):
-        assert (self.pb is not None)
-        self.pb = self._pb_type()
-        self.pb.ParseFromString(byte_str)
+        assert (self._pb is not None)
+        self._pb = self._pb_type()
+        self._pb.ParseFromString(byte_str)
 
 
 class HyperFrameRecord(PBObject):
@@ -839,13 +839,13 @@ class HyperFrameRecord(PBObject):
         """
 
         super(HyperFrameRecord, self).__init__()
-        self.pb = self._pb_type()
+        self._pb = self._pb_type()
 
-        self.pb.owner = owner
-        self.pb.human_name = human_name
-        self.pb.processing_name = processing_name
-        self.pb.uuid = uuid
-        self.pb.presentation = presentation
+        self._pb.owner = owner
+        self._pb.human_name = human_name
+        self._pb.processing_name = processing_name
+        self._pb.uuid = uuid
+        self._pb.presentation = presentation
 
         self.frame_cache = defaultdict(FrameRecord)
         self.frame_dict  = {}
@@ -860,8 +860,8 @@ class HyperFrameRecord(PBObject):
         if lin_obj is not None:
             self.add_lineage(lin_obj)
 
-        self.pb.ClearField('hash')
-        self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
+        self._pb.ClearField('hash')
+        self._pb.hash = hashlib.md5(self._pb.SerializeToString()).hexdigest()
 
     def is_presentable(self):
         """
@@ -871,7 +871,7 @@ class HyperFrameRecord(PBObject):
         Returns:
             (bool)
         """
-        if self.pb.presentation == hyperframe_pb2.DEFAULT:
+        if self._pb.presentation == hyperframe_pb2.DEFAULT:
             return False
         else:
             return True
@@ -887,9 +887,9 @@ class HyperFrameRecord(PBObject):
             hyperframe.HyperFrameRecord
 
         """
-        self.pb.uuid = new_hfr_uuid
+        self._pb.uuid = new_hfr_uuid
 
-        self.pb.lineage.hframe_uuid   = new_hfr_uuid
+        self._pb.lineage.hframe_uuid   = new_hfr_uuid
 
         return self._mod_finish()
 
@@ -911,7 +911,7 @@ class HyperFrameRecord(PBObject):
         self.frame_cache = defaultdict(FrameRecord)
         self.frame_dict  = {}
 
-        self.pb.ClearField('frames')
+        self._pb.ClearField('frames')
         self.add_frames(new_frames)
 
         return self._mod_finish()
@@ -931,7 +931,7 @@ class HyperFrameRecord(PBObject):
         """
         self.tag_dict = {}
 
-        self.pb.ClearField('tags')
+        self._pb.ClearField('tags')
         self.add_tags(new_tags)
 
         return self._mod_finish(new_time=False)
@@ -966,7 +966,7 @@ class HyperFrameRecord(PBObject):
 
         """
 
-        self.pb.presentation = new_presentation
+        self._pb.presentation = new_presentation
 
         return self._mod_finish()
 
@@ -983,10 +983,10 @@ class HyperFrameRecord(PBObject):
         """
 
         if new_time:
-            self.pb.lineage.creation_date = time.time()
+            self._pb.lineage.creation_date = time.time()
 
-        self.pb.ClearField('hash')
-        self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
+        self._pb.ClearField('hash')
+        self._pb.hash = hashlib.md5(self._pb.SerializeToString()).hexdigest()
 
         return self
 
@@ -1006,10 +1006,10 @@ class HyperFrameRecord(PBObject):
         self.frame_dict  = {}
         self.tag_dict    = {}
 
-        for string_tuple in self.pb.frames:
+        for string_tuple in self._pb.frames:
             self.frame_dict[string_tuple.k] = string_tuple.v
 
-        for string_tuple in self.pb.tags:
+        for string_tuple in self._pb.tags:
             self.tag_dict[string_tuple.k] = string_tuple.v
 
     @staticmethod
@@ -1023,7 +1023,7 @@ class HyperFrameRecord(PBObject):
             (str): <uuid>_<hframe,frame,auth>.pb
 
         """
-        return HyperFrameRecord.make_filename(self.pb.uuid)
+        return HyperFrameRecord.make_filename(self._pb.uuid)
 
     @staticmethod
     def _create_table(metadata):
@@ -1073,21 +1073,21 @@ class HyperFrameRecord(PBObject):
         Returns:
              Dictionary of key columns (from _create_table) and values.
         """
-        assert(self.pb is not None)
+        assert(self._pb is not None)
 
         rows = defaultdict(list)
 
         rows[HyperFrameRecord.table_name].append(
-            {'uuid': self.pb.uuid,
-             'owner': self.pb.owner,
-             'human_name': self.pb.human_name,
-             'processing_name': self.pb.processing_name,
-             'creation_date': datetime.utcfromtimestamp(self.pb.lineage.creation_date),
+            {'uuid': self._pb.uuid,
+             'owner': self._pb.owner,
+             'human_name': self._pb.human_name,
+             'processing_name': self._pb.processing_name,
+             'creation_date': datetime.utcfromtimestamp(self._pb.lineage.creation_date),
              'state': self.state,
-             'pb': self.pb.SerializeToString()})
+             'pb': self._pb.SerializeToString()})
 
-        for string_tuple in self.pb.tags:
-            r = {'uuid': self.pb.uuid,
+        for string_tuple in self._pb.tags:
+            r = {'uuid': self._pb.uuid,
                  'key': string_tuple.k,
                  'value': string_tuple.v}
             rows[HyperFrameRecord.table_name+'_tags'].append(r)
@@ -1113,7 +1113,7 @@ class HyperFrameRecord(PBObject):
                 v = f[1]
             elif isinstance(f, FrameRecord):
                 # TODO: REMOVE THIS DEPENDENCY -- means we need to be very careful about FR objects.
-                f.hframe_uuid = self.pb.uuid
+                f.hframe_uuid = self._pb.uuid
                 k = f.pb.name
                 v = f.pb.uuid
                 self.frame_cache[f.pb.name] = f
@@ -1121,7 +1121,7 @@ class HyperFrameRecord(PBObject):
                 print("Unable to add frame with type {}: Data {}".format(type(f), f))
                 assert False
 
-            st = self.pb.frames.add()
+            st = self._pb.frames.add()
             st.k = k
             st.v = v
             self.frame_dict[k] = v
@@ -1203,7 +1203,7 @@ class HyperFrameRecord(PBObject):
             Nothing
         """
         for k, v in tags.items():
-            t = self.pb.tags.add()
+            t = self._pb.tags.add()
             t.k = k
             t.v = v
             self.tag_dict[k] = v
@@ -1240,7 +1240,7 @@ class HyperFrameRecord(PBObject):
             (str)
         """
 
-        return self.pb.human_name
+        return self._pb.human_name
 
     def add_lineage(self, lin_obj):
         """
@@ -1249,25 +1249,25 @@ class HyperFrameRecord(PBObject):
         :param lin_obj:
         :return:
         """
-        self.pb.lineage.CopyFrom(lin_obj.pb)
+        self._pb.lineage.CopyFrom(lin_obj.pb)
 
     def get_lineage(self):
         """
         :return: LineageRecord with a copy of the lineage PB in this hframe
         """
-        if self.pb.HasField("lineage"):
-            return LineageRecord.copy_from_pb(self.pb.lineage)
+        if self._pb.HasField("lineage"):
+            return LineageRecord.copy_from_pb(self._pb.lineage)
         else:
             return None
 
     def to_string(self):
-        s = "HumanName[{}] ProcName[{}] Timestamp[{}] Owner[{}] uuid[{}] lineage[{}] presentation[{}]".format(self.pb.human_name,
-                                                                                                              self.pb.processing_name,
-                                                                                                              self.pb.lineage.creation_date,
-                                                                                                              self.pb.owner,
-                                                                                                              self.pb.uuid,
-                                                                                                              self.pb.lineage.depends_on,
-                                                                                                              self.pb.presentation)
+        s = "HumanName[{}] ProcName[{}] Timestamp[{}] Owner[{}] uuid[{}] lineage[{}] presentation[{}]".format(self._pb.human_name,
+                                                                                                              self._pb.processing_name,
+                                                                                                              self._pb.lineage.creation_date,
+                                                                                                              self._pb.owner,
+                                                                                                              self._pb.uuid,
+                                                                                                              self._pb.lineage.depends_on,
+                                                                                                              self._pb.presentation)
         return s
 
 
@@ -1326,7 +1326,7 @@ class LineageRecord(PBObject):
 
         # Note: depends_on tuple hframe_name is the processing name, very confusing! -- Todo: change in pb spec
         if depends_on is not None:
-            _ = [self.pb.depends_on.add(hframe_name = tup[0], hframe_uuid = tup[1]) for tup in depends_on]
+            self.add_dependencies(depends_on)
 
     @staticmethod
     def _create_table(metadata):
@@ -1362,7 +1362,8 @@ class LineageRecord(PBObject):
         be ordered in queries (latest bundle) by UTC time.  But we display to user with a time.localtime(ts)
         conversion.
 
-        :return: dictionary of key columns (from _create_table) and values.
+        Returns:
+             dictionary of key columns (from _create_table) and values.
         """
         assert(self.pb is not None)
 
@@ -1383,6 +1384,19 @@ class LineageRecord(PBObject):
                                                                              self.pb.code_repo,
                                                                              self.pb.code_hash)
         return s
+
+    def add_dependencies(self, depends_on):
+        """  Add dependencies to this Lineage Object.
+
+        Note: this adds to existing dependencies.
+
+        Args:
+            depends_on (list(tuples)): List of (argname, processing_name, uuid)
+
+        Returns:
+            None
+        """
+        _ = [self.pb.depends_on.add(hframe_name=tup[0], hframe_uuid=tup[1]) for tup in depends_on]
 
     def get_filename(self):
         """
@@ -1430,7 +1444,7 @@ class FrameRecord(PBObject):
             self.pb.shape.extend(shape)
 
         if hframes is not None:
-            self.pb.hframes.extend([HyperFrameRecord.copy_from_pb(hfrcd.pb).pb for hfrcd in hframes])
+            self.pb.hframes.extend([HyperFrameRecord.copy_from_pb(hfrcd.pb)._pb for hfrcd in hframes])
 
         if links is not None:
             self.pb.links.extend([LinkBase.copy_from_pb(lrcd.pb).pb for lrcd in links])
