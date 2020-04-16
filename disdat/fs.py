@@ -43,7 +43,7 @@ from disdat.data_context import DataContext
 from disdat.common import DisdatConfig, CatNoBundleError
 from disdat import logger as _logger
 
-PipeCacheEntry = collections.namedtuple('PipeCacheEntry', 'instance uuid path rerun is_left_edge_task')
+PipeCacheEntry = collections.namedtuple('PipeCacheEntry', 'instance uuid path rerun')
 CodeVersion = collections.namedtuple('CodeVersion', 'semver hash tstamp branch url dirty')
 
 CONTEXTS = ['DEFAULT']
@@ -255,7 +255,7 @@ class DisdatFS(object):
         return DisdatFS.task_path_cache
 
     @staticmethod
-    def put_path_cache(pipe_instance, uuid, path, rerun, is_left_edge_task, overwrite=False):
+    def put_path_cache(pipe_instance, uuid, path, rerun, overwrite=False):
         """  The path cache is used to associate a pipe instance with its output path and whether
         we have decided to re-run this pipe.   If rerun is True, then there should be no
         ouput at this path.  AND it should eventually be added as a new version of this bundle.
@@ -265,7 +265,6 @@ class DisdatFS(object):
             uuid:              specific uuid of the output path
             path:              where to write the bundle
             rerun:             whether or not we are re-running or re-using
-            is_left_edge_task: is this at the top of the DAG?
             overwrite:         overwrite existing entry (if exists)
 
         Returns:
@@ -273,7 +272,7 @@ class DisdatFS(object):
 
         """
         pipe_name = pipe_instance.processing_id()
-        pce = PipeCacheEntry(pipe_instance, uuid, path, rerun, is_left_edge_task)
+        pce = PipeCacheEntry(pipe_instance, uuid, path, rerun)
         if pipe_name not in DisdatFS.task_path_cache:
             DisdatFS.task_path_cache[pipe_name] = pce
         else:
@@ -391,7 +390,7 @@ class DisdatFS(object):
         """
         return self.curr_context and self.curr_context.is_valid()
 
-    def reuse_hframe(self, pipe, hfr_uuid, is_left_edge_task, data_context=None):
+    def reuse_bundle(self, pipe, bundle_uuid, data_context=None):
         """
         Re-use this bundle, everything stays the same, just put in the cache
         Note: Currently doesn't use this FS instance, but to be consistent with
@@ -399,8 +398,7 @@ class DisdatFS(object):
 
         Args:
             pipe (`pipe.PipeTask`): The pipe task that should not be re-run.
-            hfr_uuid (str): The UUID of the hyperframe to re-use.
-            is_left_edge_task (bool): Is this at the top of the DAG.
+            bundle_uuid (str): The UUID of the bundle to re-use.
             data_context: The context containing this bundle with UUID hfr_uuid.
 
         Returns:
@@ -417,12 +415,12 @@ class DisdatFS(object):
         if data_context is None:
             data_context = self.curr_context
 
-        dir = data_context.implicit_hframe_path(hfr_uuid)
-        DisdatFS.put_path_cache(pipe, hfr_uuid, dir, False, is_left_edge_task)
+        dir = data_context.implicit_hframe_path(bundle_uuid)
+        DisdatFS.put_path_cache(pipe, bundle_uuid, dir, False)
 
-    def new_output_hframe(self, pipe, is_left_edge_task, force_uuid=None, data_context=None):
+    def new_output_bundle(self, pipe, force_uuid=None, data_context=None):
         """
-        This proposes a new output hframe.
+        This proposes a new output bundle
         1.) Create a new UUID
         2.) Create the directory in the context
         3.) Add this to the path cache
@@ -434,7 +432,6 @@ class DisdatFS(object):
 
         Args:
             pipe:
-            is_left_edge_task:
             force_uuid:
             data_context:
 
@@ -455,7 +452,7 @@ class DisdatFS(object):
 
         dir, uuid, _ = data_context.make_managed_path(uuid=force_uuid)
 
-        DisdatFS.put_path_cache(pipe, uuid, dir, True, is_left_edge_task)
+        DisdatFS.put_path_cache(pipe, uuid, dir, True)
 
     def rm(self, human_name=None, rm_all=False, rm_old_only=False, uuid=None, tags=None, force=False, data_context=None):
         """

@@ -32,7 +32,6 @@ import shutil
 import getpass
 import warnings
 import errno
-import collections
 import hashlib
 
 import disdat.apply
@@ -150,7 +149,7 @@ class Bundle(HyperFrameRecord):
         # Only close and make immutable if the user also adds the data field
         if data is not None:
             self._local_dir, self.pb.uuid, self._remote_dir = self.data_context.make_managed_path()
-            self._close_bundle()
+            self.close()
 
     def _check_open(self):
         assert not self._closed, "Bundle must be open (not closed) for editing."
@@ -424,18 +423,18 @@ class Bundle(HyperFrameRecord):
     def __enter__(self):
         """ 'open'
         """
-        return self._open_bundle()
+        return self.open()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """ 'close'
         If there has been an exception, let the user deal with the written created bundle.
         """
-        self._close_bundle()
+        self.close()
 
-    def _open_bundle(self):
-        """ Add the bundle to this local context
-
-        Note, we don't need to checkout this context, we just need the relevant context object.
+    def open(self):
+        """ Management operations to open bundle for writing.
+        At this time all of the open operations, namely creating the managed path
+        occur in the default constructor or in the class fill_from_hfr constructor.
 
         Args:
 
@@ -448,7 +447,7 @@ class Bundle(HyperFrameRecord):
         self._local_dir, self.pb.uuid, self._remote_dir = self.data_context.make_managed_path()
         return self
 
-    def _close_bundle(self):
+    def close(self):
         """ Write out this bundle as a hyperframe.
 
         Parse the data, set presentation, create lineage, and
