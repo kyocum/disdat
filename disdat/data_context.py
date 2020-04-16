@@ -704,10 +704,10 @@ class DataContext(object):
 
         # Write FS Frames
         for fr in hfr.get_frames(self):
-            hyperframe.w_pb_fs(os.path.join(self.get_object_dir(), hfr._pb.uuid), fr)
+            hyperframe.w_pb_fs(os.path.join(self.get_object_dir(), hfr.pb.uuid), fr)
 
         # Write FS HyperFrame
-        hyperframe.w_pb_fs(os.path.join(self.get_object_dir(), hfr._pb.uuid), hfr)
+        hyperframe.w_pb_fs(os.path.join(self.get_object_dir(), hfr.pb.uuid), hfr)
 
         # Write DB Frames
         for fr in hfr.get_frames(self):
@@ -728,13 +728,13 @@ class DataContext(object):
         Returns:
 
         """
-        local_obj_dir = os.path.join(self.get_object_dir(), hfr._pb.uuid)
+        local_obj_dir = os.path.join(self.get_object_dir(), hfr.pb.uuid)
         if not os.path.exists(local_obj_dir):
             raise Exception("Write HFrame to remote failed because hfr {} doesn't appear to be in local context".format(
-                hfr._pb.uuid))
+                hfr.pb.uuid))
         to_copy_files = glob.glob(os.path.join(local_obj_dir, '*.pb'))
         for f in to_copy_files:
-            aws_s3.put_s3_file(f, os.path.join(self.get_remote_object_dir(), hfr._pb.uuid))
+            aws_s3.put_s3_file(f, os.path.join(self.get_remote_object_dir(), hfr.pb.uuid))
 
         return None
 
@@ -761,7 +761,7 @@ class DataContext(object):
                     for dbt_pb in fr.pb.links:
                         dbt = DBLink(None, dbt_pb.database.dsn, dbt_pb.database.table,
                                      dbt_pb.database.schema, dbt_pb.database.servername,
-                                     dbt_pb.database.database, hfr._pb.uuid)
+                                     dbt_pb.database.database, hfr.pb.uuid)
                         success = dbt.rm(commit_tag=commit_tag)
         return success
 
@@ -793,7 +793,7 @@ class DataContext(object):
                 for dbt_pb in fr.pb.links:
                     dbt = DBLink(None, dbt_pb.database.dsn, dbt_pb.database.table,
                                  dbt_pb.database.schema, dbt_pb.database.servername,
-                                 dbt_pb.database.database, hfr._pb.uuid)
+                                 dbt_pb.database.database, hfr.pb.uuid)
                     dbt.commit()
 
     def atomic_update_hframe(self, hfr):
@@ -816,10 +816,10 @@ class DataContext(object):
         """
 
         # 1.) Delete DB record
-        hyperframe.delete_hfr_db(self.local_engine, uuid=hfr._pb.uuid)
+        hyperframe.delete_hfr_db(self.local_engine, uuid=hfr.pb.uuid)
 
         # 2.) Write FS HyperFrame PB to a sister file and then move to original file.
-        hyperframe.w_pb_fs(os.path.join(self.get_object_dir(), hfr._pb.uuid), hfr, atomic=True)
+        hyperframe.w_pb_fs(os.path.join(self.get_object_dir(), hfr.pb.uuid), hfr, atomic=True)
 
         # 3.) Write DB HyperFrame and tags
         result = hyperframe.w_pb_db(hfr, self.local_engine)

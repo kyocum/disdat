@@ -34,7 +34,6 @@ from luigi import build, worker
 import disdat.common as common  # config, especially logging, before luigi ever loads
 import disdat.fs as fs
 import disdat.driver as driver
-from disdat.pipe import ExternalDepTask
 from disdat import logger as _logger
 
 
@@ -298,6 +297,8 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
 
     """
 
+    from disdat.pipe import ExternalDepTask  # pipe.py->api.py->apply.py->pipe.ExternalDepTask fails b/c pipe importing
+
     # These are constants
     verbose = False
     use_bundle = True
@@ -441,7 +442,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
             XXX TODO: Add date to the depends_on pb data structure to enforce 2 XXX
             """
             for tup in lng.pb.depends_on:
-                if tup.hframe_name == upstream_dep_processing_name and tup.hframe_uuid != upstream_dep_uuid:
+                if tup.hframe_proc_name == upstream_dep_processing_name and tup.hframe_uuid != upstream_dep_uuid:
                     if verbose: print("Resolve_bundle: prior input bundle {} uuid {} has new uuid {}\n".format(
                         task.processing_id(),
                         tup.hframe_uuid,

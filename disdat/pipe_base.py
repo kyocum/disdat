@@ -140,7 +140,7 @@ class PipeBase(object):
         Args:
             output_frames (:list:`FrameRecord`):  List of frames to be placed in bundle / hframe
             output_bundle_uuid:
-            depends_on (:list:tuple):  must be the processing_name, uuid of the upstream pipes / base bundles
+            depends_on (:list:tuple):  list of (processing_name, uuid, arg_name) of the upstream pipes / base bundles
             human_name:
             processing_name:
             class_to_version: A python class whose file is under git control
@@ -160,7 +160,7 @@ class PipeBase(object):
         pipeline_path = os.path.dirname(sys.modules[code_method].__file__)
         cv = DisdatFS().get_pipe_version(pipeline_path)
 
-        lr = LineageRecord(hframe_name=processing_name,
+        lr = LineageRecord(hframe_proc_name=processing_name,
                            hframe_uuid=output_bundle_uuid,
                            code_repo=cv.url,
                            code_name='unknown',

@@ -108,22 +108,29 @@ class PipeTask(luigi.Task, PipeBase):
 
     def bundle_inputs(self):
         """
-        Given this pipe, return the set of bundles created by the input pipes.
-        Mirrors Luigi task.inputs()
+        Given this pipe, return the set of bundles that this task used as input.
+        Return a list of tuples that contain (processing_name, uuid, arg_name)
 
         NOTE: Calls task.deps which calls task._requires which calls task.requires()
 
-        :param pipe_task:  A PipeTask or a DriverTask (both implement PipeBase)
-        :return:  [(bundle_name, uuid), ... ]
+        Args:
+            self (disdat.PipeTask):  The pipe task in question
+
+        Returns:
+              [(processing_name, uuid, arg_name), ... ]
 
         """
 
         input_bundles = []
         for task in self.deps():
             if isinstance(task, ExternalDepTask):
-                input_bundles.append((task.processing_name, task.uuid))
+                input_bundles.append((task.processing_name,
+                                      task.uuid,
+                                      task.user_arg_name))
             else:
-                input_bundles.append((task.processing_id(), self.pfs.get_path_cache(task).uuid))
+                input_bundles.append((task.processing_id(),
+                                      self.pfs.get_path_cache(task).uuid,
+                                      task.user_arg_name))
 
         return input_bundles
 
@@ -328,6 +335,10 @@ class PipeTask(luigi.Task, PipeBase):
             raise
 
         try:
+
+            #with api.Bundle(local_context=self.data_context.get_local_name(),
+            #                name=self.human_id()) as b:
+
             presentation, frames = PipeBase.parse_return_val(pce.uuid,
                                                              user_rtn_val,
                                                              self.data_context)

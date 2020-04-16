@@ -38,7 +38,7 @@ def print_lineage_protobuf(lineage_pb, offset=0):
     indent = ''.join(['\t' for i in range(offset)])
 
     print ("{}------ Lineage @ depth {} ----- ".format(indent, offset))
-    print("{}processing name: {}".format(indent, lineage_pb.hframe_name))
+    print("{}processing name: {}".format(indent, lineage_pb.hframe_proc_name))
     print("{}uuid: {}".format(indent, lineage_pb.hframe_uuid))
     print("{}creation date: {}".format(indent, datetime.fromtimestamp(lineage_pb.creation_date)))
     print("{}code repo: {}".format(indent, lineage_pb.code_repo))

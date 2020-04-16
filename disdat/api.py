@@ -46,6 +46,8 @@ from disdat.run import Backend, run_entry
 from disdat.dockerize import dockerize_entry
 from disdat import logger as _logger
 
+PROC_ID_TRUNCATE_HASH = 10  # 10 ls hex digits
+
 
 def _get_fs():
     """ Initializing FS, which needs a config.
@@ -66,16 +68,12 @@ def _get_fs():
 def set_aws_profile(aws_profile):
     os.environ['AWS_PROFILE'] = aws_profile
 
-PROC_ID_TRUNCATE_HASH = 10  # 10 ls hex digits
-
-VcInfo = collections.namedtuple('VcInfo', 'repo commit branch')
-
 
 class Bundle(HyperFrameRecord):
 
     def __init__(self,
                  local_context,
-                 name,
+                 name=None,
                  data=None,
                  processing_name=None,
                  owner=None,
@@ -126,43 +124,45 @@ class Bundle(HyperFrameRecord):
 
         self._local_dir = None
         self._remote_dir = None
-        self._open = False       # Bundle is mutable
         self._closed = False     # Bundle is closed and immutable
-        #self._depends_on = []    # list of argname, processing_name, uuid on which processing depends
-        #self._git_info = VcInfo('unknown', 'unknown', 'unknown')
-        #self._code_ref = 'unknown'
-        #self._start_time = 0
-        #self._stop_time = 0
         self._data = None        # The df, array, dictionary the user wants to store
 
-        self._lr = LineageRecord()
+        self._lr = LineageRecord()  # git info, code_ref, start/stop times, and dependencies
 
-        if data is None:
-            super(Bundle, self).__init__(human_name=name,
-                                         owner='' if owner is None else owner)
-        else:
-            super(Bundle, self).__init__(human_name=name,
-                                         owner='' if owner is None else owner,
-                                         processing_name='' if processing_name is None else processing_name
-                                         )
-            self._open_bundle()
-            if tags is not None:
-                self.add_tags(tags)
-            if params is not None:
-                self.add_params(params)
-            if dependencies is not None:
-                self.add_dependencies(dependencies.values(), dependencies.keys())
-            if code_method is not None:
-                self.add_code_ref(code_method)
-            if vc_info is not None:
-                self.add_git_info(vc_info)
-            self.add_timing(start_time, stop_time)
+        super(Bundle, self).__init__(human_name=name,
+                                     owner='' if owner is None else owner,
+                                     processing_name='' if processing_name is None else processing_name
+                                     )
+
+        # Add the fields they have passed in.
+        if tags is not None:
+            self.add_tags(tags)
+        if params is not None:
+            self.add_params(params)
+        if dependencies is not None:
+            self.add_dependencies(dependencies.values(), dependencies.keys())
+        if code_method is not None:
+            self.add_code_ref(code_method)
+        if vc_info is not None:
+            self.add_git_info(vc_info)
+        self.add_timing(start_time, stop_time)
+
+        # Only close and make immutable if the user also adds the data field
+        if data is not None:
+            self._local_dir, self.pb.uuid, self._remote_dir = self.data_context.make_managed_path()
             self._close_bundle()
 
     def _check_open(self):
-        assert self._open and not self._closed, "Bundle must be open (not closed) for editing."
+        assert not self._closed, "Bundle must be open (not closed) for editing."
+
+    def _check_closed(self):
+        assert self._closed, "Bundle must be closed."
 
     """ Getters """
+
+    @property
+    def closed(self):
+        return self._closed
 
     @property
     def data(self):
@@ -170,23 +170,23 @@ class Bundle(HyperFrameRecord):
 
     @property
     def name(self):
-        return self._pb.human_name
+        return self.pb.human_name
 
     @property
     def processing_name(self):
-        return self._pb.processing_name
+        return self.pb.processing_name
 
     @property
     def owner(self):
-        return self._pb.owner
+        return self.pb.owner
 
     @property
     def uuid(self):
-        return self._pb.uuid
+        return self.pb.uuid
 
     @property
     def creation_date(self):
-        return self._pb.lineage.creation_date
+        return self.pb.lineage.creation_date
 
     @property
     def tags(self):
@@ -195,7 +195,6 @@ class Bundle(HyperFrameRecord):
         This accesses everything but the parameter tags.
         bundle.params accesses everything but the user tags
         """
-        assert self._closed, "May only read meta-information from closed bundles."
         return {k: v for k, v in self.tag_dict.items() if not k.startswith(common.BUNDLE_TAG_PARAMS_PREFIX)}
 
     @property
@@ -205,7 +204,6 @@ class Bundle(HyperFrameRecord):
         Note that we currently use Luigi Parameter parse and serialize to go from string and to string.
         Luigi does so to interpret command-line arguments.
         """
-        assert self._closed, "May only read meta-information from closed bundles."
         return {k[len(common.BUNDLE_TAG_PARAMS_PREFIX):]: v for k, v in self.tag_dict.items() if k.startswith(common.BUNDLE_TAG_PARAMS_PREFIX)}
 
     @property
@@ -219,7 +217,6 @@ class Bundle(HyperFrameRecord):
         Returns:
             dict: (arg_name:(proc_name, uuid))
         """
-        assert self._closed, "May only read meta-information from closed bundles."
         return {k: v for k, v in self.get_lineage().pb.depends_on.items()}
 
     @property
@@ -228,7 +225,7 @@ class Bundle(HyperFrameRecord):
         Returns:
             str: The string representing the name of the code that produced this bundle
         """
-        return self._pb.lineage.code_method
+        return self.pb.lineage.code_method
 
     @property
     def timing(self):
@@ -236,7 +233,7 @@ class Bundle(HyperFrameRecord):
         Returns:
             (float, float): (start_time, stop_time)
         """
-        return self._pb.lineage.start_time, self._pb.lineage.stop_time
+        return self.pb.lineage.start_time, self.pb.lineage.stop_time
 
     @property
     def git_info(self):
@@ -245,7 +242,7 @@ class Bundle(HyperFrameRecord):
         Returns:
             (str, str, str): (repo, hash, branch)
         """
-        return self._pb.lineage.code_repo, self._pb.lineage.code_hash, self._pb.lineage.code_branch
+        return self.pb.lineage.code_repo, self.pb.lineage.code_hash, self.pb.lineage.code_branch
 
     @property
     def is_presentable(self):
@@ -268,7 +265,7 @@ class Bundle(HyperFrameRecord):
         Returns:
             self
         """
-        self._pb.name = name
+        self.pb.name = name
 
     @processing_name.setter
     def processing_name(self, processing_name):
@@ -278,7 +275,7 @@ class Bundle(HyperFrameRecord):
         Returns:
             self
         """
-        self._pb.processing_name = processing_name
+        self.pb.processing_name = processing_name
 
     def add_tags(self, tags):
         """ Add tags to the bundle.  Updates if existing.
@@ -299,30 +296,29 @@ class Bundle(HyperFrameRecord):
         self._check_open()
         assert isinstance(params, dict)
         params = {f'{common.BUNDLE_TAG_PARAMS_PREFIX}{k}': v for k, v in params}
-        self.add_tags(params)
+        super(Bundle, self).add_tags(params)
 
-    def add_dependencies(self, bundles, argnames=None):
+    def add_dependencies(self, bundles, arg_names=None):
         """ Add one or more upstream bundles as dependencies
 
         Note: Metadata for correct re-use of re-execution semantics.
 
         Args:
             bundles (Union[list `api.Bundle`, `api.Bundle`]): Another bundle that may have been used to produce this one
-            argnames (list[str]): argument names of the dependencies.  Optional, otherwise default 'arg_<i>' used.
+            arg_names (list[str]): argument names of the dependencies.  Optional, otherwise default 'arg_<i>' used.
 
         Returns:
             self
         """
         self._check_open()
         if isinstance(bundles, list):
-            if argnames is None:
-                argnames = ['_arg_{}'.format(i) for i in range(0,len(bundles))]
-            for an, b in zip(argnames, bundles):
-                self._lr.add_dependencies( list((an, b.processing_name, b.uuid))
+            if arg_names is None:
+                arg_names = ['_arg_{}'.format(i) for i in range(0, len(bundles))]
+            self._lr.add_dependencies([(b.processing_name, b.uuid, an) for an, b in zip(arg_names, bundles)])
         else:
-            if argnames is None:
-                argnames = '_arg_0'
-            self._depends_on.append((argnames, bundles.processing_name, bundles.uuid))
+            if arg_names is None:
+                arg_names = '_arg_0'
+            self._lr.add_dependencies([(bundles.processing_name, bundles.uuid, arg_names)])
         return self
 
     def add_code_ref(self, code_ref):
@@ -338,7 +334,7 @@ class Bundle(HyperFrameRecord):
               self
         """
         self._check_open()
-        self._code_ref = code_ref
+        self._lr.pb.code_method = code_ref
         return self
 
     def add_git_info(self, repo, commit, branch):
@@ -356,7 +352,9 @@ class Bundle(HyperFrameRecord):
               self
         """
         self._check_open()
-        self._git_info = VcInfo(repo, commit, branch)
+        self._lr.pb.code_repo = repo
+        self._lr.pb.code_hash = commit
+        self._lr.pb.code_branch = branch
         return self
 
     def add_timing(self, start_time, stop_time):
@@ -369,8 +367,8 @@ class Bundle(HyperFrameRecord):
             stop_time  (float): end timestamp
         """
         self._check_open()
-        self._start_time = start_time
-        self._stop_time = stop_time
+        self._lr.pb.start_time = start_time
+        self._lr.pb.stop_time = stop_time
         return self
 
     def add_data(self, data):
@@ -412,16 +410,11 @@ class Bundle(HyperFrameRecord):
             self: this bundle object with self.data containing the kind of object the user saved.
 
         """
-
-        assert(not self._open and not self._closed)  # assume this is a brand-new bundle
-
-        self._open = False
+        self._check_open()
         self._closed = True
 
-        self._pb = hfr.pb
+        self.pb = hfr.pb
         self.init_internal_state()
-
-        self._depends_on = hfr.pb.lineage.depends_on
         self._data = self.data_context.present_hfr(hfr)
 
         return self
@@ -449,14 +442,10 @@ class Bundle(HyperFrameRecord):
         Returns:
             None
         """
-        if self._open:
-            _logger.warn("Bundle is already open.")
-            return
-        elif not self._closed:
-            self._local_dir, self._pb.uuid, self._remote_dir = self.data_context.make_managed_path()
-            self._open = True
-        else:
+        if self._closed:
             _logger.warn("Bundle is closed -- unable to re-open.")
+            # TODO: Raise exception
+        self._local_dir, self.pb.uuid, self._remote_dir = self.data_context.make_managed_path()
         return self
 
     def _close_bundle(self):
@@ -473,39 +462,17 @@ class Bundle(HyperFrameRecord):
 
         try:
             presentation, frames = PipeBase.parse_return_val(self.uuid, self._data, self.data_context)
-
             self.add_frames(frames)
-
-            self._pb.presentation = presentation
-
-            lr = LineageRecord(hframe_name=self.processing_name,  # <--- setting processing name
-                               hframe_uuid=self.uuid,
-                               code_repo=self._git_info.repo,
-                               code_name='unknown',
-                               code_semver='unknown',
-                               code_hash=self._git_info.hash,
-                               code_branch=self._git_info.branch,
-                               code_method=self._code_ref,
-                               depends_on=self._depends_on)
-
-            self.add_lineage(lr)
-
-            # Lastly add any parameters associated with this class as tags.
-            # They are differentiated by a special prefix in the key
-            self.add_tags(self._get_params_from_wrapper_task(wrapper_task))
-
+            self.pb.presentation = presentation
+            self.add_lineage(self._lr)
             self.replace_tags(self.tags)  # Intended use of side effect of setting the self.pb.hash as well.
-
             self.data_context.write_hframe(self)
-
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
             PipeBase.rm_bundle_dir(self._local_dir, self.uuid, []) # [] means no db-targets
             raise
 
         self._closed = True
-        self._open = False
-
         return self
 
     """ Convenience Routines """
@@ -515,7 +482,7 @@ class Bundle(HyperFrameRecord):
         The data is already present in .data
 
         """
-        assert(self._closed and not self._open)
+        self._check_closed()
         return self._data
 
     def rm(self):
@@ -523,7 +490,7 @@ class Bundle(HyperFrameRecord):
         Only remove this bundle with this uuid.
         This only makes sense if the bundle is closed.
         """
-        assert(self._closed and not self._open)
+        self._check_closed()
         self._fs.rm(uuid=self.uuid, data_context=self.data_context)
         return self
 
@@ -543,8 +510,7 @@ class Bundle(HyperFrameRecord):
             (`disdat.api.Bundle`): this bundle
 
         """
-
-        assert(self._closed and not self._open)
+        self._check_closed()
 
         if self.data_context.get_remote_object_dir() is None:
             raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(self.data_context.get_remote_name(),
@@ -560,7 +526,7 @@ class Bundle(HyperFrameRecord):
         Note if localizing, then we update this bundle to reflect the possibility of new, local links
 
         """
-        assert((not self._open and not self._closed) or (not self._open and self._closed))
+        self._check_closed()
         self._fs.pull(uuid=self.uuid, localize=localize, data_context=self.data_context)
         if localize:
             assert self.is_presentable
@@ -583,7 +549,7 @@ class Bundle(HyperFrameRecord):
         Returns:
             str: A directory path managed by disdat
         """
-        assert (self._open and not self._closed)
+        self._check_open()
 
         # remove the prefix iff it exists
         dst_base_path = dir_name.replace(self._local_dir, '')
@@ -619,8 +585,7 @@ class Bundle(HyperFrameRecord):
         Returns:
             `luigi.LocalTarget` or `luigi.s3.S3Target`
         """
-        assert (self._open and not self._closed)
-
+        self._check_open()
         return PipeBase.filename_to_luigi_targets(self._local_dir, filename)
 
     def copy_in_file(self, existing_file):
@@ -636,8 +601,7 @@ class Bundle(HyperFrameRecord):
             `luigi.LocalTarget` or `luigi.s3.S3Target`
 
         """
-        assert (self._open and not self._closed)
-
+        self._check_open()
         file_basename = os.path.basename(existing_file)
         target = PipeBase.filename_to_luigi_targets(self._local_dir, file_basename)
 
@@ -683,8 +647,8 @@ class Bundle(HyperFrameRecord):
             processing_name(str): The processing name.
         """
 
-        if self._closed and not self._open:
-            return self._pb.processing_name
+        if self._closed:
+            return self.pb.processing_name
 
         # Iterate through dependencies dict argname: (processing_name, uuid)
         dep_proc_ids = {k: v[0] for k, v in self.dependencies.items()}
@@ -1030,7 +994,7 @@ def add(local_context, bundle_name, path, tags=None):
     except TypeError:
         pass
 
-    with Bundle(local_context, bundle_name, getpass.getuser()) as b:
+    with Bundle(local_context=local_context, name=bundle_name, owner=getpass.getuser()) as b:
         file_list = []
 
         for path in paths:

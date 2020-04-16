@@ -966,7 +966,7 @@ class DisdatFS(object):
 
         commit_tag = hfr.get_tag('committed')
         if commit_tag is not None and commit_tag == 'True':
-            print("Bundle human name [{}] uuid [{}] already committed.".format(hfr._pb.human_name, hfr._pb.uuid))
+            print("Bundle human name [{}] uuid [{}] already committed.".format(hfr.pb.human_name, hfr.pb.uuid))
             return
 
         tags = {'committed': 'True'}
@@ -1160,7 +1160,7 @@ class DisdatFS(object):
             print("Push unable to copy bundle to branch: {}".format(e))
             return None
 
-        print("Pushed committed bundle {} uuid {} to remote {}".format(human_name, hfr._pb.uuid,
+        print("Pushed committed bundle {} uuid {} to remote {}".format(human_name, hfr.pb.uuid,
                                                                        data_context.remote_ctxt_url))
 
         return hfr

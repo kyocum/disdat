@@ -115,7 +115,7 @@ message Frame {
 
 
 message Lineage {
-    string hframe_name = 1;
+    string hframe_proc_name = 1;
     string hframe_uuid = 2;
     string code_repo = 3;
     string code_name = 4;
@@ -126,7 +126,7 @@ message Lineage {
     string data_branch  = 9;
     double creation_date = 10;
     message Dependency {
-        string hframe_name = 1;
+        string hframe_proc_name = 1;
         string hframe_uuid = 2;
         string arg_name    = 3;
     }
