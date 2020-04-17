@@ -43,7 +43,6 @@ from disdat.data_context import DataContext
 from disdat.common import DisdatConfig, CatNoBundleError
 from disdat import logger as _logger
 
-PipeCacheEntry = collections.namedtuple('PipeCacheEntry', 'instance uuid path rerun')
 CodeVersion = collections.namedtuple('CodeVersion', 'semver hash tstamp branch url dirty')
 
 CONTEXTS = ['DEFAULT']
@@ -135,20 +134,13 @@ def determine_pipe_version(pipe_root):
 class DisdatFS(object):
     """
     HyperFrame (bundle) access layer (singleton)
-    
-    We have one class attribute that keeps track of allocated bundle directories. 
-    This is filled at the time we try to run apply.
 
-    Note: The path cache requires that everyone import "disdat.fs" and not "import fs".   Otherwise we will put entries
-    in a class object whose name is '<class 'fs.DisdatFS'>' but search in an instance of <class 'disdat.fs.DisdatFS'>.
-    The driver uses the fs.DisdatFS class object, but when you run from a pipe defined outside the project, then the
-    system finds the class object with the package name appended.   And that class object doesn't have a path_cache
-    with anything in it.
+    We have one class attribute that keeps track of allocated bundle directories.
+    This is filled at the time we try to run apply.
 
     """
     __metaclass__ = common.SingletonType
 
-    task_path_cache = {}  ## [<pipe/luigi task id>] -> PipeCacheEntry(instance, directory, re-run)
     current_pipe_version = None
 
     class JsonConfig(object):
@@ -196,95 +188,6 @@ class DisdatFS(object):
     @staticmethod
     def clear_pipe_version():
         DisdatFS.current_pipe_version = None
-
-    @staticmethod
-    def clear_path_cache():
-        """
-        If you grab the singleton instance, and you try to grab the task_path_cache, you will end up reading
-        the class variable.  But if you try to set the class variable, you will make a copy and set it instead.
-        So to really clear it, make a static method.
-
-        Returns:
-            None
-        """
-        DisdatFS.task_path_cache.clear()
-
-    @staticmethod
-    def get_path_cache(pipe_instance):
-        """
-        Given a pipe process name, return the resolved path.
-
-        Note: The path cache has to use the pipe.pipe_id(), which is a string
-        that takes into account enough of the configuration of the executed pipe that it is
-        unique.  That is, it cannot use the pipeline_id(), as that typically is just the human-readable bundle name
-        that is the output of the pipeline.
-
-        Args:
-            pipe_instance:
-
-        Returns:
-            (instance,path,rerun) as PipeCacheEntry
-
-        """
-
-        pipe_name = pipe_instance.processing_id()
-
-        return DisdatFS.get_path_cache_by_name(pipe_name)
-
-    @staticmethod
-    def get_path_cache_by_name(pipe_name):
-        """
-        Given a pipe name, return the resolved path.
-        :return:  (instance,path,rerun) as PipeCacheEntry
-        """
-
-        #print "SEARCH PCECLZ {} PIPE {}".format(DisdatFS, pipe_name)
-
-        if pipe_name in DisdatFS.task_path_cache:
-            rval = DisdatFS.task_path_cache[pipe_name]
-        else:
-            rval = None
-
-        return rval
-
-    @staticmethod
-    def path_cache():
-        """       
-        :return: cache dictionary
-        """        
-        return DisdatFS.task_path_cache
-
-    @staticmethod
-    def put_path_cache(pipe_instance, uuid, path, rerun, overwrite=False):
-        """  The path cache is used to associate a pipe instance with its output path and whether
-        we have decided to re-run this pipe.   If rerun is True, then there should be no
-        ouput at this path.  AND it should eventually be added as a new version of this bundle.
-
-        Args:
-            pipe_instance:     instance of a pipe
-            uuid:              specific uuid of the output path
-            path:              where to write the bundle
-            rerun:             whether or not we are re-running or re-using
-            overwrite:         overwrite existing entry (if exists)
-
-        Returns:
-            pce or raise KeyError
-
-        """
-        pipe_name = pipe_instance.processing_id()
-        pce = PipeCacheEntry(pipe_instance, uuid, path, rerun)
-        if pipe_name not in DisdatFS.task_path_cache:
-            DisdatFS.task_path_cache[pipe_name] = pce
-        else:
-            if pce == DisdatFS.task_path_cache[pipe_name]: # The tuples are identical
-                _logger.error("path_cache dup key: pipe {} already bound to same PCE {} ".format(pipe_name, pce))
-            else:
-                if overwrite:
-                    DisdatFS.task_path_cache[pipe_name] = pce
-                else:
-                    raise KeyError("path_cache dup key: pipe {} bound to pce {} but trying to re-assign to {}".format(
-                        pipe_name, DisdatFS.task_path_cache[pipe_name], pce))
-        return pce
 
     def __init__(self):
         """ Create an FS object.
@@ -389,70 +292,6 @@ class DisdatFS(object):
         :return:
         """
         return self.curr_context and self.curr_context.is_valid()
-
-    def reuse_bundle(self, pipe, bundle_uuid, data_context=None):
-        """
-        Re-use this bundle, everything stays the same, just put in the cache
-        Note: Currently doesn't use this FS instance, but to be consistent with
-        new_output_bundle below.
-
-        Args:
-            pipe (`pipe.PipeTask`): The pipe task that should not be re-run.
-            bundle_uuid (str): The UUID of the bundle to re-use.
-            data_context: The context containing this bundle with UUID hfr_uuid.
-
-        Returns:
-            None
-        """
-
-        pce = self.get_path_cache(pipe)
-        if pce is None:
-            _logger.debug("reuse_hframe: Adding a new (unseen) task to the path cache.")
-        else:
-            _logger.debug("reuse_hframe: Found a task in our dag already in the path cache: reusing!")
-            return
-
-        if data_context is None:
-            data_context = self.curr_context
-
-        dir = data_context.implicit_hframe_path(bundle_uuid)
-        DisdatFS.put_path_cache(pipe, bundle_uuid, dir, False)
-
-    def new_output_bundle(self, pipe, force_uuid=None, data_context=None):
-        """
-        This proposes a new output bundle
-        1.) Create a new UUID
-        2.) Create the directory in the context
-        3.) Add this to the path cache
-
-        Note: We don't add to context's db yet.  The job or pipe hasn't run yet.  So it
-        hasn't made all of its outputs.  If it fails, by definition it won't right out the
-        hframe to the context's directory.   On rebuild / restart we will delete the directory.
-        However, the path_cache will hold on to this directory in memory.
-
-        Args:
-            pipe:
-            force_uuid:
-            data_context:
-
-        Returns:
-
-        """
-
-        pce = self.get_path_cache(pipe)
-
-        if pce is None:
-            _logger.debug("new_output_hframe: Adding a new (unseen) task to the path cache.")
-        else:
-            _logger.debug("new_output_hframe: Found a task in our dag already in the path cache: reusing!")
-            return
-
-        if data_context is None:
-            data_context = self.curr_context
-
-        dir, uuid, _ = data_context.make_managed_path(uuid=force_uuid)
-
-        DisdatFS.put_path_cache(pipe, uuid, dir, True)
 
     def rm(self, human_name=None, rm_all=False, rm_old_only=False, uuid=None, tags=None, force=False, data_context=None):
         """
@@ -756,8 +595,8 @@ class DisdatFS(object):
         :param possible_bundle_name:
         :return: True / False
         """
-        
-        first  = DisdatFS.is_bundle_name(possible_bundle_name)         
+
+        first  = DisdatFS.is_bundle_name(possible_bundle_name)
         second = possible_bundle_name.endswith(".BNDL")
 
         return first and second
@@ -1300,7 +1139,7 @@ class DisdatFS(object):
                 if not localize:
                     print("Found HyperFrame UUID {} present in local context, skipping . . .".format(s3_uuid))
                 else:
-                    # Are we trying to localize a particular HyperFrame?  match name and uuid. 
+                    # Are we trying to localize a particular HyperFrame?  match name and uuid.
 
                     obj = s3_hfr_obj.Object().get()
                     hfr_test = hyperframe.HyperFrameRecord.from_str_bytes(obj['Body'].read())

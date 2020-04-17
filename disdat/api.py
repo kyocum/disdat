@@ -39,6 +39,7 @@ import disdat.run
 import disdat.fs
 import disdat.common as common
 from disdat.pipe_base import PipeBase
+from disdat.data_context import DataContext
 
 from disdat.hyperframe import HyperFrameRecord, LineageRecord
 from disdat.run import Backend, run_entry
@@ -86,19 +87,25 @@ class Bundle(HyperFrameRecord):
                  ):
         """ Create a bundle in a local context.
 
-        There are two ways to create bundles:
+        There are three ways to create bundles:
 
         1.) Create a bundle with a single call.  One must supply a local context,
         a name, and data.  This call is atomic.  Afterword the bundle exists on disk, in the context.
 
-        2.) Create a bundle using a context manager.  The initial call requires a
-        context and name.   User's may then query the bundle object to create output files directly in the
-        referred-to context.    They may also add tags, parameters, code and git info, and start/stop times.
+        2.) Create a bundle using a context manager.  The initial call requires only a context.
+        User's may then query the bundle object to create output files directly in the
+        referred-to context.  They may also add tags, parameters, code and git info, and start/stop times.
         Once the bundles is "closed" via the context manager, it will be written to disk and immutable.
         Note that one may change anything about an "open" bundle except the context information.
 
+        3.) Create an "empty" bundle with
+        b = Bundle(local_context=<some context>)
+        b.open()
+        < add metadata, add data>
+        b.close()
+
         Args:
-            local_context (str): Where this bundle will be output or where it was sourced from.
+            local_context (Union[str, `disdat.data_context.DataContext`): The local context name or context object
             name (str): Human name for this bundle.
             data (union(pandas.DataFrame, tuple, None, list, dict)):  The data this bundle contains.
             processing_name (str):  A name that indicates a bundle was made in an identical fashion.
@@ -116,7 +123,12 @@ class Bundle(HyperFrameRecord):
         self._fs = _get_fs()
 
         try:
-            self.data_context = self._fs.get_context(local_context)
+            if isinstance(local_context, DataContext):
+                self.data_context = local_context
+            elif isinstance(local_context, str):
+                self.data_context = self._fs.get_context(local_context)
+            else:
+                raise Exception("Unable to create Bundle because no context found with name[{}]".format(local_context))
         except Exception as e:
             _logger.error("Unable to allocate bundle in context: {} ".format(local_context, e))
             return
@@ -128,7 +140,7 @@ class Bundle(HyperFrameRecord):
 
         self._lr = LineageRecord()  # git info, code_ref, start/stop times, and dependencies
 
-        super(Bundle, self).__init__(human_name=name,
+        super(Bundle, self).__init__(human_name='' if name is None else name,
                                      owner='' if owner is None else owner,
                                      processing_name='' if processing_name is None else processing_name
                                      )
@@ -148,8 +160,16 @@ class Bundle(HyperFrameRecord):
 
         # Only close and make immutable if the user also adds the data field
         if data is not None:
-            self._local_dir, self.pb.uuid, self._remote_dir = self.data_context.make_managed_path()
+            self.open()
+            self.add_data(data)
             self.close()
+
+    def __del__(self):
+        """ When the object is finally destroyed, ensure that any bundles
+         that were left !closed have their directories harvested.
+         """
+        if not self._closed:
+            shutil.rmtree(self.data_context.implicit_hframe_path(self.uuid))
 
     def _check_open(self):
         assert not self._closed, "Bundle must be open (not closed) for editing."
@@ -186,6 +206,10 @@ class Bundle(HyperFrameRecord):
     @property
     def creation_date(self):
         return self.pb.lineage.creation_date
+
+    @property
+    def local_dir(self):
+        return self._local_dir
 
     @property
     def tags(self):
@@ -431,12 +455,13 @@ class Bundle(HyperFrameRecord):
         """
         self.close()
 
-    def open(self):
+    def open(self, force_uuid=None):
         """ Management operations to open bundle for writing.
         At this time all of the open operations, namely creating the managed path
         occur in the default constructor or in the class fill_from_hfr constructor.
 
         Args:
+            force_uuid (str): DEPRECATING - do not use.  Force to open a bundle with a specific bundle.
 
         Returns:
             None
@@ -444,7 +469,7 @@ class Bundle(HyperFrameRecord):
         if self._closed:
             _logger.warn("Bundle is closed -- unable to re-open.")
             # TODO: Raise exception
-        self._local_dir, self.pb.uuid, self._remote_dir = self.data_context.make_managed_path()
+        self._local_dir, self.pb.uuid, self._remote_dir = self.data_context.make_managed_path(uuid=force_uuid)
         return self
 
     def close(self):
@@ -777,7 +802,7 @@ def remote(local_context, remote_context, remote_url, force=False):
     data_context.bind_remote_ctxt(remote_context, remote_url, force=force)
 
 
-def search(local_context, search_name=None, search_tags=None,
+def search(local_context, human_name=None, processing_name=None, tags=None,
            is_committed=None, find_intermediates=False, find_roots=False,
            before=None, after=None):
     """ Search for bundle in a local context.
@@ -787,27 +812,27 @@ def search(local_context, search_name=None, search_tags=None,
 
     Args:
         local_context (str): The name of the local context to search.
-        search_name: May be None.  Interpret as a simple regex (one kleene star)
-        search_tags (dict): A set of key:values the bundles must have
-        is_committed (bool): If None (default): ignore committed, If True return committed, If False return uncommitted
-        find_intermediates (bool):  Results must be intermediates
-        find_roots (bool): Results must be final outputs
-        before (str): Return bundles < "12-1-2009" or "12-1-2009 12:13:42"
-        after (str): Return bundles >= "12-1-2009" or "12-1-2009 12:13:42"
+        human_name (str): Optional, interpret as a simple regex (one kleene star).
+        processing_name (str): Optional, interpret as a simple regex (one kleene star).
+        tags (dict): Optional, a set of key:values the bundles must have.
+        is_committed (bool): Optional, if True return committed, if False return uncommitted
+        find_intermediates (bool):  Optional, results must be intermediates
+        find_roots (bool): Optional, results must be final outputs
+        before (str): Optional, return bundles < "12-1-2009" or "12-1-2009 12:13:42"
+        after (str): Optional, return bundles >= "12-1-2009" or "12-1-2009 12:13:42"
 
     Returns:
-        [](Bundle): List of API bundle objects
+        (list): List of API bundle objects
     """
-
     results = []
 
     data_context = _get_context(local_context)
 
-    if search_tags is None and (find_roots or find_intermediates):
-        search_tags = {}
+    if tags is None and (find_roots or find_intermediates):
+        tags = {}
 
     if find_roots:
-        search_tags.update({'root_task': True})
+        tags.update({'root_task': True})
 
     if before is not None:
         before = disdat.fs._parse_date(before, throw=True)
@@ -815,12 +840,14 @@ def search(local_context, search_name=None, search_tags=None,
     if after is not None:
         after = disdat.fs._parse_date(after, throw=True)
 
-    for i, r in enumerate(data_context.get_hframes(human_name=search_name, tags=search_tags, before=before, after=after)):
-
+    for i, r in enumerate(data_context.get_hframes(human_name=human_name,
+                                                   processing_name=processing_name,
+                                                   tags=tags,
+                                                   before=before,
+                                                   after=after)):
         if find_intermediates:
             if r.get_tag('root_task') is not None:
                 continue
-
         if is_committed is not None:
             if is_committed:
                 if r.get_tag('committed') is None:
@@ -828,11 +855,7 @@ def search(local_context, search_name=None, search_tags=None,
             else:
                 if r.get_tag('committed') is not None:
                     continue
-
-        # We have filtered out
-        bundle = Bundle(local_context, 'unknown')
-        bundle.fill_from_hfr(r)
-        results.append(bundle)
+        results.append(Bundle(data_context).fill_from_hfr(r))
 
     return results
 
@@ -857,7 +880,7 @@ def _lineage_single(ctxt_obj, uuid):
 
     assert(len(hfr) == 1)
 
-    b = Bundle(ctxt_obj.get_local_name(), 'unknown')
+    b = Bundle(ctxt_obj, 'unknown')
     b.fill_from_hfr(hfr[0])
 
     return b.lineage
@@ -928,8 +951,7 @@ def get(local_context, bundle_name, uuid=None, tags=None):
     if hfr is None:
         return None
 
-    b = Bundle(local_context, 'unknown')
-    b.fill_from_hfr(hfr)
+    b = Bundle(data_context).fill_from_hfr(hfr)
 
     return b
 

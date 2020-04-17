@@ -30,7 +30,8 @@ from collections import defaultdict, deque
 
 import luigi
 
-from disdat.fs import PipeCacheEntry, DisdatFS
+from disdat.path_cache import PathCacheEntry, PathCache
+from disdat.fs import DisdatFS
 from disdat.pipe_base import PipeBase
 
 
@@ -78,7 +79,7 @@ class DriverTask(luigi.WrapperTask, PipeBase):
         """
 
         output_tasks = self.deps()
-        output_bundles = [(task.processing_id(), self.pfs.get_path_cache(task).uuid) for task in output_tasks]
+        output_bundles = [(task.processing_id(), PathCache.get_path_cache(task).uuid) for task in output_tasks]
 
         return output_bundles
 
@@ -99,27 +100,19 @@ class DriverTask(luigi.WrapperTask, PipeBase):
         """
 
         input_tasks = self.deps()
-        input_bundles = [(task.processing_id(), self.pfs.get_path_cache(task).uuid) for task in input_tasks]
+        input_bundles = [(task.processing_id(), PathCache.get_path_cache(task).uuid) for task in input_tasks]
         return input_bundles
 
     def pipe_id(self):
         """
-        The driver is a wrappertask.  It isn't a real pipe.
-
-        Returns: processing_name
-
+        The driver is a wrappertask.  It isn't a real task.
         """
-
         assert False
 
     def pipeline_id(self):
         """
-        The driver is a wrappertask.  It isn't a real pipe.
-
-        Returns:
-            (str)
+        The driver is a wrappertask.  It isn't a real task.
         """
-
         assert False
 
     def requires(self):
@@ -197,26 +190,6 @@ class DriverTask(luigi.WrapperTask, PipeBase):
                 presentables.append(next_hf)
 
         return presentables
-
-    @staticmethod
-    def get_all_pipesline_output_bundles():
-        """
-        Find all output bundles for the pipes attached to the driver task
-
-        The DisdatFS object has a cache of [(pipe instance, path, rerun)]
-
-        Note: This does not include the driver's output bundle.
-
-        :return: list of [(bundle_name, PipeCacheEntry) ... ]
-        """
-        all_bundles = defaultdict(PipeCacheEntry)
-
-        pcache = DisdatFS.path_cache()
-
-        for p_name, p_entry in pcache.items():  # @UnusedVariable
-            all_bundles[p_entry.instance.name_output_bundle()] = p_entry
-
-        return all_bundles
 
 
 if __name__ == '__main__':

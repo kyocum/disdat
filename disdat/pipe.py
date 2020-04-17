@@ -39,11 +39,11 @@ import hashlib
 import luigi
 
 from disdat.pipe_base import PipeBase
-from disdat.db_link import DBLink
 from disdat.driver import DriverTask
+from disdat.db_link import DBLink
 from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PUSH_META, BUNDLE_TAG_PARAMS_PREFIX, ExtDepError
 from disdat import logger as _logger
-
+from disdat.path_cache import PathCache
 import disdat.api as api
 
 
@@ -104,7 +104,7 @@ class PipeTask(luigi.Task, PipeBase):
         Return the processing_name and uuid of the output bundle of this task.
         NOTE: Currently un-used.  Consider removing.
         """
-        return self.processing_id(), self.pfs.get_path_cache(self).uuid
+        return self.processing_id(), PathCache.get_path_cache(self).uuid
 
     def bundle_inputs(self):
         """
@@ -117,21 +117,17 @@ class PipeTask(luigi.Task, PipeBase):
             self (disdat.PipeTask):  The pipe task in question
 
         Returns:
-              [(processing_name, uuid, arg_name), ... ]
-
+            (dict(str:`disdat.api.Bundle`)):  {arg_name: bundle, ...}
         """
 
-        input_bundles = []
+        input_bundles = {}
         for task in self.deps():
             if isinstance(task, ExternalDepTask):
-                input_bundles.append((task.processing_name,
-                                      task.uuid,
-                                      task.user_arg_name))
+                b = api.get(self.data_context.get_local_name(), None, uuid=task.uuid)
             else:
-                input_bundles.append((task.processing_id(),
-                                      self.pfs.get_path_cache(task).uuid,
-                                      task.user_arg_name))
-
+                b = PathCache.get_path_cache(task).bundle
+            assert b is not None
+            input_bundles[task.user_arg_name] = b
         return input_bundles
 
     def processing_id(self):
@@ -220,7 +216,7 @@ class PipeTask(luigi.Task, PipeBase):
             hframe_uuid (str): The unique identifier for this task's hyperframe
         """
 
-        pce = self.pfs.get_path_cache(self)
+        pce = PathCache.get_path_cache(self)
         assert (pce is not None)
 
         return pce.uuid
@@ -299,21 +295,16 @@ class PipeTask(luigi.Task, PipeBase):
 
     def run(self):
         """
-
         Call users run function.
         1.) prepare the arguments
         2.) run and gather user result
         3.) interpret and wrap in a HyperFrame
 
         Returns:
-            (`hyperframe.HyperFrame`):
-
+            None
         """
-
         kwargs = self.prepare_pipe_kwargs(for_run=True)
-
-        pce = self.pfs.get_path_cache(self)
-
+        pce = PathCache.get_path_cache(self)
         assert(pce is not None)
 
         """ NOTE: If a user changes a task param in run(), and that param parameterizes a dependency in requires(), 
@@ -335,25 +326,6 @@ class PipeTask(luigi.Task, PipeBase):
             raise
 
         try:
-
-            #with api.Bundle(local_context=self.data_context.get_local_name(),
-            #                name=self.human_id()) as b:
-
-            presentation, frames = PipeBase.parse_return_val(pce.uuid,
-                                                             user_rtn_val,
-                                                             self.data_context)
-
-            hfr = PipeBase.make_hframe(frames,
-                                       pce.uuid,
-                                       cached_bundle_inputs,
-                                       self.human_id(),
-                                       self.processing_id(),
-                                       self,
-                                       start_ts=start,
-                                       stop_ts=stop,
-                                       tags={"presentable": "True"},
-                                       presentation=presentation)
-
             # Add any output tags to the user tag dict
             if self.output_tags:
                 self.user_tags.update(self.output_tags)
@@ -362,17 +334,20 @@ class PipeTask(luigi.Task, PipeBase):
             if isinstance(self.calling_task, DriverTask):
                 self.user_tags.update({'root_task': 'True'})
 
-            # Lastly add any parameters associated with this class as tags.
-            # They are differentiated by a special prefix in the key
-            self.user_tags.update(self._get_subcls_params())
+            """ if we have a pce, we have a new bundle that we need to add info to and close """
+            pce.b.add_data(user_rtn_val)
+            pce.b.add_timing(start, stop)
+            pce.b.add_dependencies(cached_bundle_inputs.values(), cached_bundle_inputs.keys())
+            pce.b.name = self.human_id()
+            pce.b.processing_name = self.processing_id()
+            pce.b.add_params(self._get_subcls_params())
+            pce.b.add_tags(self.user_tags)
+            pce.b.add_tags({"presentable": "True"})
+            pce.b.close()  # Write out the bundle
 
-            # Overwrite the hyperframe tags with the complete set of tags
-            hfr.replace_tags(self.user_tags)
-
-            self.data_context.write_hframe(hfr)
-
-            if self.incremental_push and (hfr.get_tag(BUNDLE_TAG_TRANSIENT) is None):
-                self.pfs.commit(None, None, uuid=pce.uuid, data_context=self.data_context)
+            """ Incrementally push the completed bundle """
+            if self.incremental_push and (BUNDLE_TAG_TRANSIENT not in pce.b.tags()):
+                self.pfs.commit(None, None, uuid=pce.b.uuid, data_context=self.data_context)
                 self.pfs.push(uuid=pce.uuid, data_context=self.data_context)
 
         except Exception as error:
@@ -380,7 +355,7 @@ class PipeTask(luigi.Task, PipeBase):
             PipeBase.rm_bundle_dir(pce.path, pce.uuid, self.db_targets)
             raise
 
-        return hfr
+        return None
 
     def _get_subcls_params(self):
         """ Given the child class, extract user defined Luigi parameters
@@ -390,20 +365,17 @@ class PipeTask(luigi.Task, PipeBase):
         It would give us the parameters in this class as well.  And then we'd have to do set difference.
         See luigi.Task.get_params()
 
-        NOTE: We do NOT keep the parameter order maintained by Luigi.  That's critical for Luigi creating the task_id.
-        However, we can implicitly re-use that ordering if we re-instantiate the Luigi class.
-
         Args:
             self: The instance of the subclass.  To get the normalized values for the Luigi Parameters
         Returns:
-            dict: {BUNDLE_TAG_PARAM_PREFIX.<name>:'string value',...}
+            dict: {<name>:'string value',...}
         """
         cls = self.__class__
         params = {}
         for param in vars(cls):
             attribute = getattr(cls, param)
             if isinstance(attribute, luigi.Parameter):
-                params["{}{}".format(BUNDLE_TAG_PARAMS_PREFIX, param)] = attribute.serialize(getattr(self, param))
+                params["{}".format(param)] = attribute.serialize(getattr(self, param))
         return params
 
     @classmethod
@@ -418,7 +390,6 @@ class PipeTask(luigi.Task, PipeBase):
         Returns:
             deser_params (dict): {<name>: Luigi.Parameter,...}
         """
-        # cls = self.__class__
         deser_params = {}
         for param, ser_value in ser_params.items():
             try:
@@ -426,10 +397,10 @@ class PipeTask(luigi.Task, PipeBase):
                 assert isinstance(attribute, luigi.Parameter)
                 deser_params[param] = attribute.parse(ser_value)
             except Exception as e:
-                _logger.warning("Bundle parameter ({}:{}) unable to be deserialized by class({}): {}".format(param,
-                                                                                                             ser_value,
-                                                                                                             cls.__name__,
-                                                                                                             e))
+                _logger.warning("Bundle parameter ({}:{}) can't be deserialized by class({}): {}".format(param,
+                                                                                                         ser_value,
+                                                                                                         cls.__name__,
+                                                                                                         e))
                 raise e
         return deser_params
 
@@ -454,7 +425,7 @@ class PipeTask(luigi.Task, PipeBase):
             self._input_tags = {}
             self._input_bundle_uuids = {}
 
-            upstream_tasks = [(t.user_arg_name, self.pfs.get_path_cache(t)) for t in self.deps()]
+            upstream_tasks = [(t.user_arg_name, PathCache.get_path_cache(t)) for t in self.deps()]
             for user_arg_name, pce in [u for u in upstream_tasks if u[1] is not None]:
 
                 b = api.get(self.data_context.get_local_name(), None, uuid=pce.uuid)
@@ -595,7 +566,7 @@ class PipeTask(luigi.Task, PipeBase):
                                                                                                                    uuid)
                 raise ExtDepError(error_str)
 
-            bundle = api.Bundle(self.data_context.get_local_name(), 'unknown').fill_from_hfr(hfr)
+            bundle = api.Bundle(self.data_context.get_local_name()).fill_from_hfr(hfr)
 
         except ExtDepError as error:  # Swallow and allow Luigi to determine task is not available.
             _logger.error(error_str)
@@ -666,7 +637,7 @@ class PipeTask(luigi.Task, PipeBase):
             (`luigi.LocalTarget`): Singleton, list, or dictionary of Luigi Target objects.
         """
 
-        pce = self.pfs.get_path_cache(self)
+        pce = PathCache.get_path_cache(self)
         assert (pce is not None)
         output_dir = pce.path
         return self.filename_to_luigi_targets(output_dir, filename)
@@ -687,7 +658,7 @@ class PipeTask(luigi.Task, PipeBase):
             (`luigi.contrib.s3.S3Target`): Singleton, list, or dictionary of Luigi Target objects.
 
         """
-        pce = self.pfs.get_path_cache(self)
+        pce = PathCache.get_path_cache(self)
         assert (pce is not None)
         output_dir = self.get_output_dir_remote()
         return self.filename_to_luigi_targets(output_dir, filename)
@@ -747,7 +718,7 @@ class PipeTask(luigi.Task, PipeBase):
             output_dir (str):  The bundle's output directory
 
         """
-        pce = self.pfs.get_path_cache(self)
+        pce = PathCache.get_path_cache(self)
         assert(pce is not None)
         return pce.path
 
@@ -762,7 +733,7 @@ class PipeTask(luigi.Task, PipeBase):
             output_dir (str):  The bundle's output directory on S3
 
         """
-        pce = self.pfs.get_path_cache(self)
+        pce = PathCache.get_path_cache(self)
         assert(pce is not None)
         if self.data_context.remote_ctxt_url and self.incremental_push:
             output_dir = os.path.join(self.data_context.get_remote_object_dir(), pce.uuid)
