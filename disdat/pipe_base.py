@@ -14,8 +14,6 @@ import os
 import sys
 import shutil
 import getpass
-import subprocess
-import inspect
 import collections
 
 import luigi
@@ -30,6 +28,7 @@ from disdat.fs import DisdatFS
 from disdat.data_context import DataContext
 from disdat.hyperframe import LineageRecord, HyperFrameRecord, FrameRecord
 import disdat.hyperframe_pb2 as hyperframe_pb2
+from disdat.path_cache import PathCache
 from disdat import logger as _logger
 
 
@@ -111,7 +110,7 @@ class PipeBase(object):
             [ luigi output for meta file, luigi output for lineage file ]
 
         """
-        pce = DisdatFS.get_path_cache(pipe_task)
+        pce = PathCache.get_path_cache(pipe_task)
 
         if pce is None:
             # This can happen when the pipe has been created with non-deterministic parameters
@@ -230,7 +229,7 @@ class PipeBase(object):
         return luigi_outputs
 
     @staticmethod
-    def rm_bundle_dir(output_path, uuid, db_targets):
+    def rm_bundle_dir(output_path, uuid):
         """
         We created a directory (managed path) to hold the bundle and any files.   The files have been
         copied in.   Removing the directory removes any created files.  If the user has told us about
@@ -250,13 +249,9 @@ class PipeBase(object):
             None
         """
         try:
-            shutil.rmtree(output_path)
-
-            # if people create s3 files, s3 file targets, inside of an s3 context,
-            # then we will have to clean those up as well.
-
-            for t in db_targets:
-                t.rm()
+            shutil.rmtree(output_path, ignore_errors=True)
+            # TODO: if people create s3 files, s3 file targets, inside of an s3 context,
+            # TODO: then we will have to clean those up as well.
 
         except IOError as why:
             _logger.error("Removal of hyperframe directory {} failed with error {}. Continuing removal...".format(

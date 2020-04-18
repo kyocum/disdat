@@ -33,6 +33,7 @@ import getpass
 import warnings
 import errno
 import hashlib
+import collections
 
 import disdat.apply
 import disdat.run
@@ -89,20 +90,32 @@ class Bundle(HyperFrameRecord):
 
         There are three ways to create bundles:
 
-        1.) Create a bundle with a single call.  One must supply a local context,
-        a name, and data.  This call is atomic.  Afterword the bundle exists on disk, in the context.
+        1.) Create a bundle with a single call.  Must include a data field!
+        b = api.Bundle('examples', name='propensity_model',owner='kyocum',data='/Users/kyocum/model.tgz')
 
         2.) Create a bundle using a context manager.  The initial call requires only a context.
-        User's may then query the bundle object to create output files directly in the
+        with api.Bundle('examples') as b:
+            b.add_data(file_list)
+            b.add_code_ref('mymodule.mymethod')
+            b.add_params({'path': path})
+            b.add_tags(tags)
+
+        Users can query the bundle object to create output files directly in the
         referred-to context.  They may also add tags, parameters, code and git info, and start/stop times.
         Once the bundles is "closed" via the context manager, it will be written to disk and immutable.
         Note that one may change anything about an "open" bundle except the context information.
 
-        3.) Create an "empty" bundle with
-        b = Bundle(local_context=<some context>)
-        b.open()
-        < add metadata, add data>
+        3.) Open and close manually.
+        b = api.Bundle('examples').open()
+        b.add_data(file_list)
+        b.add_code_ref('mymodule.mymethod')
+        b.add_params({'path': path})
+        b.add_tags(tags)
         b.close()
+
+        Default name:  If you don't provide a name, Disdat tries to use the basename in `code_ref`.
+        Default processing_name:   If you don't provide a processing name, Disdat will use a default that
+        takes into consideration your bundles upstream inputs, parameters, and code reference.
 
         Args:
             local_context (Union[str, `disdat.data_context.DataContext`): The local context name or context object
@@ -138,11 +151,9 @@ class Bundle(HyperFrameRecord):
         self._closed = False     # Bundle is closed and immutable
         self._data = None        # The df, array, dictionary the user wants to store
 
-        self._lr = LineageRecord()  # git info, code_ref, start/stop times, and dependencies
-
-        super(Bundle, self).__init__(human_name='' if name is None else name,
-                                     owner='' if owner is None else owner,
-                                     processing_name='' if processing_name is None else processing_name
+        super(Bundle, self).__init__(human_name=name, #'' if name is None else name,
+                                     owner='unknown' if owner is None else owner,
+                                     processing_name=processing_name, #'' if processing_name is None else processing_name
                                      )
 
         # Add the fields they have passed in.
@@ -169,7 +180,7 @@ class Bundle(HyperFrameRecord):
          that were left !closed have their directories harvested.
          """
         if not self._closed:
-            shutil.rmtree(self.data_context.implicit_hframe_path(self.uuid))
+            PipeBase.rm_bundle_dir(self._local_dir, self.uuid)
 
     def _check_open(self):
         assert not self._closed, "Bundle must be open (not closed) for editing."
@@ -240,7 +251,14 @@ class Bundle(HyperFrameRecord):
         Returns:
             dict: (arg_name:(proc_name, uuid))
         """
-        return {k: v for k, v in self.get_lineage().pb.depends_on.items()}
+        found = {}
+        arg_names = ['_arg_{}'.format(i) for i in range(0, len(self.pb.lineage.depends_on))]
+        for an, dep in zip(arg_names, self.pb.lineage.depends_on):
+            if dep.HasField("arg_name"):
+                found[dep.arg_name] = (dep.hframe_proc_name, dep.hframe_uuid)
+            else:
+                found[an] = (dep.hframe_proc_name, dep.hframe_uuid)
+        return found
 
     @property
     def code_ref(self):
@@ -288,7 +306,7 @@ class Bundle(HyperFrameRecord):
         Returns:
             self
         """
-        self.pb.name = name
+        self.pb.human_name = name
 
     @processing_name.setter
     def processing_name(self, processing_name):
@@ -299,6 +317,7 @@ class Bundle(HyperFrameRecord):
             self
         """
         self.pb.processing_name = processing_name
+        self.pb.lineage.hframe_proc_name = processing_name
 
     def add_tags(self, tags):
         """ Add tags to the bundle.  Updates if existing.
@@ -318,7 +337,7 @@ class Bundle(HyperFrameRecord):
         """
         self._check_open()
         assert isinstance(params, dict)
-        params = {f'{common.BUNDLE_TAG_PARAMS_PREFIX}{k}': v for k, v in params}
+        params = {f'{common.BUNDLE_TAG_PARAMS_PREFIX}{k}': v for k, v in params.items()}
         super(Bundle, self).add_tags(params)
 
     def add_dependencies(self, bundles, arg_names=None):
@@ -334,14 +353,14 @@ class Bundle(HyperFrameRecord):
             self
         """
         self._check_open()
-        if isinstance(bundles, list):
+        if isinstance(bundles, collections.Iterable):
             if arg_names is None:
                 arg_names = ['_arg_{}'.format(i) for i in range(0, len(bundles))]
-            self._lr.add_dependencies([(b.processing_name, b.uuid, an) for an, b in zip(arg_names, bundles)])
+            LineageRecord.add_deps_to_lr(self.pb.lineage, [(b.processing_name, b.uuid, an) for an, b in zip(arg_names, bundles)])
         else:
             if arg_names is None:
                 arg_names = '_arg_0'
-            self._lr.add_dependencies([(bundles.processing_name, bundles.uuid, arg_names)])
+            LineageRecord.add_deps_to_lr(self.pb.lineage, [(bundles.processing_name, bundles.uuid, arg_names)])
         return self
 
     def add_code_ref(self, code_ref):
@@ -357,7 +376,7 @@ class Bundle(HyperFrameRecord):
               self
         """
         self._check_open()
-        self._lr.pb.code_method = code_ref
+        self.pb.lineage.code_method = code_ref
         return self
 
     def add_git_info(self, repo, commit, branch):
@@ -375,9 +394,9 @@ class Bundle(HyperFrameRecord):
               self
         """
         self._check_open()
-        self._lr.pb.code_repo = repo
-        self._lr.pb.code_hash = commit
-        self._lr.pb.code_branch = branch
+        self.pb.lineage.code_repo = repo
+        self.pb.lineage.code_hash = commit
+        self.pb.lineage.code_branch = branch
         return self
 
     def add_timing(self, start_time, stop_time):
@@ -390,8 +409,8 @@ class Bundle(HyperFrameRecord):
             stop_time  (float): end timestamp
         """
         self._check_open()
-        self._lr.pb.start_time = start_time
-        self._lr.pb.stop_time = stop_time
+        self.pb.lineage.start_time = start_time
+        self.pb.lineage.stop_time = stop_time
         return self
 
     def add_data(self, data):
@@ -435,7 +454,6 @@ class Bundle(HyperFrameRecord):
         """
         self._check_open()
         self._closed = True
-
         self.pb = hfr.pb
         self.init_internal_state()
         self._data = self.data_context.present_hfr(hfr)
@@ -483,17 +501,24 @@ class Bundle(HyperFrameRecord):
         Returns:
             None
         """
+        def extract_human_name(code_ref):
+            return code_ref.split('.')[-1]
 
         try:
             presentation, frames = PipeBase.parse_return_val(self.uuid, self._data, self.data_context)
             self.add_frames(frames)
             self.pb.presentation = presentation
-            self.add_lineage(self._lr)
-            self.replace_tags(self.tags)  # Intended use of side effect of setting the self.pb.hash as well.
+            assert self.uuid != '', "Disdat API Error: Cannot close a bundle without a UUID."
+            if self.name == '':
+                if self.code_ref != '':
+                    self.name = extract_human_name(self.code_ref)
+            if self.processing_name == '':
+                self.processing_name = self.default_processing_name()
+            self._mod_finish(new_time=True)   # Set the hash based on all the context now in the pb, record create time
             self.data_context.write_hframe(self)
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
-            PipeBase.rm_bundle_dir(self._local_dir, self.uuid, []) # [] means no db-targets
+            PipeBase.rm_bundle_dir(self._local_dir, self.uuid)
             raise
 
         self._closed = True
@@ -883,7 +908,7 @@ def _lineage_single(ctxt_obj, uuid):
     b = Bundle(ctxt_obj, 'unknown')
     b.fill_from_hfr(hfr[0])
 
-    return b.lineage
+    return b.pb.lineage
 
 
 def lineage(local_context, uuid, max_depth=None):
@@ -1044,7 +1069,8 @@ def add(local_context, bundle_name, path, tags=None):
         # Return the list (unless it is length 1)
         file_list = file_list[0] if len(file_list) == 1 else file_list
         b.add_data(file_list)
-
+        b.add_code_ref(add.__name__)
+        b.add_params({'path': path})
         if tags is not None and len(tags) > 0:
             b.add_tags(tags)
 

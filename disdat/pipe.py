@@ -94,17 +94,19 @@ class PipeTask(luigi.Task, PipeBase):
         self.user_set_human_name = None  # self.set_bundle_name()
         self.user_tags = {}              # self.add_tags()
         self.add_deps = {}               # self.add(_external)_dependency()
-        self.db_targets = []             # Deprecating
         self._input_tags = {}            # self.get_tags() of upstream tasks
         self._input_bundle_uuids = {}    # self.get_bundle_uuid() of upstream tasks
         self._mark_force = False         # self.mark_force()
 
     def bundle_output(self):
         """
-        Return the processing_name and uuid of the output bundle of this task.
+        Return the bundle being made or re-used by this task.
         NOTE: Currently un-used.  Consider removing.
+        Returns:
+            (dict): <user_arg_name>:<bundle>
         """
-        return self.processing_id(), PathCache.get_path_cache(self).uuid
+        pce = PathCache.get_path_cache(self)
+        return {self.user_arg_name: pce.b}
 
     def bundle_inputs(self):
         """
@@ -320,7 +322,7 @@ class PipeTask(luigi.Task, PipeBase):
             """ If user's pipe fails for any reason, remove bundle dir and raise """
             try:
                 _logger.error("User pipe_run encountered exception: {}".format(error))
-                PipeBase.rm_bundle_dir(pce.path, pce.uuid, self.db_targets)
+                PipeBase.rm_bundle_dir(pce.path, pce.uuid)
             except OSError as ose:
                 _logger.error("User pipe_run encountered error, and error on remove bundle: {}".format(ose))
             raise
@@ -335,24 +337,23 @@ class PipeTask(luigi.Task, PipeBase):
                 self.user_tags.update({'root_task': 'True'})
 
             """ if we have a pce, we have a new bundle that we need to add info to and close """
-            pce.b.add_data(user_rtn_val)
-            pce.b.add_timing(start, stop)
-            pce.b.add_dependencies(cached_bundle_inputs.values(), cached_bundle_inputs.keys())
-            pce.b.name = self.human_id()
-            pce.b.processing_name = self.processing_id()
-            pce.b.add_params(self._get_subcls_params())
-            pce.b.add_tags(self.user_tags)
-            pce.b.add_tags({"presentable": "True"})
-            pce.b.close()  # Write out the bundle
+            pce.bundle.add_data(user_rtn_val)
+            pce.bundle.add_timing(start, stop)
+            pce.bundle.add_dependencies(cached_bundle_inputs.values(), cached_bundle_inputs.keys())
+            pce.bundle.name = self.human_id()
+            pce.bundle.processing_name = self.processing_id()
+            pce.bundle.add_params(self._get_subcls_params())
+            pce.bundle.add_tags(self.user_tags)
+            pce.bundle.close()  # Write out the bundle
 
             """ Incrementally push the completed bundle """
-            if self.incremental_push and (BUNDLE_TAG_TRANSIENT not in pce.b.tags()):
-                self.pfs.commit(None, None, uuid=pce.b.uuid, data_context=self.data_context)
+            if self.incremental_push and (BUNDLE_TAG_TRANSIENT not in pce.bundle.tags):
+                self.pfs.commit(None, None, uuid=pce.bundle.uuid, data_context=self.data_context)
                 self.pfs.push(uuid=pce.uuid, data_context=self.data_context)
 
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
-            PipeBase.rm_bundle_dir(pce.path, pce.uuid, self.db_targets)
+            PipeBase.rm_bundle_dir(pce.path, pce.uuid)
             raise
 
         return None
@@ -585,26 +586,6 @@ class PipeTask(luigi.Task, PipeBase):
 
 
         return bundle
-
-    def add_db_target(self, db_target):
-        """
-        Unimplemented: deprecated until we revisit semantics of DB bundle links.
-
-        Allow user to record a versioned database table.   Behind the scenes the system records
-        the dsn, database, schema, and table (information sufficient to operate on the table).  On "commit' a
-        db link will create a view to the latest version of the database table.
-
-        Note: We add through the DBTarget object create, not through
-        pipe.create_db_target() in the case that people do some hacking and don't use that API.
-
-        Args:
-            db_target (`db_target.DBTarget`):
-
-        Returns:
-            None
-        """
-        assert False, "add_db_target is deprecated until we revisit semantics of DB bundle links."
-        self.db_targets.append(db_target)
 
     def create_output_table(self, dsn, table_name, schema_name=None):
         """

@@ -294,7 +294,7 @@ def resolve_bundle(pipe, data_context):
         # If it is external, we don't recompute in any case.
         _logger.debug("resolve_bundle: pipe.mark_force forcing a new output bundle.")
         if verbose: print("resolve_bundle: pipe.mark_force forcing a new output bundle.\n")
-        PathCache.new_output_bundle(pipe, data_context)
+        new_output_bundle(pipe, data_context)
         return regen_bundle
 
     if pipe.force and not isinstance(pipe, ExternalDepTask):
@@ -302,7 +302,7 @@ def resolve_bundle(pipe, data_context):
         # If it is external, do not recompute in any case
         _logger.debug("resolve_bundle: --force forcing a new output bundle.")
         if verbose: print("resolve_bundle: --force forcing a new output bundle.\n")
-        PathCache.new_output_bundle(pipe, data_context)
+        new_output_bundle(pipe, data_context)
         return regen_bundle
 
     if isinstance(pipe, ExternalDepTask):
@@ -312,8 +312,11 @@ def resolve_bundle(pipe, data_context):
         assert worker._is_external(pipe)
         if verbose: print("resolve_bundle: found ExternalDepTask re-using bundle with UUID[{}].\n".format(pipe.uuid))
         b = api.get(data_context.get_local_name(), None, uuid=pipe.uuid)  # TODO:cache b in ext dep object, no 2x lookup
-        assert b is not None, f"Unable to resolve bundle[{pipe.uuid}] in context[{data_context.get_local_name()}]"
-        PathCache.reuse_bundle(pipe, b, data_context)
+        if b is None:
+            _logger.warn(f"Unable to resolve bundle[{pipe.uuid}] in context[{data_context.get_local_name()}]")
+            reuse_bundle(pipe, b, pipe.uuid, data_context)  # Ensure that the PCE results in a file that cannot be found
+        else:
+            reuse_bundle(pipe, b, b.uuid, data_context)
         return use_bundle
 
     bndls = api.search(data_context.get_local_name(),
@@ -322,7 +325,7 @@ def resolve_bundle(pipe, data_context):
     if bndls is None or len(bndls) <= 0:
         if verbose: print("resolve_bundle: No bundle with proc_name {}, getting new output bundle.\n".format(pipe.processing_id()))
         # no bundle, force recompute
-        PathCache.new_output_bundle(pipe, data_context)
+        new_output_bundle(pipe, data_context)
         return regen_bundle
 
     bndl = bndls[0]  # our best guess is the most recent bundle with the same processing_id()
@@ -331,7 +334,7 @@ def resolve_bundle(pipe, data_context):
     lng = bndl.get_lineage()
     if lng is None:
         if verbose: print("resolve_bundle: No lineage present, getting new output bundle.\n")
-        PathCache.new_output_bundle(pipe, data_context)
+        new_output_bundle(pipe, data_context)
         return regen_bundle
 
     # 3.) Lineage record exists -- if new code, re-run
@@ -340,7 +343,7 @@ def resolve_bundle(pipe, data_context):
 
     if different_code_versions(current_version, lng):
         if verbose: print("resolve_bundle: New code version, getting new output bundle.\n")
-        PathCache.new_output_bundle(pipe, data_context)
+        new_output_bundle(pipe, data_context)
         return regen_bundle
 
     # 3.5.) Have we changed the output human bundle name?  If so, re-run task.
@@ -357,7 +360,7 @@ def resolve_bundle(pipe, data_context):
     if not found:
         if verbose: print("resolve_bundle: New human name {} (prior {}), getting new output bundle.\n".format(
             current_human_name, bndl.get_human_name()))
-        PathCache.new_output_bundle(pipe, data_context)
+        new_output_bundle(pipe, data_context)
         return regen_bundle
 
     # 4.) Check the inputs -- assumes we have processed upstream tasks already
@@ -401,7 +404,7 @@ def resolve_bundle(pipe, data_context):
         else:
             if pce.rerun:
                 if verbose: print("Resolve_bundle: an upstream task is in the pce and is being re-run, so we need to reun. getting new output bundle.\n")
-                PathCache.new_output_bundle(pipe, data_context)
+                new_output_bundle(pipe, data_context)
                 return regen_bundle
 
             # Upstream Task
@@ -412,8 +415,9 @@ def resolve_bundle(pipe, data_context):
                 upstream_dep_uuid = task.uuid
                 upstream_dep_processing_name = task.processing_name
             else:
-                local_bundle = api.search(data_context.get_local_name(), processing_name=task.processing_id())
-                assert(local_bundle is not None)
+                found = api.search(data_context.get_local_name(), processing_name=task.processing_id())
+                assert len(found) > 0
+                local_bundle = found[0]  # the most recent with this processing_name
                 upstream_dep_uuid = local_bundle.pb.uuid
                 upstream_dep_processing_name = local_bundle.pb.processing_name
                 assert(upstream_dep_processing_name == task.processing_id())
@@ -431,13 +435,71 @@ def resolve_bundle(pipe, data_context):
                         task.processing_id(),
                         tup.hframe_uuid,
                         upstream_dep_uuid))
-                    PathCache.new_output_bundle(pipe, data_context)
+                    new_output_bundle(pipe, data_context)
                     return regen_bundle
 
     # 5.) Woot!  Reuse the found bundle.
     if verbose: print("resolve_bundle: reusing bundle\n")
-    PathCache.reuse_bundle(pipe, bndl, data_context)
+    reuse_bundle(pipe, bndl, bndl.uuid, data_context)
     return use_bundle
+
+
+def reuse_bundle(pipe, bundle, uuid, data_context):
+    """
+    Re-use this bundle, everything stays the same, just put in the cache
+
+    Args:
+        pipe (`pipe.PipeTask`): The pipe task that should not be re-run.
+        bundle (`disdat.api.bundle`): The found bundle to re-use.
+        uuid (str): The bundle's uuid
+        data_context: The context containing this bundle with UUID hfr_uuid.
+
+    Returns:
+        None
+    """
+    pce = PathCache.get_path_cache(pipe)
+    if pce is None:
+        _logger.debug("reuse_hframe: Adding a new (unseen) task to the path cache.")
+    else:
+        _logger.debug("reuse_hframe: Found a task in our dag already in the path cache: reusing!")
+        return
+
+    dir = data_context.implicit_hframe_path(uuid)
+
+    PathCache.put_path_cache(pipe, bundle, uuid, dir, False)
+
+
+def new_output_bundle(pipe, data_context, force_uuid=None):
+    """
+    This proposes a new output bundle
+    1.) Create a new UUID
+    2.) Create the directory in the context
+    3.) Add this to the path cache
+
+    Note: We don't add to context's db yet.  The job or pipe hasn't run yet.  So it
+    hasn't made all of its outputs.  If it fails, by definition it won't right out the
+    hframe to the context's directory.   On rebuild / restart we will delete the directory.
+    However, the path_cache will hold on to this directory in memory.
+
+    Args:
+        pipe (`disdat.pipe.PipeTask`):  The task generating this output
+        data_context (`disdat.data_context.DataContext`): Place output in this context
+        force_uuid (str): Override uuid chosen by Disdat Bundle API
+
+    Returns:
+        None
+    """
+    pce = PathCache.get_path_cache(pipe)
+
+    if pce is None:
+        _logger.debug("new_output_hframe: Adding a new (unseen) task to the path cache.")
+    else:
+        _logger.debug("new_output_hframe: Found a task in our dag already in the path cache: reusing!")
+        return
+
+    b = api.Bundle(data_context).open(force_uuid=force_uuid)
+
+    PathCache.put_path_cache(pipe, b, b.uuid, b.local_dir, True)
 
 
 def cli_apply(args):

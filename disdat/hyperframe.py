@@ -812,7 +812,7 @@ class HyperFrameRecord(PBObject):
 
     table_name = HFRAMES_TABLE
 
-    def __init__(self, owner='', human_name='', processing_name='', uuid='',
+    def __init__(self, owner=None, human_name=None, processing_name=None, uuid=None,
                  frames=None, lin_obj=None, tags=None, presentation=hyperframe_pb2.DEFAULT):
         """
         Create a HyperFrame
@@ -841,10 +841,15 @@ class HyperFrameRecord(PBObject):
         super(HyperFrameRecord, self).__init__()
         self.pb = self._pb_type()
 
-        self.pb.owner = owner
-        self.pb.human_name = human_name
-        self.pb.processing_name = processing_name
-        self.pb.uuid = uuid
+        if owner is not None:
+            self.pb.owner = owner
+        if human_name is not None:
+            self.pb.human_name = human_name
+        if processing_name is not None:
+            self.pb.processing_name = processing_name
+        if uuid is not None:
+            self.pb.uuid = uuid
+
         self.pb.presentation = presentation
 
         self.frame_cache = defaultdict(FrameRecord)
@@ -1384,6 +1389,12 @@ class LineageRecord(PBObject):
                                                                              self.pb.code_hash)
         return s
 
+    @staticmethod
+    def add_deps_to_lr(lineage_pb, depends_on):
+        _ = [lineage_pb.depends_on.add(hframe_proc_name=tup[0],
+                                    hframe_uuid=tup[1],
+                                    arg_name=tup[2]) for tup in depends_on]
+
     def add_dependencies(self, depends_on):
         """  Add dependencies to this Lineage Object.
 
@@ -1395,9 +1406,7 @@ class LineageRecord(PBObject):
         Returns:
             None
         """
-        _ = [self.pb.depends_on.add(hframe_proc_name=tup[0],
-                                    hframe_uuid=tup[1],
-                                    arg_name=tup[2]) for tup in depends_on]
+        LineageRecord.add_deps_to_lr(self.pb, depends_on)
 
     def get_filename(self):
         """

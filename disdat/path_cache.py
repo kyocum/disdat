@@ -23,7 +23,6 @@ The path cache keeps a binding from luigi tasks to bundles.
 import collections
 
 from disdat import logger as _logger
-import disdat.api as api
 
 PathCacheEntry = collections.namedtuple('PathCacheEntry', 'instance bundle uuid path rerun')
 
@@ -133,62 +132,3 @@ class PathCache(object):
                     raise KeyError("path_cache dup key: pipe {} bound to pce {} but trying to re-assign to {}".format(
                         pipe_name, PathCache.task_path_cache[pipe_name], pce))
         return pce
-
-    @staticmethod
-    def reuse_bundle(pipe, bundle, data_context):
-        """
-        Re-use this bundle, everything stays the same, just put in the cache
-        Note: Currently doesn't use this FS instance, but to be consistent with
-        new_output_bundle below.
-
-        Args:
-            pipe (`pipe.PipeTask`): The pipe task that should not be re-run.
-            bundle (`disdat.api.bundle`): The found bundle to re-use.
-            data_context: The context containing this bundle with UUID hfr_uuid.
-
-        Returns:
-            None
-        """
-        pce = PathCache.get_path_cache(pipe)
-        if pce is None:
-            _logger.debug("reuse_hframe: Adding a new (unseen) task to the path cache.")
-        else:
-            _logger.debug("reuse_hframe: Found a task in our dag already in the path cache: reusing!")
-            return
-
-        dir = data_context.implicit_hframe_path(bundle.uuid)
-
-        PathCache.put_path_cache(pipe, bundle, bundle.uuid, dir, False)
-
-    @staticmethod
-    def new_output_bundle(pipe, data_context, force_uuid=None):
-        """
-        This proposes a new output bundle
-        1.) Create a new UUID
-        2.) Create the directory in the context
-        3.) Add this to the path cache
-
-        Note: We don't add to context's db yet.  The job or pipe hasn't run yet.  So it
-        hasn't made all of its outputs.  If it fails, by definition it won't right out the
-        hframe to the context's directory.   On rebuild / restart we will delete the directory.
-        However, the path_cache will hold on to this directory in memory.
-
-        Args:
-            pipe (`disdat.pipe.PipeTask`):  The task generating this output
-            data_context (`disdat.data_context.DataContext`): Place output in this context
-            force_uuid (str): Override uuid chosen by Disdat Bundle API
-
-        Returns:
-            None
-        """
-        pce = PathCache.get_path_cache(pipe)
-
-        if pce is None:
-            _logger.debug("new_output_hframe: Adding a new (unseen) task to the path cache.")
-        else:
-            _logger.debug("new_output_hframe: Found a task in our dag already in the path cache: reusing!")
-            return
-
-        b = api.Bundle(data_context).open(force_uuid=force_uuid)
-
-        PathCache.put_path_cache(pipe, b, b.uuid, b.local_dir, True)
