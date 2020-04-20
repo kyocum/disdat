@@ -250,9 +250,9 @@ class PipeBase(object):
         """
         try:
             shutil.rmtree(output_path, ignore_errors=True)
+            os.rmdir(output_path)
             # TODO: if people create s3 files, s3 file targets, inside of an s3 context,
             # TODO: then we will have to clean those up as well.
-
         except IOError as why:
             _logger.error("Removal of hyperframe directory {} failed with error {}. Continuing removal...".format(
                 uuid, why))

@@ -35,7 +35,7 @@ import errno
 import hashlib
 import collections
 
-import disdat.apply
+import disdat.apply   # <--- imports api, which imports apply, etc.
 import disdat.run
 import disdat.fs
 import disdat.common as common
@@ -175,12 +175,17 @@ class Bundle(HyperFrameRecord):
             self.add_data(data)
             self.close()
 
-    def __del__(self):
-        """ When the object is finally destroyed, ensure that any bundles
+    def abandon(self):
+        """ Remove on-disk state of the bundle if it is abandoned before it is closed.
          that were left !closed have their directories harvested.
+         NOTE: the user has the responsibility to make sure the bundle is not shared across
+         threads or processes and that they don't remove a directory out from under another
+         thread of control.  E.g., you cannot place this code in __del__ and then _check_closed() b/c
+         a forked child process might have closed their copy while the parent deletes theirs.
          """
-        if not self._closed:
-            PipeBase.rm_bundle_dir(self._local_dir, self.uuid)
+        self._check_open()
+        _logger.debug(f"Disdat api clean_abandoned removing bundle obj [{id(self)}] process[{os.getpid()}")
+        PipeBase.rm_bundle_dir(self._local_dir, self.uuid)
 
     def _check_open(self):
         assert not self._closed, "Bundle must be open (not closed) for editing."
@@ -485,8 +490,8 @@ class Bundle(HyperFrameRecord):
             None
         """
         if self._closed:
-            _logger.warn("Bundle is closed -- unable to re-open.")
-            # TODO: Raise exception
+            _logger.error("Bundle is closed -- unable to re-open.")
+            assert False
         self._local_dir, self.pb.uuid, self._remote_dir = self.data_context.make_managed_path(uuid=force_uuid)
         return self
 
@@ -518,10 +523,11 @@ class Bundle(HyperFrameRecord):
             self.data_context.write_hframe(self)
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
-            PipeBase.rm_bundle_dir(self._local_dir, self.uuid)
+            self.abandon()
             raise
 
         self._closed = True
+
         return self
 
     """ Convenience Routines """
@@ -1235,20 +1241,20 @@ def apply(local_context, transform, output_bundle='-',
     return result
 
 
-def run(local_context,
-        remote_context,
-        setup_dir,
+def run(setup_dir,
+        local_context,
         pipe_cls,
-        pipeline_args,
+        pipeline_args=None,
         output_bundle='-',
-        remote=None,
+        remote_context=None,
+        remote_s3_url=None,
         backend=Backend.default(),
         input_tags=None,
         output_tags=None,
         force=False,
         force_all=False,
-        no_pull=False,
-        no_push=False,
+        pull=None,
+        push=None,
         no_push_int=False,
         vcpus=2,
         memory=4000,
@@ -1257,23 +1263,31 @@ def run(local_context,
         aws_session_token_duration=42300,
         job_role_arn=None):
     """ Execute a pipeline in a container.  Run locally, on AWS Batch, or AWS Sagemaker
-    _run() finds out whether we have a
+
+    Simplest execution is with a setup directory (that contains your setup.py), the local context in which to
+    execute, and the pipeline to run.   By default this call runs the container locally, reading and writing data only
+    to the local context.
+
+    By default this call will assume the remote_context and remote_s3_url of the local context on this system.
+    Note that the user must provide both the remote_context and remote_s3_url to override the remote context bound
+    to the local context (if any).
 
     Args:
-        local_context (str):  The name of the local context in which the pipeline will run in the container
-        remote_context (str): The remote context to pull / push bundles during execution
         setup_dir (str): The directory that contains the setup.py holding the requirements for any pipelines
-        output_bundle (str): The human name of output bundle
+        local_context (str): The name of the local context in which the pipeline will run in the container
         pipe_cls (str): The pkg.module.class of the root of the pipeline DAG
         pipeline_args (dict): Dictionary of the parameters of the root task
-        remote (str): The remote's S3 path
+        output_bundle (str): The human name of output bundle
+        remote_context (str): The remote context to pull / push bundles during execution. Default is `local_context`
+        remote_s3_url (str): The remote's S3 path
+        backend : Backend.Local | Backend.AWSBatch. Default Backend.local
         input_tags (dict): str:str dictionary of tags required of the input bundle
         output_tags (dict): str:str dictionary of tags placed on all output bundles (including intermediates)
         force (bool):  Re-run the last pipe task no matter prior outputs
         force_all (bool):  Re-run the entire pipeline no matter prior outputs
-        no_pull (bool): Do not pull before execution
-        no_push (bool): Do not push any output bundles after task execution
-        no_push_int (bool):  Do not push intermediate task bundles after execution
+        pull (bool): Pull before execution. Default if Backend.Local then False, else True
+        push (bool): Push output bundles to remote. Default if Backend.Local then False, else True
+        no_push_int (bool):  Do not push intermediate task bundles after execution. Default False
         vcpus (int): Number of virtual CPUs (if backend=`AWSBatch`). Default 2.
         memory (int): Number of MB (if backend='AWSBatch'). Default 2000.
         workers (int):  Number of Luigi workers. Default 1.
@@ -1292,7 +1306,13 @@ def run(local_context,
             pipeline_arg_list.append(k)
             pipeline_arg_list.append(json.dumps(v))
 
-    context = "{}/{}".format(remote_context, local_context) # remote_name/local_name
+    # Set up context as 'remote_name/local_name'
+    if remote_context is None:
+        assert remote_s3_url is None, "disdat.api.run: user must specify both remote_s3_url and remote_context"
+        context = local_context
+    else:
+        assert remote_s3_url is not None, "disdat.api.run: user must specify both remote_s3_url and remote_context"
+        context = "{}/{}".format(remote_context, local_context)
 
     retval = run_entry(output_bundle=output_bundle,
                        pipeline_root=setup_dir,
@@ -1304,11 +1324,9 @@ def run(local_context,
                        force=force,
                        force_all=force_all,
                        context=context,
-                       remote=remote,
-                       no_pull=no_pull,
-                       pull=not no_pull,
-                       no_push=no_push,
-                       push=not no_push,
+                       remote=remote_s3_url,
+                       pull=pull,
+                       push=push,
                        no_push_int=no_push_int,
                        vcpus=vcpus,
                        memory=memory,
@@ -1354,3 +1372,15 @@ def dockerize(setup_dir,
                              )
 
     return retval
+
+
+def dockerize_get_id(setup_dir):
+    """ Retrieve the docker container image identifier
+
+    Args:
+        setup_dir (str): The directory that contains the setup.py holding the requirements for any pipelines
+
+    Returns:
+        (str): The full docker container image hash
+    """
+    return dockerize_entry(pipeline_root=setup_dir, get_id=True)

@@ -32,7 +32,6 @@ import os
 from luigi import build, worker
 
 import disdat.common as common  # config, especially logging, before luigi ever loads
-import disdat.api as api
 import disdat.fs as fs
 from disdat.path_cache import PathCache
 import disdat.driver as driver
@@ -141,13 +140,9 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force, 
         users_root_task = reexecute_dag.deps()[0]
         pce = PathCache.get_path_cache(users_root_task)
         if pce.rerun: # if we have to re-run then replace it with our UUID
-            # TODO: this is the same code as new_output_hframe, FIX!!!
-            dir, uuid, _ = data_context.make_managed_path(output_bundle_uuid)
-            PathCache.put_path_cache(users_root_task,
-                                       uuid,
-                                       dir,
-                                       pce.rerun,
-                                       overwrite=True)
+            pce.bundle.abandon() # clean up the opened but not closed bundle
+            del PathCache.path_cache()[users_root_task.processing_id()]  # remove the prior entry
+            new_output_bundle(users_root_task, data_context, force_uuid=output_bundle_uuid)
 
     success = build([reexecute_dag], local_scheduler=not central_scheduler, workers=workers)
 
@@ -278,6 +273,7 @@ def resolve_bundle(pipe, data_context):
     """
 
     from disdat.pipe import ExternalDepTask  # pipe.py->api.py->apply.py->pipe.ExternalDepTask fails b/c pipe importing
+    import disdat.api as api # 3.7 allows us to put this import at the top, but not 3.6.8
 
     # These are constants
     verbose = False
@@ -489,6 +485,7 @@ def new_output_bundle(pipe, data_context, force_uuid=None):
     Returns:
         None
     """
+    import disdat.api as api  # 3.7 allows us to put this import at the top, but not 3.6.8
     pce = PathCache.get_path_cache(pipe)
 
     if pce is None:

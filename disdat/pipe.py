@@ -41,7 +41,7 @@ import luigi
 from disdat.pipe_base import PipeBase
 from disdat.driver import DriverTask
 from disdat.db_link import DBLink
-from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PUSH_META, BUNDLE_TAG_PARAMS_PREFIX, ExtDepError
+from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PUSH_META, ExtDepError
 from disdat import logger as _logger
 from disdat.path_cache import PathCache
 import disdat.api as api
@@ -322,7 +322,7 @@ class PipeTask(luigi.Task, PipeBase):
             """ If user's pipe fails for any reason, remove bundle dir and raise """
             try:
                 _logger.error("User pipe_run encountered exception: {}".format(error))
-                PipeBase.rm_bundle_dir(pce.path, pce.uuid)
+                pce.bundle.abandon()
             except OSError as ose:
                 _logger.error("User pipe_run encountered error, and error on remove bundle: {}".format(ose))
             raise
@@ -353,7 +353,7 @@ class PipeTask(luigi.Task, PipeBase):
 
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
-            PipeBase.rm_bundle_dir(pce.path, pce.uuid)
+            pce.bundle.abandon()
             raise
 
         return None
