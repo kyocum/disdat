@@ -20,11 +20,10 @@ import boto3
 import moto
 import docker
 import pytest
-import numpy as np
 
 
 from tests.functional.common import run_test, TEST_CONTEXT
-from tests.functional.common_tasks import A, B, COMMON_DEFAULT_ARGS
+from tests.functional.common_tasks import COMMON_DEFAULT_ARGS
 import disdat.api as api
 
 
@@ -52,7 +51,7 @@ def build_container_setup_only():
     id = api.dockerize_get_id(SETUP_DIR)
     yield id
     docker_client = docker.from_env()
-    docker_client.images.remove(id)
+    docker_client.images.remove(id, force=True)
 
 
 def test_run_local_container(run_test, build_container_setup_only):
@@ -88,14 +87,14 @@ def test_run_local_container(run_test, build_container_setup_only):
     b_a_f = api.get(TEST_CONTEXT, 'A')
     assert b_a_f is not None
     assert b_a.uuid != b_a_f.uuid
-    assert b_a.data == sum([1, 2, 3])
+    assert b_a_f.data == sum([1, 2, 3])
 
     # Re-run with force last one
 
     retval = api.run(SETUP_DIR,
                      TEST_CONTEXT,
                      PIPELINE_CLS,
-                     {'int_array': [1,2,3]},
+                     {'int_array': [1, 2, 3]},
                      force=True
                      )
 
@@ -108,30 +107,33 @@ def test_run_local_container(run_test, build_container_setup_only):
     assert b_a_f.uuid != b_a_f2.uuid
 
 
-@moto.mock_s3
-def no_test_run_aws_batch(build):
+#@moto.mock_s3
+def manual_test_run_aws_batch(run_test, build_container_setup_only):
+    """ Incomplete test.   The container code itself needs to have
+    its S3 access mocked out.  Here we are testing manually
+    """
 
     # Setup moto s3 resources
-    s3_resource = boto3.resource('s3')
-    s3_resource.create_bucket(Bucket=TEST_BUCKET)
+    #s3_resource = boto3.resource('s3')
+    #s3_resource.create_bucket(Bucket=TEST_BUCKET)
 
     # Add a remote.   Pull and Push!
-    api.remote(TEST_CONTEXT, TEST_CONTEXT, TEST_BUCKET_URL, force=True)
+    manual_s3_url = 's3://'
+    api.remote(TEST_CONTEXT, TEST_CONTEXT, manual_s3_url, force=True)
 
     retval = api.run(SETUP_DIR,
                      TEST_CONTEXT,
                      PIPELINE_CLS,
-                     remote_context='test-remote-ctxt',
-                     remote_s3_url=TEST_BUCKET_URL,
-                     backend='AWSBatch')
+                     remote_context=TEST_CONTEXT,
+                     remote_s3_url=manual_s3_url,
+                     pull=True,
+                     push=True
+                     )
 
     # Blow away everything and pull
     api.rm(TEST_CONTEXT, bundle_name='.*', rm_all=True)
-
     api.pull(TEST_CONTEXT)
-
     b = api.get(TEST_CONTEXT, 'A')
-
     assert b.data == sum(COMMON_DEFAULT_ARGS)
 
 

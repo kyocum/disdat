@@ -324,8 +324,8 @@ class PipeBase(object):
 
         elif isinstance(val, tuple):
             presentation = hyperframe_pb2.ROW
-            for i, _ in enumerate(val):
-                frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':{}'.format(i), val, managed_path))
+            val = np.array(val)
+            frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
 
         elif isinstance(val, dict):
             presentation = hyperframe_pb2.ROW
