@@ -123,66 +123,6 @@ class PipeBase(object):
         return hframe
 
     @staticmethod
-    def make_hframe(output_frames, output_bundle_uuid, depends_on,
-                    human_name, processing_name, class_to_version,
-                    start_ts=0, stop_ts=0, tags=None, presentation=hyperframe_pb2.DEFAULT):
-        """
-        Create HyperFrameRecord or HFR
-        HFR contains a LineageRecord
-        HFR contains UUIDs of FrameRecords or FRs
-        FR contains data or LinkRecords
-
-        Use the pipe_task to look in the path cache for the output directory
-        Use the pipe_task outputs to find the named file for the final HF proto buf file.
-        Write out all Frames, and at the very last moment, write out the HF proto buff.
-
-        Args:
-            output_frames (:list:`FrameRecord`):  List of frames to be placed in bundle / hframe
-            output_bundle_uuid:
-            depends_on (:list:tuple):  list of (processing_name, uuid, arg_name) of the upstream pipes / base bundles
-            human_name:
-            processing_name:
-            class_to_version: A python class whose file is under git control
-            start_ts (float): timestamp of task start time
-            stop_ts (float): timestamp of task stop time
-            tags:
-            presentation (enum):  how to present this hframe when we use it as input to a function -- default None
-
-            That default means it will be a HF, but it wasn't a "presentable" hyperframe.
-
-        Returns:
-            `HyperFrameRecord`
-        """
-
-        # Grab code version and path cache entry -- only called if we ran
-        code_method = class_to_version.__module__
-        pipeline_path = os.path.dirname(sys.modules[code_method].__file__)
-        cv = DisdatFS().get_pipe_version(pipeline_path)
-
-        lr = LineageRecord(hframe_proc_name=processing_name,
-                           hframe_uuid=output_bundle_uuid,
-                           code_repo=cv.url,
-                           code_name='unknown',
-                           code_semver=cv.semver,
-                           code_hash=cv.hash,
-                           code_branch=cv.branch,
-                           code_method=code_method,
-                           depends_on=depends_on,
-                           start_ts=start_ts,
-                           stop_ts=stop_ts)
-
-        hfr = HyperFrameRecord(owner=getpass.getuser(),
-                               human_name=human_name,
-                               processing_name=processing_name,
-                               uuid=output_bundle_uuid,
-                               frames=output_frames,
-                               lin_obj=lr,
-                               tags=tags,
-                               presentation=presentation)
-
-        return hfr
-
-    @staticmethod
     def _interpret_scheme(full_path):
         scheme = urllib.parse.urlparse(full_path).scheme
 
