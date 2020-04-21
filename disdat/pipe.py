@@ -575,6 +575,11 @@ class PipeTask(luigi.Task, PipeBase):
             elif human_name is not None:
                 hfr = self.pfs.get_latest_hframe(human_name, data_context=self.data_context)
             else:
+                # we propagate the same inputs and the same output dir for every upstream task!
+                params.update({
+                    'user_arg_name': param_name,
+                    'data_context': self.data_context
+                })
                 p = task_class(**params)
                 hfr = self.pfs.get_hframe_by_proc(p.processing_id(), data_context=self.data_context)
 
@@ -592,6 +597,7 @@ class PipeTask(luigi.Task, PipeBase):
             bundle = None
 
         except Exception as error:
+            _logger.error(error)
             bundle = None
 
         finally:
