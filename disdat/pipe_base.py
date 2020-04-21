@@ -346,8 +346,5 @@ class PipeBase(object):
             presentation = hyperframe_pb2.SCALAR
             frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
 
-
-
-
         return presentation, frames
 

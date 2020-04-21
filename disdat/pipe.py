@@ -344,6 +344,8 @@ class PipeTask(luigi.Task, PipeBase):
             pce.bundle.processing_name = self.processing_id()
             pce.bundle.add_params(self._get_subcls_params())
             pce.bundle.add_tags(self.user_tags)
+            pce.bundle.add_code_ref()
+            pce.bundle.add_git_info(repo,commit,branch)
             pce.bundle.close()  # Write out the bundle
 
             """ Incrementally push the completed bundle """
@@ -583,7 +585,6 @@ class PipeTask(luigi.Task, PipeBase):
             else:
                 self.add_deps[param_name] = (luigi.task.externalize(ExternalDepTask), {'uuid': bundle.uuid,
                                                                                        'processing_name': bundle.processing_name})
-
 
         return bundle
 
