@@ -11,6 +11,7 @@ class B(PipeTask):
     int_array = luigi.ListParameter(default=None)
 
     def pipe_run(self):
+        print ("B saving type [{}]".format(type(self.int_array)))
         return self.int_array
 
 
@@ -23,5 +24,5 @@ class A(PipeTask):
 
     def pipe_run(self, b=None):
         print ("Saving the sum of B {}".format(b))
-        print ("type [{}]".format(type(b)))
+        print ("A got type [{}]".format(type(b)))
         return sum(list(b))

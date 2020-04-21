@@ -33,6 +33,7 @@ author: Kenneth Yocum
 """
 
 import os
+import sys
 import time
 import hashlib
 
@@ -43,6 +44,7 @@ from disdat.driver import DriverTask
 from disdat.db_link import DBLink
 from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PUSH_META, ExtDepError
 from disdat import logger as _logger
+from disdat.fs import DisdatFS
 from disdat.path_cache import PathCache
 import disdat.api as api
 
@@ -338,14 +340,25 @@ class PipeTask(luigi.Task, PipeBase):
 
             """ if we have a pce, we have a new bundle that we need to add info to and close """
             pce.bundle.add_data(user_rtn_val)
+
             pce.bundle.add_timing(start, stop)
+
             pce.bundle.add_dependencies(cached_bundle_inputs.values(), cached_bundle_inputs.keys())
+
             pce.bundle.name = self.human_id()
+
             pce.bundle.processing_name = self.processing_id()
+
             pce.bundle.add_params(self._get_subcls_params())
+
             pce.bundle.add_tags(self.user_tags)
-            pce.bundle.add_code_ref()
-            pce.bundle.add_git_info(repo,commit,branch)
+
+            pce.bundle.add_code_ref('{}.{}'.format(self.__class__.__module__, self.__class__.__name__))
+
+            pipeline_path = os.path.dirname(sys.modules[self.__class__.__module__].__file__)
+            cv = DisdatFS.get_pipe_version(pipeline_path)
+            pce.bundle.add_git_info(cv.url, cv.hash, cv.branch)
+
             pce.bundle.close()  # Write out the bundle
 
             """ Incrementally push the completed bundle """
