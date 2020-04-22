@@ -457,6 +457,58 @@ class DisdatFS(object):
 
         DisdatFS.put_path_cache(pipe, uuid, dir, True, is_left_edge_task)
 
+    def rmr(self, human_name=None, uuid=None, tags=None, dryrun=False, data_context=None):
+        """
+        Remove bundle from remote.  If human_name provided, remove the latest.
+        This call uses the local index (sqlite db) to first find the uuid's and then
+        issue the remove.
+
+        Default: remove latest
+        rm_old_only: remove everything except most recent
+        rm_all: remove everything
+
+        Args:
+            human_name:  The human-given name for this hyperframe / bundle
+            uuid (str): Remove the particular bundle
+            tags (:dict):   A dict of (key,value) to find bundles
+            dryrun (bool): Do not remove any bundles, only print out what would be removed
+            data_context (`disdat.data_context.DataContext`): Context for particular removal
+
+        Returns:
+            results (list:str):  List of strings of removed bundles
+        """
+        return_strings = []
+
+        if data_context is None:
+            data_context = self.curr_context
+
+        return_strings.append("Disdat Context: {}".format(data_context.context))
+
+        uuids = self.ls(human_name,
+                        False, False, False, False, False,
+                        uuid=uuid,
+                        tags=tags,
+                        print_uuid_only=True,
+                        data_context=data_context)
+
+        if dryrun:
+            if len(uuids) == 0:
+                return_strings.append("Remove remote found no bundles to remove")
+            for id in uuids:
+                return_strings.append("Remove remote dryrun uuid {}".format(id))
+            return return_strings
+
+        for id in uuids:
+            try:
+                s3_url = os.path.join(data_context.get_remote_object_dir(), id)
+                aws_s3.delete_s3_dir(s3_url)
+                return_strings.append("Remove remote deleted uuid {}".format(id))
+            except Exception as e:
+                return_strings.append("Remote remote ERROR deleting uuid {}: {} ".format(id, e))
+                #_logger.error(e)
+
+        return return_strings
+
     def rm(self, human_name=None, rm_all=False, rm_old_only=False, uuid=None, tags=None, force=False, data_context=None):
         """
         Remove bundle with human_name or tag_value
@@ -588,7 +640,8 @@ class DisdatFS(object):
             return None
 
     def ls(self, search_name, print_tags, print_intermediates, print_roots, print_long, print_args,
-           before=None, after=None, uuid=None, maxbydate=False, committed=None, tags=None, data_context=None):
+           before=None, after=None, uuid=None, maxbydate=False, committed=None, tags=None, print_uuid_only=False,
+           data_context=None):
         """
         Enumerate bundles (hyperframes) in this context.
 
@@ -597,6 +650,7 @@ class DisdatFS(object):
             print_tags (bool): Whether to print the bundle tags
             print_intermediates (bool): Show only intermediate bundles
             print_roots (bool): Show only root bundles
+            print_long (bool): Display long header
             print_args (bool): Whether to print the arguments used to produce this bundle
             before (date.datetime): '01-03-19 02:40:37' or date '01-03-19' inclusive range
             after (date.datetime): '01-03-19 02:40:37' or date '01-03-19' inclusive range
@@ -604,6 +658,7 @@ class DisdatFS(object):
             maxbydate (bool): return the latest by date
             committed (bool): If True, just committed, if False, just uncommitted, if None then ignore.
             tags: Optional. A dictionary of tags to search for.
+            print_uuid_only (bool):  Return only a list of UUIDs (internal use)
             data_context (`disdat.data_context.DataContext`): Optional data context to operate in
 
         Returns:
@@ -648,11 +703,14 @@ class DisdatFS(object):
                 if r.get_tag('root_task'):
                     continue
 
-            if print_long:
-                output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags, print_args=print_args))
+            if print_uuid_only:
+                output_strings.append(r.pb.uuid)
             else:
-                if r.pb.human_name not in output_strings:
-                    output_strings.append(r.pb.human_name)
+                if print_long:
+                    output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags, print_args=print_args))
+                else:
+                    if r.pb.human_name not in output_strings:
+                        output_strings.append(r.pb.human_name)
         return output_strings
 
     @staticmethod
@@ -1416,6 +1474,11 @@ def _rm(fs, args):
         print(f)
 
 
+def _rmr(fs, args):
+    for f in fs.rmr(args.bundle, tags=common.parse_args_tags(args.tag), uuid=args.uuid, dryrun=args.dryrun):
+        print(f)
+
+
 def _parse_date(date_string, throw=False):
     """
 
@@ -1537,7 +1600,7 @@ def init_fs_cl(subparsers):
 
     # rm
     rm_p = subparsers.add_parser('rm')
-    rm_p.add_argument('bundle', nargs='?', type=str, default=None, help='The destination bundle in the current context')
+    rm_p.add_argument('bundle', nargs='?', type=str, default=None, help='The bundle in the current context')
     rm_p.add_argument('-f', '--force', action='store_true', default=False, help='Force remove of a committed bundle')
     rm_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to remove')
     rm_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
@@ -1547,6 +1610,15 @@ def init_fs_cl(subparsers):
     rm_p.add_argument('--old', action='store_true', default=False,
                       help='Remove everything except the most recent bundle.')
     rm_p.set_defaults(func=lambda args: _rm(fs, args))
+
+    # rmr remove from remote
+    rmr_p = subparsers.add_parser('rmr')
+    rmr_p.add_argument('bundle', nargs='?', type=str, default=None, help='The bundle in the current context')
+    rmr_p.add_argument('--dryrun', action='store_true', default=False, help='Do not delete found bundles')
+    rmr_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to remove')
+    rmr_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
+                       help="Having a specific tag: 'dsdt rm -t committed:True -t version:0.7.1'")
+    rmr_p.set_defaults(func=lambda args: _rmr(fs, args))
 
     # ls
     ls_p = subparsers.add_parser('ls')
