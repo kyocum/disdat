@@ -34,6 +34,7 @@ author: Kenneth Yocum
 
 import os
 import time
+import hashlib
 
 import luigi
 
@@ -86,6 +87,8 @@ class PipeTask(luigi.Task, PipeBase):
 
         super(PipeTask, self).__init__(*args, **kwargs)
 
+        self._cached_processing_id = None
+
         # Instance variables to track various user wishes
         self.user_set_human_name = None  # self.set_bundle_name()
         self.user_tags = {}              # self.add_tags()
@@ -95,17 +98,12 @@ class PipeTask(luigi.Task, PipeBase):
         self._input_bundle_uuids = {}    # self.get_bundle_uuid() of upstream tasks
         self._mark_force = False         # self.mark_force()
 
-    def bundle_outputs(self):
+    def bundle_output(self):
         """
-        Each pipe creates an output bundle name
-
-        Idea:  WorkflowName + task.task_id == [Pipe Class Name + params + hash]
-
-        For now: Apply Output Bundle "-" Pipe Class Name
+        Return the processing_name and uuid of the output bundle of this task.
+        NOTE: Currently un-used.  Consider removing.
         """
-
-        output_bundles = [(self.processing_id(), self.pfs.get_path_cache(self).uuid)]
-        return output_bundles
+        return self.processing_id(), self.pfs.get_path_cache(self).uuid
 
     def bundle_inputs(self):
         """
@@ -119,8 +117,13 @@ class PipeTask(luigi.Task, PipeBase):
 
         """
 
-        input_tasks = self.deps()
-        input_bundles = [(task.processing_id(), self.pfs.get_path_cache(task).uuid) for task in input_tasks]
+        input_bundles = []
+        for task in self.deps():
+            if isinstance(task, ExternalDepTask):
+                input_bundles.append((task.processing_name, task.uuid))
+            else:
+                input_bundles.append((task.processing_id(), self.pfs.get_path_cache(task).uuid))
+
         return input_bundles
 
     def processing_id(self):
@@ -128,12 +131,53 @@ class PipeTask(luigi.Task, PipeBase):
         Given a pipe instance, return the "processing_name" -- a unique string based on the class name and
         the parameters.  This re-uses Luigi code for getting the unique string.
 
+        processing_id = task_class_name + hash(task params +  [ dep0_task_name + hash(dep0_params),
+                        dep1_task_name + hash(dep1_params),...])
+
+        In typical Luigi workflows, a task's parameters uniquely determine the requires function outputs.
+
+        Thus there is no need to include the data inputs in the uniqueness of the processing name.
+
+        But, some facilities on top of Disdat might build dynamic classes.   In these cases, upper layer code
+        might define a pipeline in python like:
+        ```
+        @punch.task
+        def adder(a,b):
+            return a+b
+
+        def pipeline(X):
+            u = adder(a=1, b=2)
+            v = adder(a=u, b=X+1)
+            w = adder(a=v, b=X+2)
+        ```
+
+        In this case, there is a new task for each `adder`.  Each`adder`'s requirements are defined in a scope outside
+         of the dynamic classes requires method.
+
         NOTE: The PipeTask has a 'driver_output_bundle'.  This the name of the pipeline output bundle given by the user.
         Because this is a Luigi parameter, it is included in the Luigi self.task_id string and hash.  So we do not
         have to append this separately.
 
         """
-        return self.task_id
+
+        if self._cached_processing_id is not None:
+            return self._cached_processing_id
+
+        deps = self.requires()
+
+        assert(isinstance(deps, dict))
+
+        input_task_processing_ids = [(deps[k]).processing_id() for k in sorted(deps)]
+
+        as_one_str = '.'.join(input_task_processing_ids)
+
+        param_hash = hashlib.md5(as_one_str.encode('utf-8')).hexdigest()
+
+        processing_id = self.task_id + '_' + param_hash[:luigi.task.TASK_ID_TRUNCATE_HASH]
+
+        self._cached_processing_id = processing_id
+
+        return processing_id
 
     def human_id(self):
         """
@@ -158,8 +202,8 @@ class PipeTask(luigi.Task, PipeBase):
         elif self.user_set_human_name is not None:
             return self.user_set_human_name
         else:
-            id_parts = self.processing_id().split('_')
-            return "{}".format(id_parts[0])
+            default_human_name = type(self).__name__
+            return "{}".format(default_human_name)
 
     def get_hframe_uuid(self):
         """ Return the unique ID for this tasks current output hyperframe
@@ -180,7 +224,7 @@ class PipeTask(luigi.Task, PipeBase):
             (:list:`hyperframe.HyperFrameRecord`): list of upstream hyperframes
         """
 
-        tasks = self.requires()
+        tasks = self.deps()
         hfrs = []
         for t in tasks:
             hfid = t.get_hframe_uuid()
@@ -196,7 +240,10 @@ class PipeTask(luigi.Task, PipeBase):
         1.) The input_df so far stays the same for all upstream pipes.
         2.) However, when we resolve the location of the outputs, we need to do so correctly.
 
-        :return:
+        Args:
+
+        Returns:
+            (dict): arg_name: task_class
         """
 
         kwargs = self.prepare_pipe_kwargs()
@@ -206,9 +253,9 @@ class PipeTask(luigi.Task, PipeBase):
         rslt = self.add_deps
 
         if len(self.add_deps) == 0:
-            return []
+            return {}
 
-        tasks = []
+        tasks = {}
 
         for user_arg_name, cls_and_params in rslt.items():
             pipe_class, params = cls_and_params[0], cls_and_params[1]
@@ -226,7 +273,7 @@ class PipeTask(luigi.Task, PipeBase):
                 'incremental_push': self.incremental_push,  # propagate the choice to push incremental data.
                 'incremental_pull': self.incremental_pull  # propagate the choice to incrementally pull data.
             })
-            tasks.append(pipe_class(**params))
+            tasks[user_arg_name] = pipe_class(**params)
 
         return tasks
 
@@ -385,7 +432,6 @@ class PipeTask(luigi.Task, PipeBase):
             (dict): A dictionary with the arguments.
 
         """
-
         kwargs = dict()
 
         # Place upstream task outputs into the kwargs.  Thus the user does not call
@@ -397,7 +443,7 @@ class PipeTask(luigi.Task, PipeBase):
             self._input_tags = {}
             self._input_bundle_uuids = {}
 
-            upstream_tasks = [(t.user_arg_name, self.pfs.get_path_cache(t)) for t in self.requires()]
+            upstream_tasks = [(t.user_arg_name, self.pfs.get_path_cache(t)) for t in self.deps()]
             for user_arg_name, pce in [u for u in upstream_tasks if u[1] is not None]:
                 hfr = self.pfs.get_hframe_by_uuid(pce.uuid, data_context=self.data_context)
                 assert hfr.is_presentable()
@@ -433,7 +479,6 @@ class PipeTask(luigi.Task, PipeBase):
         Returns:
 
         """
-
         return None
 
     def pipe_run(self, **kwargs):
@@ -451,7 +496,6 @@ class PipeTask(luigi.Task, PipeBase):
         Returns:
 
         """
-
         raise NotImplementedError()
 
     def add_dependency(self, name, task_class, params):
@@ -469,7 +513,6 @@ class PipeTask(luigi.Task, PipeBase):
             None
 
         """
-
         if not isinstance(params, dict):
             error = "add_dependency third argument must be a dictionary of parameters"
             raise Exception(error)
@@ -488,6 +531,10 @@ class PipeTask(luigi.Task, PipeBase):
         flatten(self.requires())).  And what that means is that this requirement can only be satisfied
         by the bundle actually existing.
 
+        Create ersatz ExternalDepTask parameterized by uuid and processing_name
+        Note: it is possible to use class/params when searching by class, params, but this makes all external
+        dependencies look the same in the code.  Win.
+
         NOTE: if you add an external dependency by name, it is possible that someone adds a bundle during
         execution and that your requires function is no longer deterministic.   You must add caching to your
         requires function to handle this scenario.
@@ -501,28 +548,24 @@ class PipeTask(luigi.Task, PipeBase):
             bundle = self.add_external_dependency('_', MyTaskClass, {}, uuid=self.bundle_uuid)
         ``
 
+        TODO: Consider pushing caching into this layer.
+
         Args:
             param_name (str): The parameter name this bundle assumes when passed to Pipe.run
-            task_class (:object):  Must always set class name of upstream task if it was created from a PipeTask.   May be None if made by API.
-            params (:dict):  Dictionary of parameters for this task.  Note if UUID is set, then params are ignored!
+            task_class (object):  Class name of upstream task if looking for external bundle by processing_id.
+            params (dict):  Dictionary of parameters if looking for external bundle by processing_id.
             human_name (str): Resolve dependency by human_name, return the latest bundle with that humman_name.  Trumps task_class and params.
-            uuid (str): Resolve dependency by explicit UUID, trumps task_class and params, and human_name.
+            uuid (str): Resolve dependency by explicit UUID, trumps task_class, params and human_name.
 
         Returns:
-            None
+            `api.Bundle` or None
 
         """
-        # TODO: Store PipeTask class name so look ups by name or uuid do not require user to specify it.
-
-        # for the bundle object
         import disdat.api as api
 
-        if not isinstance(params, dict):
-            error = "add_dependency third argument must be a dictionary of parameters"
+        if task_class is not None and not isinstance(params, dict):
+            error = "add_external_dependency requires parameter dictionary"
             raise Exception(error)
-
-        if task_class is None:
-            task_class = api.BundleWrapperTask
 
         assert (param_name not in self.add_deps)
 
@@ -532,31 +575,39 @@ class PipeTask(luigi.Task, PipeBase):
             elif human_name is not None:
                 hfr = self.pfs.get_latest_hframe(human_name, data_context=self.data_context)
             else:
+                # we propagate the same inputs and the same output dir for every upstream task!
+                params.update({
+                    'user_arg_name': param_name,
+                    'data_context': self.data_context
+                })
                 p = task_class(**params)
                 hfr = self.pfs.get_hframe_by_proc(p.processing_id(), data_context=self.data_context)
 
             if hfr is None:
-                raise ExtDepError("Unable to resolve external bundle made by class ({})".format(task_class))
+                error_str = "Disdat can't resolve external bundle from class[{}] params[{}] name[{}] uuid[{}]".format(task_class,
+                                                                                                                   params,
+                                                                                                                   human_name,
+                                                                                                                   uuid)
+                raise ExtDepError(error_str)
 
-            bundle = api.Bundle(self.data_context.get_local_name(), 'unknown')
+            bundle = api.Bundle(self.data_context.get_local_name(), 'unknown').fill_from_hfr(hfr)
 
-            bundle.fill_from_hfr(hfr)
-
-            # if we found by uuid or human name, the hfr should have the params with which
-            # the task was called, so we need to grab them.
-            if uuid is not None or human_name is not None:
-                params = task_class._put_subcls_params(bundle.params)
-
-        except ExtDepError as error:
+        except ExtDepError as error:  # Swallow and allow Luigi to determine task is not available.
+            _logger.error(error_str)
             bundle = None
+
         except Exception as error:
-            _logger.warning("Unable to resolve external bundle class[{}] name[{}] uuid[{}]: error [{}]".format(task_class,
-                                                                                                               human_name,
-                                                                                                               uuid,
-                                                                                                               error))
+            _logger.error(error)
             bundle = None
+
         finally:
-            self.add_deps[param_name] = (luigi.task.externalize(task_class), params)
+            if bundle is None:
+                self.add_deps[param_name] = (luigi.task.externalize(ExternalDepTask), {'uuid': 'None',
+                                                                                       'processing_name': 'None'})
+            else:
+                self.add_deps[param_name] = (luigi.task.externalize(ExternalDepTask), {'uuid': bundle.uuid,
+                                                                                       'processing_name': bundle.processing_name})
+
 
         return bundle
 
@@ -632,7 +683,6 @@ class PipeTask(luigi.Task, PipeBase):
             (`luigi.contrib.s3.S3Target`): Singleton, list, or dictionary of Luigi Target objects.
 
         """
-
         pce = self.pfs.get_path_cache(self)
         assert (pce is not None)
         output_dir = self.get_output_dir_remote()
@@ -653,7 +703,6 @@ class PipeTask(luigi.Task, PipeBase):
             output_dir (str):  Fully qualified path of a directory whose prefix is the bundle's local output directory.
 
         """
-
         prefix_dir = self.get_output_dir()
         fqp = os.path.join(prefix_dir, dirname)
         try:
@@ -717,7 +766,6 @@ class PipeTask(luigi.Task, PipeBase):
             raise Exception('Managed S3 path creation needs a) remote context and b) incremental push to be set')
         return output_dir
 
-
     def set_bundle_name(self, human_name):
         """
         Disdat Pipe API Function
@@ -732,7 +780,6 @@ class PipeTask(luigi.Task, PipeBase):
             None
 
         """
-
         self.user_set_human_name = human_name
 
     def add_tags(self, tags):
@@ -817,3 +864,30 @@ class PipeTask(luigi.Task, PipeBase):
             self.add_tags({BUNDLE_TAG_TRANSIENT: 'True', BUNDLE_TAG_PUSH_META: 'True'})
         else:
             self.add_tags({BUNDLE_TAG_TRANSIENT: 'True'})
+
+
+class ExternalDepTask(PipeTask):
+    """ This task is only here as a shell.
+    If the user specifies an external dependency, we look it up in add_external_dependency.
+    We look it up, b/c we want to hand them the bundle in requires.
+    If they look up the bundle via UUID or human name, there is no reason for them to
+    pass in the class.  Especially for human name, where they cannot know it.
+    And, if it exists, there is no reason to look it up again in apply.resolve_bundle().
+    Thus we create an ExternalDepTask() parameterized by the UUID and apply.resolve_bundle()
+    The default output() function will create this tasks processing_id() which will be a hash
+    of this task's params, which will include a unique UUID.   And so should be unique.
+    """
+    uuid = luigi.Parameter(default=None)
+    processing_name = luigi.Parameter(default=None)
+
+    def bundle_output(self):
+        """ External bundles have no outputs
+        """
+        return None
+
+    def bundle_inputs(self):
+        """ External bundles output are in lineage.
+        Note: this is only called in apply for now.  And this task can never
+        be called by apply directly.
+        """
+        assert False, "An ExternalDepTask should never be run directly."

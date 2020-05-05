@@ -391,17 +391,17 @@ class DisdatFS(object):
         """
         return self.curr_context and self.curr_context.is_valid()
 
-    def reuse_hframe(self, pipe, hframe, is_left_edge_task, data_context=None):
+    def reuse_hframe(self, pipe, hfr_uuid, is_left_edge_task, data_context=None):
         """
         Re-use this bundle, everything stays the same, just put in the cache
         Note: Currently doesn't use this FS instance, but to be consistent with
         new_output_bundle below.
 
         Args:
-            pipe:
-            hframe:
-            is_left_edge_task:
-            data_context:
+            pipe (`pipe.PipeTask`): The pipe task that should not be re-run.
+            hfr_uuid (str): The UUID of the hyperframe to re-use.
+            is_left_edge_task (bool): Is this at the top of the DAG.
+            data_context: The context containing this bundle with UUID hfr_uuid.
 
         Returns:
             None
@@ -417,8 +417,8 @@ class DisdatFS(object):
         if data_context is None:
             data_context = self.curr_context
 
-        dir = data_context.implicit_hframe_path(hframe.pb.uuid)
-        DisdatFS.put_path_cache(pipe, hframe.pb.uuid, dir, False, is_left_edge_task)
+        dir = data_context.implicit_hframe_path(hfr_uuid)
+        DisdatFS.put_path_cache(pipe, hfr_uuid, dir, False, is_left_edge_task)
 
     def new_output_hframe(self, pipe, is_left_edge_task, force_uuid=None, data_context=None):
         """
@@ -809,9 +809,11 @@ class DisdatFS(object):
                 if self.curr_context is not None and self.curr_context is ctxt:
                     cprint("*", "white", end='')
                     cprint("\t{}".format(ctxt_name), "green", end='')
-                    cprint("\t[{}@{}]".format(ctxt.remote_ctxt, self.curr_context.remote_ctxt_url))
+                    cprint("\t[{}@{}]".format(ctxt.remote_ctxt,
+                                              DataContext.s3_remote_from_url(self.curr_context.remote_ctxt_url)))
                 else:
-                    print("\t{}\t[{}@{}]".format(ctxt.local_ctxt, ctxt.remote_ctxt, ctxt.remote_ctxt_url))
+                    print("\t{}\t[{}@{}]".format(ctxt.local_ctxt, ctxt.remote_ctxt,
+                                                 DataContext.s3_remote_from_url(ctxt.remote_ctxt_url)))
             return 0
 
         remote_context, local_context = DisdatFS._parse_fq_context_name(fq_context_name)
@@ -1197,44 +1199,35 @@ class DisdatFS(object):
         Returns:
 
         """
-
         MAX_WAIT = 12 * 60
 
-        # MacOS X fails when we multi-process using fork and boto sessions.
-        # One fix is to set this environment variable.   A better fix would be
-        # to find and address the boto session issue.  But there are a lot of reasons
-        # why that might not work either: https://www.wefearchange.org/2018/11/forkmacos.rst.html
-        # and that says why doing os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
-        # fails.  https://www.evanjones.ca/fork-is-dangerous.html
-        # https://github.com/ansible/ansible/issues/32499
-
-        pool = Pool(processes=cpu_count()) # I/O bound, so let it use at least cpu_count()
-
-        _logger.debug("Fast Pull Pool using {} processes.".format(cpu_count()))
+        pool = Pool(processes=cpu_count())
 
         _logger.info("Fast Pull synchronizing with remote context {}@{}".format(data_context.remote_ctxt,
                                                                                    data_context.remote_ctxt_url))
 
         remote_s3_object_dir = data_context.get_remote_object_dir()
         s3_bucket, remote_obj_dir = aws_s3.split_s3_url(remote_s3_object_dir)
-        all_objects = aws_s3.ls_s3_url_objects(remote_s3_object_dir)
+        all_keys = aws_s3.ls_s3_url_objects(remote_s3_object_dir,
+                                               is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
 
         if not localize:
-            all_objects = [obj for obj in all_objects if 'frame.pb' in obj.key]
+            all_keys = [k for k in all_keys if 'frame.pb' in k]
 
         fetch_count = 0
 
         multiple_results = []
-        for s3_obj in all_objects:
-            obj_basename = os.path.basename(s3_obj.key)
-            obj_suffix = s3_obj.key.replace(remote_obj_dir,'')
+        for s3_key in all_keys:
+            obj_basename = os.path.basename(s3_key)
+            obj_suffix = s3_key.replace(remote_obj_dir,'')
             obj_suffix_dir = os.path.dirname(obj_suffix).strip('/')  # remote_obj_dir won't have a trailing slash
             local_uuid_dir = os.path.join(data_context.get_object_dir(), obj_suffix_dir)
             local_object_path = os.path.join(local_uuid_dir, obj_basename)
             if not os.path.exists(local_object_path):
                 fetch_count += 1
                 multiple_results.append(pool.apply_async(aws_s3.get_s3_key,
-                                                         (s3_bucket,s3_obj.key,local_object_path)))
+                                                         (s3_bucket, s3_key, local_object_path)))
+
         pool.close()
 
         _logger.info("Fast pull fetching {} objects...".format(fetch_count))
@@ -1243,7 +1236,7 @@ class DisdatFS(object):
 
         pool.join()
 
-        _logger.info("Fast pull complete -- thread pool closed and joined.")
+        _logger.info("Fast pull complete -- process pool closed and joined.")
 
     def pull(self, human_name=None, uuid=None, localize=False, data_context=None):
         """
@@ -1289,9 +1282,8 @@ class DisdatFS(object):
                 return
             # else fall through to see if we can pull from remote context
 
-        #start = time.time()
-        possible_hframe_objects = aws_s3.ls_s3_url_objects(data_context.get_remote_object_dir())
-        #print "List time {} seconds".format(time.time() - start)
+        possible_hframe_objects = aws_s3.ls_s3_url_objects(data_context.get_remote_object_dir(),
+                                                           is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
 
         hframe_objects = [obj for obj in possible_hframe_objects if '_hframe.pb' in obj.key]
 
@@ -1380,40 +1372,6 @@ class DisdatFS(object):
         assert ctxt_obj is not None, "Disdat must be in a context to use 'remote'"
 
         ctxt_obj.bind_remote_ctxt(remote_context, s3_url, force=force)
-
-    def status(self, human_name):
-        """
-
-        Args:
-            human_name:
-
-        Returns:
-
-        """
-        return_strings = []
-
-        if not self.in_context():
-            return_strings.append('[None]')
-        else:
-            return_strings.append("Disdat Context {}".format(self.curr_context.get_repo_name()))
-            return_strings.append("On local context {}".format(self.curr_context.get_local_name()))
-            if self.curr_context.get_remote_object_dir() is not None:
-                return_strings.append("Remote @ {}".format(self.curr_context.get_remote_object_dir()))
-            else:
-                return_strings.append("No remote set.")
-        if False:
-            try:
-                hfrs = self.curr_context.get_hframes(human_name=human_name)
-                if len(hfrs) > 0:
-                    return_strings.append("Most recent object with this name is:")
-                    return_strings.extend(DisdatFS._pretty_print_hframe(hfrs[0]))
-                    return_strings.append("Older versions of this object are:")
-                    for hfr in hfrs[1:]:
-                        return_strings.extend(DisdatFS._pretty_print_hframe(hfr))
-            except KeyError:
-                return_strings.append('No hyperframe with that name found')
-
-        return return_strings
 
 
 def _branch(fs, args):
@@ -1540,11 +1498,6 @@ def _cat(fs, args):
         print("Disdat cat found no bundle with name {} or uuid {}".format(args.bundle, args.uuid))
 
 
-def _status(fs, args):
-    for f in fs.status(args.bundle):
-        print(f)
-
-
 def init_fs_cl(subparsers):
     """Initialize a command line set of subparsers with file system commands.
 
@@ -1631,11 +1584,6 @@ def init_fs_cl(subparsers):
                        help="Save output dataframe as csv without index to specified file")
     cat_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to cat')
     cat_p.set_defaults(func=lambda args: _cat(fs, args))
-
-    # status
-    status_p = subparsers.add_parser('status')
-    status_p.add_argument('bundle', type=str, help='A bundle in the current context')
-    status_p.set_defaults(func=lambda args: _status(fs, args))
 
     # remote add <name> <s3_url>
     remote_p = subparsers.add_parser('remote')

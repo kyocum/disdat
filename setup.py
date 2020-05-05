@@ -103,7 +103,6 @@ setup(
         'docker==4.1.0',
         'pandas==0.25.3',
         'numpy==1.18.1',
-        'enum34==1.1.6',
         'sqlalchemy==1.3.13',
         'protobuf==3.11.2',
         'six==1.13.0',
