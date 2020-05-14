@@ -30,7 +30,7 @@ from datetime import datetime
 from enum import Enum
 import shutil
 import collections
-from multiprocessing import Pool, cpu_count
+from multiprocessing import get_context
 import subprocess
 import six
 
@@ -1201,10 +1201,11 @@ class DisdatFS(object):
         """
         MAX_WAIT = 12 * 60
 
-        pool = Pool(processes=cpu_count())
+        mp_ctxt = get_context('forkserver')
+        pool = mp_ctxt.Pool(processes=mp_ctxt.cpu_count())
 
         _logger.info("Fast Pull synchronizing with remote context {}@{}".format(data_context.remote_ctxt,
-                                                                                   data_context.remote_ctxt_url))
+                                                                                data_context.remote_ctxt_url))
 
         remote_s3_object_dir = data_context.get_remote_object_dir()
         s3_bucket, remote_obj_dir = aws_s3.split_s3_url(remote_s3_object_dir)

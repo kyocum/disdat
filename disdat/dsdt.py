@@ -26,7 +26,6 @@ import argparse
 import logging
 import sys
 import os
-import multiprocessing as mp
 
 from disdat import apply
 from disdat import dockerize
@@ -47,11 +46,6 @@ def main():
     """
     Main is the package entry point.
     """
-
-    # MacOS X fails when we multi-process using fork and boto sessions.
-    # One fix is to set export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-    # But only in the shell.  To avoid this, we only mp with the forkserver.
-    mp.set_start_method('forkserver')
 
     if getattr(sys, 'frozen', False):
         here = os.path.join(sys._MEIPASS, 'disdat')
