@@ -26,7 +26,7 @@ import os
 import pkg_resources
 from getpass import getuser
 import six
-from multiprocessing import Pool, cpu_count
+from multiprocessing import get_context
 
 from botocore.exceptions import ClientError
 import boto3 as b3
@@ -369,7 +369,11 @@ def ls_s3_url_keys(s3_url, is_object_directory=False):
 
     MAX_WAIT = 12 * 60
     multiple_results = []
-    pool = Pool(processes=cpu_count()) # I/O bound, so let it use at least cpu_count()
+
+    # MacOS X fails when we multi-process using fork and boto sessions.
+    # One fix is to set export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    mp_ctxt = get_context('forkserver')
+    pool = mp_ctxt.Pool(processes=mp_ctxt.cpu_count()) # I/O bound, so let it use at least cpu_count()
 
     prefixes = ['']
     if is_object_directory:
@@ -529,9 +533,11 @@ def get_s3_key(bucket, key, filename=None):
     Returns:
 
     """
-    import multiprocessing
-
-    # print ("PID({}) START bkt[] key[{}] file[{}]".format(multiprocessing.current_process(), bucket, key,filename))
+    #import multiprocessing
+    #print ("PID() START bkt[{}] key[{}] file[{}]".format(#multiprocessing.current_process(),
+    #                                                       bucket,
+    #                                                       key,
+    #                                                       filename))
 
     dl_retry = 3
 

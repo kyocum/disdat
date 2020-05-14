@@ -30,7 +30,7 @@ from datetime import datetime
 from enum import Enum
 import shutil
 import collections
-from multiprocessing import Pool, cpu_count
+from multiprocessing import get_context
 import subprocess
 import six
 
@@ -1201,7 +1201,10 @@ class DisdatFS(object):
         """
         MAX_WAIT = 12 * 60
 
-        pool = Pool(processes=cpu_count())
+        # MacOS X fails when we multi-process using fork and boto sessions.
+        # One fix is to set export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+        mp_ctxt = get_context('forkserver')
+        pool = mp_ctxt.Pool(processes=mp_ctxt.cpu_count())
 
         _logger.info("Fast Pull synchronizing with remote context {}@{}".format(data_context.remote_ctxt,
                                                                                    data_context.remote_ctxt_url))

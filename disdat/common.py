@@ -23,7 +23,6 @@ import sys
 import shutil
 import importlib
 import subprocess
-import multiprocessing as mp
 
 import luigi
 from six.moves import urllib
@@ -131,12 +130,6 @@ class DisdatConfig(object):
             meta_dir_root (str): Optional place to store disdat contexts. Default `~/`
             config_dir (str): Optional directory from which to get disdat.cfg and luigi.cfg.  Default SYSTEM_CONFIG_DIR
         """
-
-        # MacOS X fails when we multi-process using fork and boto sessions.
-        # One fix is to set export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-        # But only in the shell.  To avoid this, we only mp with the forkserver.
-        print("SETTING FORKSERVER")
-        mp.set_start_method('forkserver')
 
         # Find configuration directory
         if config_dir:
