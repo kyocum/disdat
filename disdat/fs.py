@@ -1218,9 +1218,9 @@ class DisdatFS(object):
             if not os.path.exists(local_object_path):
                 fetch_count += 1
                 fetch_tuples.append((s3_bucket, s3_key, local_object_path))
-        _logger.info("Fast pull fetching [{}] objects...".format(fetch_count))
+        _logger.info("Fast pull fetching {} objects...".format(fetch_count))
         results = aws_s3.get_s3_key_many(fetch_tuples)
-        _logger.info("Fast pull completed [{}] transfers -- process pool closed and joined.".format(len(results)))
+        _logger.info("Fast pull completed {} transfers -- process pool closed and joined.".format(len(results)))
 
     def pull(self, human_name=None, uuid=None, localize=False, data_context=None):
         """
