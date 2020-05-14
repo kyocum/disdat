@@ -1320,7 +1320,6 @@ class DisdatFS(object):
 
                 # grab frames for this hyperframe
                 s3_hfr_dir = os.path.join(data_context.get_remote_object_dir(), s3_uuid)
-                print(s3_hfr_dir)
                 possible_frame_objects = aws_s3.ls_s3_url_objects(s3_hfr_dir)
                 frame_objects = [obj for obj in possible_frame_objects if '_frame.pb' in obj.key]
                 for s3_fr_obj in frame_objects:
