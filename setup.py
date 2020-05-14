@@ -119,13 +119,13 @@ setup(
             'tensorflow',
         ],
         'dev': [
-            'pytest',
+            'pytest==5.4.1',
             'ipython',
             'mock',
             'nose',
             'pylint',
-            'coverage==5.1',
-            'tox',
+            'coverage==5.0.3',
+            'tox==3.14.6',
             'moto'
         ],
         'rel': [

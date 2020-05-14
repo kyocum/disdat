@@ -30,7 +30,6 @@ from datetime import datetime
 from enum import Enum
 import shutil
 import collections
-from multiprocessing import get_context
 import subprocess
 import six
 
@@ -1199,27 +1198,17 @@ class DisdatFS(object):
         Returns:
 
         """
-        MAX_WAIT = 12 * 60
-
-        # MacOS X fails when we multi-process using fork and boto sessions.
-        # One fix is to set export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-        mp_ctxt = get_context('forkserver')
-        pool = mp_ctxt.Pool(processes=mp_ctxt.cpu_count())
-
         _logger.info("Fast Pull synchronizing with remote context {}@{}".format(data_context.remote_ctxt,
-                                                                                   data_context.remote_ctxt_url))
+                                                                                data_context.remote_ctxt_url))
 
         remote_s3_object_dir = data_context.get_remote_object_dir()
         s3_bucket, remote_obj_dir = aws_s3.split_s3_url(remote_s3_object_dir)
         all_keys = aws_s3.ls_s3_url_keys(remote_s3_object_dir,
                                          is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
-
         if not localize:
             all_keys = [k for k in all_keys if 'frame.pb' in k]
-
         fetch_count = 0
-
-        multiple_results = []
+        fetch_tuples = []
         for s3_key in all_keys:
             obj_basename = os.path.basename(s3_key)
             obj_suffix = s3_key.replace(remote_obj_dir,'')
@@ -1228,18 +1217,10 @@ class DisdatFS(object):
             local_object_path = os.path.join(local_uuid_dir, obj_basename)
             if not os.path.exists(local_object_path):
                 fetch_count += 1
-                multiple_results.append(pool.apply_async(aws_s3.get_s3_key,
-                                                         (s3_bucket, s3_key, local_object_path)))
-
-        pool.close()
-
-        _logger.info("Fast pull fetching {} objects...".format(fetch_count))
-
-        results = [res.get(timeout=MAX_WAIT) for res in multiple_results]
-
-        pool.join()
-
-        _logger.info("Fast pull complete -- process pool closed and joined.")
+                fetch_tuples.append((s3_bucket, s3_key, local_object_path))
+        _logger.info("Fast pull fetching [{}] objects...".format(fetch_count))
+        results = aws_s3.get_s3_key_many(fetch_tuples)
+        _logger.info("Fast pull completed [{}] transfers -- process pool closed and joined.".format(len(results)))
 
     def pull(self, human_name=None, uuid=None, localize=False, data_context=None):
         """
