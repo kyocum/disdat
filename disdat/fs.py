@@ -1203,8 +1203,8 @@ class DisdatFS(object):
 
         remote_s3_object_dir = data_context.get_remote_object_dir()
         s3_bucket, remote_obj_dir = aws_s3.split_s3_url(remote_s3_object_dir)
-        all_keys = aws_s3.ls_s3_url_objects(remote_s3_object_dir,
-                                               is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
+        all_keys = aws_s3.ls_s3_url_keys(remote_s3_object_dir,
+                                         is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
         if not localize:
             all_keys = [k for k in all_keys if 'frame.pb' in k]
         fetch_count = 0
@@ -1218,9 +1218,9 @@ class DisdatFS(object):
             if not os.path.exists(local_object_path):
                 fetch_count += 1
                 fetch_tuples.append((s3_bucket, s3_key, local_object_path))
-        _logger.info("Fast pull fetching [{}] objects...".format(fetch_count))
+        _logger.info("Fast pull fetching {} objects...".format(fetch_count))
         results = aws_s3.get_s3_key_many(fetch_tuples)
-        _logger.info("Fast pull completed [{}] transfers -- process pool closed and joined.".format(len(results)))
+        _logger.info("Fast pull completed {} transfers -- process pool closed and joined.".format(len(results)))
 
     def pull(self, human_name=None, uuid=None, localize=False, data_context=None):
         """
@@ -1252,7 +1252,6 @@ class DisdatFS(object):
 
         if human_name is None and uuid is None:
             # NOTE: This is fast and loose.  Another command might be editing the db.  Unit test.
-            # NOTE: If we fail, we could have a partial DB.  Need to surface the rebuild command.
             self.fast_pull(data_context, localize)
             data_context.rebuild_db()
             return
@@ -1266,13 +1265,13 @@ class DisdatFS(object):
                 return
             # else fall through to see if we can pull from remote context
 
-        possible_hframe_objects = aws_s3.ls_s3_url_objects(data_context.get_remote_object_dir(),
-                                                           is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
+        possible_hframe_objects = aws_s3.ls_s3_url_keys(data_context.get_remote_object_dir(),
+                                                        is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
 
-        hframe_objects = [obj for obj in possible_hframe_objects if '_hframe.pb' in obj.key]
+        hframe_keys = [obj for obj in possible_hframe_objects if '_hframe.pb' in obj]
 
-        for s3_hfr_obj in hframe_objects:
-            hfr_basename = os.path.basename(s3_hfr_obj.key)
+        for s3_hfr_key in hframe_keys:
+            hfr_basename = os.path.basename(s3_hfr_key)
             # Note that this works because the UUID is prepended to the <uuid>_hframe.pb
             s3_uuid = hfr_basename.split('_')[0]
 
@@ -1287,22 +1286,18 @@ class DisdatFS(object):
                 if not localize:
                     print("Found HyperFrame UUID {} present in local context, skipping . . .".format(s3_uuid))
                 else:
-                    # Are we trying to localize a particular HyperFrame?  match name and uuid. 
-
-                    obj = s3_hfr_obj.Object().get()
-                    hfr_test = hyperframe.HyperFrameRecord.from_str_bytes(obj['Body'].read())
                     if human_name is not None:
-                        if human_name != hfr_test.pb.human_name:
+                        if human_name != local_hfr.pb.human_name:
                             continue
                         else:
-                            print("Found remote bundle with human name {}, uuid {} localizing ...".format(hfr_test.pb.human_name,
-                                                                                                          hfr_test.pb.uuid))
-
-                    # grab files for this hyperframe -- read the local HFR frames
+                            print("Found remote bundle with human name {}, uuid {} localizing ...".format(local_hfr.pb.human_name,
+                                                                                                          local_hfr.pb.uuid))
                     DisdatFS._localize_hfr(local_hfr, s3_uuid, data_context)
-
             else:
-                obj = s3_hfr_obj.Object().get()
+                s3_bucket, _ = aws_s3.split_s3_url(data_context.remote_ctxt_url)
+                found_objects = aws_s3.s3_list_objects_at_prefix(s3_bucket, s3_hfr_key)
+                assert len(found_objects) == 1
+                obj = found_objects[0].Object().get()
                 hfr_test = hyperframe.HyperFrameRecord.from_str_bytes(obj['Body'].read())
                 if human_name is not None:
                     if human_name != hfr_test.pb.human_name:
@@ -1329,7 +1324,7 @@ class DisdatFS(object):
                 frame_objects = [obj for obj in possible_frame_objects if '_frame.pb' in obj.key]
                 for s3_fr_obj in frame_objects:
                     fr_basename = os.path.basename(s3_fr_obj.key)
-                    local_fr_path = os.path.join(local_uuid_dir,fr_basename)
+                    local_fr_path = os.path.join(local_uuid_dir, fr_basename)
                     s3_fr_obj.Object().download_file(local_fr_path)
 
                 data_context.write_hframe_db_only(hfr_test)

@@ -309,7 +309,7 @@ def s3_list_objects_at_prefix(bucket, prefix):
     try:
         s3_b = s3.Bucket(bucket)
         for i in s3_b.objects.filter(Prefix=prefix, MaxKeys=1024):
-            result.append(i.key)
+            result.append(i)
     except Exception as e:
         _logger.error("s3_list_objects_starting_hex: failed with exception {}".format(e))
         raise
@@ -348,9 +348,9 @@ def s3_list_objects_at_prefix_v2(bucket, prefix):
     return result
 
 
-def ls_s3_url_objects(s3_url, is_object_directory=False):
+def ls_s3_url_keys(s3_url, is_object_directory=False):
     """
-    List all objects at this s3_url.  If `is_object_directory` is True, then
+    List all keys at this s3_url.  If `is_object_directory` is True, then
     treat this `s3_url` as a Disdat object directory, consisting of uuids that start
     with one of 16 ascii characters.  This allows the ls operation to run in parallel.
 
@@ -393,6 +393,29 @@ def ls_s3_url_objects(s3_url, is_object_directory=False):
         results = s3_list_objects_at_prefix_v2(bucket, s3_path)
 
     return results
+
+
+def ls_s3_url_objects(s3_url):
+    """
+    List all objects under this s3_url.
+
+    Note: If you want to get a specific boto s3 object for a key, use s3_list_objects_at_prefix directly.
+
+    Note: the objects returned from this call cannot be subsequently passed into python multiprocessing
+    because they cannot be serialized by default.
+
+    Args:
+        s3_url(str): The bucket and key of the "directory" under which to search
+
+    Returns:
+        list (str): list of s3 objects under the bucket in the s3_path
+    """
+    if s3_url[-1] is not '/':
+        s3_url += '/'
+
+    bucket, s3_path = split_s3_url(s3_url)
+
+    return s3_list_objects_at_prefix(bucket, s3_path)
 
 
 def ls_s3_url(s3_url):
