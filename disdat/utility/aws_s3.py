@@ -332,6 +332,9 @@ def s3_list_objects_at_prefix_v2(bucket, prefix):
     """
     result = []
     client = b3.client('s3')
+
+    #print(f"s3_list_objects_at_prefix_v2 the b3[{b3}] and client[{b3.client} and resource[{b3.resource}]")
+
     try:
         paginator = client.get_paginator('list_objects_v2')
         page_iterator = paginator.paginate(Bucket=bucket, Prefix=prefix)
@@ -510,13 +513,9 @@ def get_s3_key(bucket, key, filename=None):
     Returns:
 
     """
-    import multiprocessing
-
-    # print ("PID({}) START bkt[] key[{}] file[{}]".format(multiprocessing.current_process(), bucket, key,filename))
-
     dl_retry = 3
-
     s3 = b3.resource('s3')
+    #print(f"get_s3_key the b3[{b3}] and client[{b3.client} and resource[{b3.resource}]")
 
     if filename is None:
         filename = os.path.basename(key)
@@ -543,6 +542,34 @@ def get_s3_key(bucket, key, filename=None):
     #print "PID({}) STOP bkt[] key[{}] file[{}]".format(multiprocessing.current_process(),key,filename)
 
     return filename
+
+
+def get_s3_key_many(bucket_key_file_tuples):
+    """ Retrieve many s3 keys in parallel and copy to the filename
+
+    This was done primarily because when testing from an external module, moto
+    fails to stub out calls to aws clients/resources if the multiprocessing occurs
+    outside of the module doing the s3 calls.
+
+    Args:
+        bucket_key_file_tuples (tuple): (bucket:str, key:str, filename=None)
+
+    Returns:
+        filenames (list): list of filenames
+
+    """
+    MAX_WAIT = 12 * 60
+    mp_ctxt = get_context('fork')  # Using forkserver here causes moto / pytest failures
+    pool = mp_ctxt.Pool(processes=mp_ctxt.cpu_count())
+    multiple_results = []
+    for s3_bucket, s3_key, local_object_path in bucket_key_file_tuples:
+        multiple_results.append(pool.apply_async(get_s3_key,
+                                                 (s3_bucket, s3_key, local_object_path)))
+
+    pool.close()
+    results = [res.get(timeout=MAX_WAIT) for res in multiple_results]
+    pool.join()
+    return results
 
 
 def get_s3_file(s3_url, filename=None):
