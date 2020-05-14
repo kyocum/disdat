@@ -135,7 +135,7 @@ class DisdatConfig(object):
         # MacOS X fails when we multi-process using fork and boto sessions.
         # One fix is to set export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
         # But only in the shell.  To avoid this, we only mp with the forkserver.
-
+        print("SETTING FORKSERVER")
         mp.set_start_method('forkserver')
 
         # Find configuration directory

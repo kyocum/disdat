@@ -124,7 +124,7 @@ setup(
             'mock',
             'nose',
             'pylint',
-            'coverage',
+            'coverage==5.1',
             'tox',
             'moto'
         ],
