@@ -30,7 +30,6 @@ from datetime import datetime
 from enum import Enum
 import shutil
 import collections
-from multiprocessing import Pool, cpu_count
 import subprocess
 import six
 
@@ -293,6 +292,57 @@ class DisdatFS(object):
         """
         return self.curr_context and self.curr_context.is_valid()
 
+    def rmr(self, human_name=None, uuid=None, tags=None, dryrun=False, data_context=None):
+        """
+        Remove bundle from remote.  If human_name provided, remove the latest.
+        This call uses the local index (sqlite db) to first find the uuid's and then
+        issue the remove.
+
+        Default: remove latest
+        rm_old_only: remove everything except most recent
+        rm_all: remove everything
+
+        Args:
+            human_name:  The human-given name for this hyperframe / bundle
+            uuid (str): Remove the particular bundle
+            tags (:dict):   A dict of (key,value) to find bundles
+            dryrun (bool): Do not remove any bundles, only print out what would be removed
+            data_context (`disdat.data_context.DataContext`): Context for particular removal
+
+        Returns:
+            results (list:str):  List of strings of removed bundles
+        """
+        return_strings = []
+
+        if data_context is None:
+            data_context = self.curr_context
+
+        return_strings.append("Disdat Context: {}".format(data_context.context))
+
+        uuids = self.ls(human_name,
+                        False, False, False, False, False,
+                        uuid=uuid,
+                        tags=tags,
+                        print_uuid_only=True,
+                        data_context=data_context)
+
+        if dryrun:
+            if len(uuids) == 0:
+                return_strings.append("Remove remote found no bundles to remove")
+            for id in uuids:
+                return_strings.append("Remove remote dryrun uuid {}".format(id))
+            return return_strings
+
+        try:
+            s3_urls = [os.path.join(data_context.get_remote_object_dir(), id) for id in uuids]
+            return_strings.append("Found {} local bundles to remove.".format(len(s3_urls)))
+            num_objects_deleted = aws_s3.delete_s3_dir_many(s3_urls)
+            return_strings.append("Removed {} remote bundles from S3.".format(num_objects_deleted))
+        except Exception as e:
+            return_strings.append("Remote remote ERROR: {} ".format(e))
+            #_logger.error(e)
+        return return_strings
+
     def rm(self, human_name=None, rm_all=False, rm_old_only=False, uuid=None, tags=None, force=False, data_context=None):
         """
         Remove bundle with human_name or tag_value
@@ -424,7 +474,8 @@ class DisdatFS(object):
             return None
 
     def ls(self, search_name, print_tags, print_intermediates, print_roots, print_long, print_args,
-           before=None, after=None, uuid=None, maxbydate=False, committed=None, tags=None, data_context=None):
+           before=None, after=None, uuid=None, maxbydate=False, committed=None, tags=None, print_uuid_only=False,
+           data_context=None):
         """
         Enumerate bundles (hyperframes) in this context.
 
@@ -433,6 +484,7 @@ class DisdatFS(object):
             print_tags (bool): Whether to print the bundle tags
             print_intermediates (bool): Show only intermediate bundles
             print_roots (bool): Show only root bundles
+            print_long (bool): Display long header
             print_args (bool): Whether to print the arguments used to produce this bundle
             before (date.datetime): '01-03-19 02:40:37' or date '01-03-19' inclusive range
             after (date.datetime): '01-03-19 02:40:37' or date '01-03-19' inclusive range
@@ -440,6 +492,7 @@ class DisdatFS(object):
             maxbydate (bool): return the latest by date
             committed (bool): If True, just committed, if False, just uncommitted, if None then ignore.
             tags: Optional. A dictionary of tags to search for.
+            print_uuid_only (bool):  Return only a list of UUIDs (internal use)
             data_context (`disdat.data_context.DataContext`): Optional data context to operate in
 
         Returns:
@@ -484,11 +537,14 @@ class DisdatFS(object):
                 if r.get_tag('root_task'):
                     continue
 
-            if print_long:
-                output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags, print_args=print_args))
+            if print_uuid_only:
+                output_strings.append(r.pb.uuid)
             else:
-                if r.pb.human_name not in output_strings:
-                    output_strings.append(r.pb.human_name)
+                if print_long:
+                    output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags, print_args=print_args))
+                else:
+                    if r.pb.human_name not in output_strings:
+                        output_strings.append(r.pb.human_name)
         return output_strings
 
     @staticmethod
@@ -1035,24 +1091,17 @@ class DisdatFS(object):
         Returns:
 
         """
-        MAX_WAIT = 12 * 60
-
-        pool = Pool(processes=cpu_count())
-
         _logger.info("Fast Pull synchronizing with remote context {}@{}".format(data_context.remote_ctxt,
-                                                                                   data_context.remote_ctxt_url))
+                                                                                data_context.remote_ctxt_url))
 
         remote_s3_object_dir = data_context.get_remote_object_dir()
         s3_bucket, remote_obj_dir = aws_s3.split_s3_url(remote_s3_object_dir)
-        all_keys = aws_s3.ls_s3_url_objects(remote_s3_object_dir,
-                                               is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
-
+        all_keys = aws_s3.ls_s3_url_keys(remote_s3_object_dir,
+                                         is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
         if not localize:
             all_keys = [k for k in all_keys if 'frame.pb' in k]
-
         fetch_count = 0
-
-        multiple_results = []
+        fetch_tuples = []
         for s3_key in all_keys:
             obj_basename = os.path.basename(s3_key)
             obj_suffix = s3_key.replace(remote_obj_dir,'')
@@ -1061,18 +1110,10 @@ class DisdatFS(object):
             local_object_path = os.path.join(local_uuid_dir, obj_basename)
             if not os.path.exists(local_object_path):
                 fetch_count += 1
-                multiple_results.append(pool.apply_async(aws_s3.get_s3_key,
-                                                         (s3_bucket, s3_key, local_object_path)))
-
-        pool.close()
-
+                fetch_tuples.append((s3_bucket, s3_key, local_object_path))
         _logger.info("Fast pull fetching {} objects...".format(fetch_count))
-
-        results = [res.get(timeout=MAX_WAIT) for res in multiple_results]
-
-        pool.join()
-
-        _logger.info("Fast pull complete -- process pool closed and joined.")
+        results = aws_s3.get_s3_key_many(fetch_tuples)
+        _logger.info("Fast pull completed {} transfers -- process pool closed and joined.".format(len(results)))
 
     def pull(self, human_name=None, uuid=None, localize=False, data_context=None):
         """
@@ -1104,7 +1145,6 @@ class DisdatFS(object):
 
         if human_name is None and uuid is None:
             # NOTE: This is fast and loose.  Another command might be editing the db.  Unit test.
-            # NOTE: If we fail, we could have a partial DB.  Need to surface the rebuild command.
             self.fast_pull(data_context, localize)
             data_context.rebuild_db()
             return
@@ -1118,13 +1158,13 @@ class DisdatFS(object):
                 return
             # else fall through to see if we can pull from remote context
 
-        possible_hframe_objects = aws_s3.ls_s3_url_objects(data_context.get_remote_object_dir(),
-                                                           is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
+        possible_hframe_objects = aws_s3.ls_s3_url_keys(data_context.get_remote_object_dir(),
+                                                        is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
 
-        hframe_objects = [obj for obj in possible_hframe_objects if '_hframe.pb' in obj.key]
+        hframe_keys = [obj for obj in possible_hframe_objects if '_hframe.pb' in obj]
 
-        for s3_hfr_obj in hframe_objects:
-            hfr_basename = os.path.basename(s3_hfr_obj.key)
+        for s3_hfr_key in hframe_keys:
+            hfr_basename = os.path.basename(s3_hfr_key)
             # Note that this works because the UUID is prepended to the <uuid>_hframe.pb
             s3_uuid = hfr_basename.split('_')[0]
 
@@ -1139,22 +1179,18 @@ class DisdatFS(object):
                 if not localize:
                     print("Found HyperFrame UUID {} present in local context, skipping . . .".format(s3_uuid))
                 else:
-                    # Are we trying to localize a particular HyperFrame?  match name and uuid.
-
-                    obj = s3_hfr_obj.Object().get()
-                    hfr_test = hyperframe.HyperFrameRecord.from_str_bytes(obj['Body'].read())
                     if human_name is not None:
-                        if human_name != hfr_test.pb.human_name:
+                        if human_name != local_hfr.pb.human_name:
                             continue
                         else:
-                            print("Found remote bundle with human name {}, uuid {} localizing ...".format(hfr_test.pb.human_name,
-                                                                                                          hfr_test.pb.uuid))
-
-                    # grab files for this hyperframe -- read the local HFR frames
+                            print("Found remote bundle with human name {}, uuid {} localizing ...".format(local_hfr.pb.human_name,
+                                                                                                          local_hfr.pb.uuid))
                     DisdatFS._localize_hfr(local_hfr, s3_uuid, data_context)
-
             else:
-                obj = s3_hfr_obj.Object().get()
+                s3_bucket, _ = aws_s3.split_s3_url(data_context.remote_ctxt_url)
+                found_objects = aws_s3.s3_list_objects_at_prefix(s3_bucket, s3_hfr_key)
+                assert len(found_objects) == 1
+                obj = found_objects[0].Object().get()
                 hfr_test = hyperframe.HyperFrameRecord.from_str_bytes(obj['Body'].read())
                 if human_name is not None:
                     if human_name != hfr_test.pb.human_name:
@@ -1181,7 +1217,7 @@ class DisdatFS(object):
                 frame_objects = [obj for obj in possible_frame_objects if '_frame.pb' in obj.key]
                 for s3_fr_obj in frame_objects:
                     fr_basename = os.path.basename(s3_fr_obj.key)
-                    local_fr_path = os.path.join(local_uuid_dir,fr_basename)
+                    local_fr_path = os.path.join(local_uuid_dir, fr_basename)
                     s3_fr_obj.Object().download_file(local_fr_path)
 
                 data_context.write_hframe_db_only(hfr_test)
@@ -1249,6 +1285,11 @@ def _pull(fs, args):
 
 def _rm(fs, args):
     for f in fs.rm(args.bundle, rm_all=args.all, rm_old_only=args.old, tags=common.parse_args_tags(args.tag), uuid=args.uuid, force=args.force):
+        print(f)
+
+
+def _rmr(fs, args):
+    for f in fs.rmr(args.bundle, tags=common.parse_args_tags(args.tag), uuid=args.uuid, dryrun=args.dryrun):
         print(f)
 
 
@@ -1373,7 +1414,7 @@ def init_fs_cl(subparsers):
 
     # rm
     rm_p = subparsers.add_parser('rm')
-    rm_p.add_argument('bundle', nargs='?', type=str, default=None, help='The destination bundle in the current context')
+    rm_p.add_argument('bundle', nargs='?', type=str, default=None, help='The bundle in the current context')
     rm_p.add_argument('-f', '--force', action='store_true', default=False, help='Force remove of a committed bundle')
     rm_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to remove')
     rm_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
@@ -1383,6 +1424,15 @@ def init_fs_cl(subparsers):
     rm_p.add_argument('--old', action='store_true', default=False,
                       help='Remove everything except the most recent bundle.')
     rm_p.set_defaults(func=lambda args: _rm(fs, args))
+
+    # rmr remove from remote
+    rmr_p = subparsers.add_parser('rmr')
+    rmr_p.add_argument('bundle', nargs='?', type=str, default=None, help='The bundle in the current context')
+    rmr_p.add_argument('--dryrun', action='store_true', default=False, help='Do not delete found bundles')
+    rmr_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to remove')
+    rmr_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
+                       help="Having a specific tag: 'dsdt rm -t committed:True -t version:0.7.1'")
+    rmr_p.set_defaults(func=lambda args: _rmr(fs, args))
 
     # ls
     ls_p = subparsers.add_parser('ls')

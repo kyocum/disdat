@@ -43,6 +43,7 @@ RUN if [ -f $BUILD_ROOT/config/$OS_NAME/r.txt ]; then \
     && apt-get install -y --no-install-recommends --allow-unauthenticated \
          r-base \
          r-base-dev \
+         libssl-dev \
          libcurl4-openssl-dev; \
 	for pkg in $(cat $BUILD_ROOT/config/$OS_NAME/r.txt); do \
 		R -e "install.packages('$pkg', repos='https://cloud.r-project.org/')"; \
