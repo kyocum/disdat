@@ -460,21 +460,29 @@ def _run(
         job_result (json): A json blob that contains information about the run job.  Error with empty dict.  If backend
         is Sagemaker, return TrainingJobArn.   If backend is AWSBatch, return Batch Job description.   If local, return stdout.
     """
+    def assert_or_log(cli, msg):
+        if cli:
+            _logger.error(msg)
+        else:
+            assert False, msg
 
     pfs = fs.DisdatFS()
-
     pipeline_setup_file = os.path.join(pipeline_root, 'setup.py')
 
     if not common.setup_exists(pipeline_setup_file):
-        return None
+        return assert_or_log(cli, "Disdat run: Unable to find setup.py file [{}].".format(pipeline_setup_file))
 
+    # When run in a container, we create the uuid externally to look for a specific result
     output_bundle_uuid = pfs.disdat_uuid()
-    if remote is None or context is None:
+
+    # If the user did not specify a context, use the configuration of the current context
+    if context is None:
+        if not pfs.in_context():
+            return assert_or_log(cli, "Disdat run: Not running in a local context. Switch or specify.")
         remote, context = common.get_run_command_parameters(pfs)
 
     if remote is None and (not no_push or not no_pull):  # if pulling or pushing, need a remote
-        _logger.error("Pushing or pulling bundles with 'run' requires a remote set with `dsdt remote <s3 url>`")
-        return
+        return assert_or_log(cli, "Pushing or pulling bundles with 'run' requires a remote.")
 
     arglist = common.make_run_command(output_bundle, output_bundle_uuid, pipe_cls, remote, context,
                                       input_tags, output_tags, force, force_all, no_pull, no_push,
@@ -541,16 +549,6 @@ def add_arg_parser(parsers):
         help="For AWS Batch: Do not submit job -- only create the Batch job description."
     )
     run_p.add_argument(
-        "--no-push",
-        action='store_true',
-        help="If backend is not 'Local', then do not push newly created bundles to remote context."
-    )
-    run_p.add_argument(
-        '--no-pull',
-        action='store_true',
-        help="If backend is not 'Local', do not synchronize remote context with local context.  May cause pipeline to re-run."
-    )
-    run_p.add_argument(
         '--no-push-intermediates',
         action='store_true',
         help='Do not push the intermediate bundles to the remote repository (default is to push)',
@@ -559,14 +557,14 @@ def add_arg_parser(parsers):
     run_p.add_argument(
         '--pull',
         action='store_true',
-        default = False,
-        help="If using 'Local' backend, synchronize remote repository with local repo."
+        default=None,
+        help="Synchronize local repo and remote before execution. Default False if 'local' backend, else default is True."
     )
     run_p.add_argument(
         '--push',
         action='store_true',
-        default = False,
-        help="If using 'Local' backend, push newly created bundles to remote context."
+        default=None,
+        help="Push bundles to remote context. Default False if 'local' backend, else default is True."
     )
     run_p.add_argument(
         '--use-aws-session-token',
@@ -630,18 +628,25 @@ def run_entry(cli=False, **kwargs):
     Returns:
 
     """
+    if kwargs['backend'] is not None:
+        kwargs['backend'] = Backend[kwargs['backend']]
+    else:
+        kwargs['backend'] = Backend[Backend.default()]
 
-    pfs = fs.DisdatFS()
+    # CLI and API only set push or pull.  Translate to no-push no-pull in original run code.
+    # If backend == 'Local' then don't pull or push by default
+    # TODO: change run() semantics to push pull, not no_push, no_pull.
+    if kwargs['push'] is not None:
+        kwargs['no_push'] = not kwargs['push']
+    else:
+        kwargs['no_push'] = True if kwargs['backend'] == Backend.Local else False
+
+    if kwargs['pull'] is not None:
+        kwargs['no_pull'] = not kwargs['pull']
+    else:
+        kwargs['no_pull'] = True if kwargs['backend'] == Backend.Local else False
 
     # Ensure kwargs only contains the arguments we want when calling _run
-    # We introduce push and pull for the CLI when users specify the local backend.
-    # In that case the default is not to push and not to pull.
-    # However, the API run() retains the original arguments no-push and no-pull.
-    # And user's must set no-push=true and no-pull=true in the API when the backend is local if they
-    # don't want to synchronize with the remote context.
-    push = kwargs['push']
-    pull = kwargs['pull']
-
     remove_keys = []
     for k in kwargs.keys():
         if k not in _run.__code__.co_varnames:
@@ -650,33 +655,8 @@ def run_entry(cli=False, **kwargs):
     for k in remove_keys:
         kwargs.pop(k)
 
-    # if any set, the other must be set.  if a or b, then a and b are set
-    if kwargs['context'] is not None or kwargs['remote'] is not None:
-        if kwargs['context'] is None or kwargs['remote'] is None:
-            print("Must set both context [{}] and remote [{}] simultaneously.".format(kwargs['context'], kwargs['remote']))
-            return
-    else:
-        if not pfs.in_context():
-            print("'Must be in a context (or specify --context and --remote) to execute 'dsdt run'")
-            return
-
-    if kwargs['backend'] is not None:
-        kwargs['backend'] = Backend[kwargs['backend']]
-    else:
-        kwargs['backend'] = Backend[Backend.default()]
-
     kwargs['input_tags'] = common.parse_args_tags(kwargs['input_tags'], to='list')
     kwargs['output_tags'] = common.parse_args_tags(kwargs['output_tags'], to='list')
     kwargs['cli'] = cli
-
-    # If backend == 'Local' then default is --no-push and --no-pull are False
-    # unless --push and --pull are set.
-    # If backend != 'Local' then we ignore --push and --pull
-
-    if kwargs['backend'] == Backend.Local:
-        if not push:
-            kwargs['no_push'] = True
-        if not pull:
-            kwargs['no_pull'] = True
 
     return _run(**kwargs)

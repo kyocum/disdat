@@ -1373,7 +1373,10 @@ class DataContext(object):
                     row.append((fr.pb.name, fr.to_ndarray()))
         if common.DEFAULT_FRAME_NAME in frames[0].pb.name:
             # Drop the names and return a list of unkeyed values.
-            return tuple([r[1] for r in row])
+            tuple_of_lists = tuple([r[1] for r in row])
+            if len(tuple_of_lists) == 1:
+                return tuple(tuple_of_lists[0])
+            return tuple_of_lists
         else:
             d = { t[0]: (t[1] if isinstance(t[1], (tuple, list, np.ndarray)) else [t[1]]) for t in row }
             return d

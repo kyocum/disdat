@@ -2,7 +2,6 @@ import pytest
 
 import disdat.api as api
 
-
 TEST_CONTEXT = '___test_context___'
 
 
@@ -19,4 +18,3 @@ def setup():
         api.delete_context(context_name=TEST_CONTEXT)
 
     api.context(context_name=TEST_CONTEXT)
-
