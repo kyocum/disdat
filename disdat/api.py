@@ -634,6 +634,8 @@ class Bundle(HyperFrameRecord):
         To use, you must a.) write data into this file-like object (a 'target'), and b.) you must add this
         target to the bundle via `bundle.add_data(bundle.make_file("my_file"))`
 
+        TODO: for binary files add a binary=True, and return luigi.LocalTarget('test.npz', format=luigi.format.Nop)
+
         Arguments:
             filename (str,list,dict): filename to create in the bundle
 
