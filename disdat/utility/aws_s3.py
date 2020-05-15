@@ -452,31 +452,53 @@ def ls_s3_url_paths(s3_url):
     return [os.path.join('s3://', r['Key']) for r in ls_s3_url(s3_url)]
 
 
+def delete_s3_dir_many(s3_urls):
+    """
+
+    Args:
+        s3_urls(list(str)): list of s3_urls we will remove
+
+    Returns:
+        number objects deleted (int)
+
+    """
+    MAX_WAIT = 12 * 60
+    mp_ctxt = get_context('forkserver')  # Using forkserver here causes moto / pytest failures
+    pool = mp_ctxt.Pool(processes=mp_ctxt.cpu_count())
+    multiple_results = []
+    for s3_url in s3_urls:
+        multiple_results.append(pool.apply_async(delete_s3_dir, (s3_url,)))
+
+    pool.close()
+    results = [res.get(timeout=MAX_WAIT) for res in multiple_results]
+    pool.join()
+    return sum([1 if r > 0 else 0 for r in results])
+
+
 def delete_s3_dir(s3_url):
+    """
+
+    Args:
+        s3_url:
+
+    Returns:
+        number deleted (int)
+
+    """
     s3 = b3.resource('s3')
     bucket, s3_path = split_s3_url(s3_url)
+
     bucket = s3.Bucket(bucket)
     objects_to_delete = []
     for obj in bucket.objects.filter(Prefix=s3_path):
         objects_to_delete.append({'Key': obj.key})
-    bucket.delete_objects(
-        Delete={
-            'Objects': objects_to_delete
-        }
-    )
-
-
-def delete_s3_file(s3_url):
-    s3 = b3.resource('s3')
-    bucket, s3_path = split_s3_url(s3_url)
-    response = s3.Object(bucket, s3_path).delete()
-    # print response
-    # if response['DeleteMarker']:
-    #    return True
-    # else:
-    #    return False
-    # TODO: we're getting a different response than the docs say.
-    return True
+    if len(objects_to_delete) > 0:
+        bucket.delete_objects(
+            Delete={
+                'Objects': objects_to_delete
+            }
+        )
+    return len(objects_to_delete)
 
 
 def cp_s3_file(s3_src_path, s3_root):

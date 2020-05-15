@@ -72,7 +72,7 @@ def _make_lineage_record(hframe_name, hframe_uuid, depends_on=None):
 
     """
 
-    lr = hyperframe.LineageRecord(hframe_name=hframe_name, hframe_uuid=hframe_uuid,
+    lr = hyperframe.LineageRecord(hframe_proc_name=hframe_name, hframe_uuid=hframe_uuid,
                                   code_repo='bigdipper', code_name='unknown',
                                   code_semver='0.1.0', code_hash='5cd60d3',
                                   code_branch='develop', code_method='unknown', depends_on=depends_on)

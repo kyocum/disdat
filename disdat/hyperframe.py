@@ -71,6 +71,7 @@ HyperFrameTuple = namedtuple('HyperFrameTuple', 'columns, links, uuid, tags')
 UPSERT_POLICY = 'FAIL'
 HFRAMES_TABLE = 'hframes'
 
+
 class RecordState(enum.Enum):
     """
     Database records of hyperframes can be valid or deleted.
@@ -811,7 +812,7 @@ class HyperFrameRecord(PBObject):
 
     table_name = HFRAMES_TABLE
 
-    def __init__(self, owner='', human_name='', processing_name='', uuid='',
+    def __init__(self, owner=None, human_name=None, processing_name=None, uuid=None,
                  frames=None, lin_obj=None, tags=None, presentation=hyperframe_pb2.DEFAULT):
         """
         Create a HyperFrame
@@ -840,10 +841,15 @@ class HyperFrameRecord(PBObject):
         super(HyperFrameRecord, self).__init__()
         self.pb = self._pb_type()
 
-        self.pb.owner = owner
-        self.pb.human_name = human_name
-        self.pb.processing_name = processing_name
-        self.pb.uuid = uuid
+        if owner is not None:
+            self.pb.owner = owner
+        if human_name is not None:
+            self.pb.human_name = human_name
+        if processing_name is not None:
+            self.pb.processing_name = processing_name
+        if uuid is not None:
+            self.pb.uuid = uuid
+
         self.pb.presentation = presentation
 
         self.frame_cache = defaultdict(FrameRecord)
@@ -1274,25 +1280,25 @@ class LineageRecord(PBObject):
 
     table_name = 'lineage'
 
-    def __init__(self, hframe_name=None, hframe_uuid=None,
-                 code_repo=None, code_name=None, code_semver=None,
-                 code_hash=None, code_branch=None, code_method=None,
+    def __init__(self, hframe_proc_name='', hframe_uuid='',
+                 code_repo='', code_name='', code_semver='',
+                 code_hash='', code_branch='', code_method='',
                  creation_date=None, depends_on=None,
                  start_ts=0, stop_ts=0):
         """
         LineageRecord -- a collection of information about how this bundle was created.
 
         Args:
-            hframe_name: name of this bundle
-            bundle_uuid: the uuid of this bundle in the objectrecord
-            code_repo: git repo where code exists
-            code_name: module.class
-            code_semver: semver from code_version
-            code_hash: githash from code_version
-            code_branch: name of branch
+            hframe_proc_name (str): name of this bundle
+            bundle_uuid (str): the uuid of this bundle in the objectrecord
+            code_repo (str): git repo where code exists
+            code_name (str): module.class
+            code_semver (str): semver from code_version
+            code_hash (str): githash from code_version
+            code_branch (str): name of branch
             code_method (str): package.module.class.method | package.module.method | package.module.class
-            creation_date: Time this bundle was created
-            depends_on (list): array[ (hframe_name, version uuid), ... ]
+            creation_date (DateTime.datetime): Time this bundle was created
+            depends_on (list): array[ (hframe_proc_name, version uuid, arg_name), ... ]
             start_ts (float): timestamp of task start
             stop_ts (float): timestamp of task stop
 
@@ -1302,7 +1308,7 @@ class LineageRecord(PBObject):
 
         super(LineageRecord, self).__init__()
         self.pb = self._pb_type()
-        self.pb.hframe_name = hframe_name
+        self.pb.hframe_proc_name = hframe_proc_name
         self.pb.hframe_uuid = hframe_uuid
         self.pb.code_repo = code_repo
         self.pb.code_name = code_name
@@ -1323,9 +1329,8 @@ class LineageRecord(PBObject):
 
         self.pb.creation_date = creation_date
 
-        # Note: depends_on tuple hframe_name is the processing name, very confusing! -- Todo: change in pb spec
         if depends_on is not None:
-            _ = [self.pb.depends_on.add(hframe_name = tup[0], hframe_uuid = tup[1]) for tup in depends_on]
+            self.add_dependencies(depends_on)
 
     @staticmethod
     def _create_table(metadata):
@@ -1336,7 +1341,7 @@ class LineageRecord(PBObject):
         """
         lineage = Table(LineageRecord.table_name, metadata,
                          Column('hframe_uuid', String(50), primary_key=True),# sqlite_on_conflict_primary_key=UPSERT_POLICY),
-                         Column('hframe_name', String),
+                         Column('hframe_proc_name', String),
                          Column('code_repo', String),
                          Column('code_hash', String(50)),
                          Column('creation_date', DateTime), #TIMESTAMP),
@@ -1361,14 +1366,15 @@ class LineageRecord(PBObject):
         be ordered in queries (latest bundle) by UTC time.  But we display to user with a time.localtime(ts)
         conversion.
 
-        :return: dictionary of key columns (from _create_table) and values.
+        Returns:
+             dictionary of key columns (from _create_table) and values.
         """
         assert(self.pb is not None)
 
         print("Lineage Writing row with TS {}".format(time.ctime(self.pb.lineage.creation_date)))
 
         return {'hframe_uuid': self.pb.hframe_uuid,
-                'hframe_name': self.pb.hframe_name,
+                'hframe_proc_name': self.pb.hframe_proc_name,
                 'code_repo': self.pb.code_repo,
                 'code_hash': self.pb.code_hash,
                 'creation_date': datetime.utcfromtimestamp(self.pb.creation_date),
@@ -1376,12 +1382,31 @@ class LineageRecord(PBObject):
                 'pb': self.pb.SerializeToString()}
 
     def to_string(self):
-        s = "hframe[{}] uuid[{}] Timestamp[{}] Repo[{}] GitHash[{}] ".format(self.pb.hframe_name,
+        s = "hframe[{}] uuid[{}] Timestamp[{}] Repo[{}] GitHash[{}] ".format(self.pb.hframe_proc_name,
                                                                              self.pb.hframe_uuid,
                                                                              self.pb.creation_date,
                                                                              self.pb.code_repo,
                                                                              self.pb.code_hash)
         return s
+
+    @staticmethod
+    def add_deps_to_lr(lineage_pb, depends_on):
+        _ = [lineage_pb.depends_on.add(hframe_proc_name=tup[0],
+                                    hframe_uuid=tup[1],
+                                    arg_name=tup[2]) for tup in depends_on]
+
+    def add_dependencies(self, depends_on):
+        """  Add dependencies to this Lineage Object.
+
+        Note: this adds to existing dependencies.
+
+        Args:
+            depends_on (list(tuples)): List of (argname, processing_name, uuid)
+
+        Returns:
+            None
+        """
+        LineageRecord.add_deps_to_lr(self.pb, depends_on)
 
     def get_filename(self):
         """

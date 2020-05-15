@@ -26,11 +26,10 @@ Depending on the kind of pipe given, change our behavior between 1:1,
 
 author: Kenneth Yocum
 """
-from collections import defaultdict, deque
+from collections import deque
 
 import luigi
 
-from disdat.fs import PipeCacheEntry, DisdatFS
 from disdat.pipe_base import PipeBase
 
 
@@ -56,71 +55,6 @@ class DriverTask(luigi.WrapperTask, PipeBase):
 
     def __init__(self, *args, **kwargs):
         super(DriverTask, self).__init__(*args, **kwargs)
-
-    def bundle_outputs(self):
-        """
-        Override PipeBase.bundle_outputs
-
-        NOTE: This really provides the set up bundles produced by upstream tasks.  NOT the bundles
-        produced by this task -- which is a single bundle.
-
-        The DriverTask defines the global name of the output of this analysis.
-        This is the output_bundle parameter.
-
-        The output bundle contains the bundles made only by the "right" edge (execute left to right) of the DAG.
-
-        So I get the list of tasks that must run directly before the driver with requires.
-
-        NOTE: Calls task.deps which calls task._requires which calls task.requires()
-        NOTE: Unlike Pipe.bundle_outputs(), we do not return the final bundle, but the bundles it contains.
-
-        Returns: [(bundle_name, uuid), ... ]
-        """
-
-        output_tasks = self.deps()
-        output_bundles = [(task.processing_id(), self.pfs.get_path_cache(task).uuid) for task in output_tasks]
-
-        return output_bundles
-
-    def bundle_inputs(self):
-        """
-        Override PipeBase.bundle_inputs
-
-        NOTE: This provides lineage for the driver's output bundle.  RIGHT-EDGE POLICY says that the directly upstream
-        bundles from our right-edge tasks are the ones this bundle depends on.  Alternative reality is that
-        we note that this is a *pipeline* bundle and that it depends on the pipeline's input bundle and the inputs of
-        the left-edge tasks.   BUT this means that we will disconnect nodes in the lineage graph.
-
-        The driver represents the entire pipeline.  In a sense the input bundles from the "left edge" of the pipesline
-        are also "inputs."  However, this function returns the bundle_inputs used to fill lineage "depends_upon."
-        And that is used to determine what to check to see if we need to re-run.
-
-        Returns: [(bundle_name, uuid), ... ]
-        """
-
-        input_tasks = self.deps()
-        input_bundles = [(task.processing_id(), self.pfs.get_path_cache(task).uuid) for task in input_tasks]
-        return input_bundles
-
-    def pipe_id(self):
-        """
-        The driver is a wrappertask.  It isn't a real pipe.
-
-        Returns: processing_name
-
-        """
-
-        assert False
-
-    def pipeline_id(self):
-        """
-        The driver is a wrappertask.  It isn't a real pipe.
-
-        Returns:
-            (str)
-        """
-
-        assert False
 
     def requires(self):
         """
@@ -197,26 +131,6 @@ class DriverTask(luigi.WrapperTask, PipeBase):
                 presentables.append(next_hf)
 
         return presentables
-
-    @staticmethod
-    def get_all_pipesline_output_bundles():
-        """
-        Find all output bundles for the pipes attached to the driver task
-
-        The DisdatFS object has a cache of [(pipe instance, path, rerun)]
-
-        Note: This does not include the driver's output bundle.
-
-        :return: list of [(bundle_name, PipeCacheEntry) ... ]
-        """
-        all_bundles = defaultdict(PipeCacheEntry)
-
-        pcache = DisdatFS.path_cache()
-
-        for p_name, p_entry in pcache.items():  # @UnusedVariable
-            all_bundles[p_entry.instance.name_output_bundle()] = p_entry
-
-        return all_bundles
 
 
 if __name__ == '__main__':

@@ -18,7 +18,6 @@ import luigi
 import pytest
 
 from disdat.pipe import PipeTask
-from disdat.common import ExtDepError
 import disdat.api as api
 from tests.functional.common import run_test, TEST_CONTEXT # autouse fixture to setup / tear down context
 

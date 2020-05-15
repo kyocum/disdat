@@ -42,7 +42,6 @@ from disdat.data_context import DataContext
 from disdat.common import DisdatConfig, CatNoBundleError
 from disdat import logger as _logger
 
-PipeCacheEntry = collections.namedtuple('PipeCacheEntry', 'instance uuid path rerun is_left_edge_task')
 CodeVersion = collections.namedtuple('CodeVersion', 'semver hash tstamp branch url dirty')
 
 CONTEXTS = ['DEFAULT']
@@ -134,20 +133,13 @@ def determine_pipe_version(pipe_root):
 class DisdatFS(object):
     """
     HyperFrame (bundle) access layer (singleton)
-    
-    We have one class attribute that keeps track of allocated bundle directories. 
-    This is filled at the time we try to run apply.
 
-    Note: The path cache requires that everyone import "disdat.fs" and not "import fs".   Otherwise we will put entries
-    in a class object whose name is '<class 'fs.DisdatFS'>' but search in an instance of <class 'disdat.fs.DisdatFS'>.
-    The driver uses the fs.DisdatFS class object, but when you run from a pipe defined outside the project, then the
-    system finds the class object with the package name appended.   And that class object doesn't have a path_cache
-    with anything in it.
+    We have one class attribute that keeps track of allocated bundle directories.
+    This is filled at the time we try to run apply.
 
     """
     __metaclass__ = common.SingletonType
 
-    task_path_cache = {}  ## [<pipe/luigi task id>] -> PipeCacheEntry(instance, directory, re-run)
     current_pipe_version = None
 
     class JsonConfig(object):
@@ -195,96 +187,6 @@ class DisdatFS(object):
     @staticmethod
     def clear_pipe_version():
         DisdatFS.current_pipe_version = None
-
-    @staticmethod
-    def clear_path_cache():
-        """
-        If you grab the singleton instance, and you try to grab the task_path_cache, you will end up reading
-        the class variable.  But if you try to set the class variable, you will make a copy and set it instead.
-        So to really clear it, make a static method.
-
-        Returns:
-            None
-        """
-        DisdatFS.task_path_cache.clear()
-
-    @staticmethod
-    def get_path_cache(pipe_instance):
-        """
-        Given a pipe process name, return the resolved path.
-
-        Note: The path cache has to use the pipe.pipe_id(), which is a string
-        that takes into account enough of the configuration of the executed pipe that it is
-        unique.  That is, it cannot use the pipeline_id(), as that typically is just the human-readable bundle name
-        that is the output of the pipeline.
-
-        Args:
-            pipe_instance:
-
-        Returns:
-            (instance,path,rerun) as PipeCacheEntry
-
-        """
-
-        pipe_name = pipe_instance.processing_id()
-
-        return DisdatFS.get_path_cache_by_name(pipe_name)
-
-    @staticmethod
-    def get_path_cache_by_name(pipe_name):
-        """
-        Given a pipe name, return the resolved path.
-        :return:  (instance,path,rerun) as PipeCacheEntry
-        """
-
-        #print "SEARCH PCECLZ {} PIPE {}".format(DisdatFS, pipe_name)
-
-        if pipe_name in DisdatFS.task_path_cache:
-            rval = DisdatFS.task_path_cache[pipe_name]
-        else:
-            rval = None
-
-        return rval
-
-    @staticmethod
-    def path_cache():
-        """       
-        :return: cache dictionary
-        """        
-        return DisdatFS.task_path_cache
-
-    @staticmethod
-    def put_path_cache(pipe_instance, uuid, path, rerun, is_left_edge_task, overwrite=False):
-        """  The path cache is used to associate a pipe instance with its output path and whether
-        we have decided to re-run this pipe.   If rerun is True, then there should be no
-        ouput at this path.  AND it should eventually be added as a new version of this bundle.
-
-        Args:
-            pipe_instance:     instance of a pipe
-            uuid:              specific uuid of the output path
-            path:              where to write the bundle
-            rerun:             whether or not we are re-running or re-using
-            is_left_edge_task: is this at the top of the DAG?
-            overwrite:         overwrite existing entry (if exists)
-
-        Returns:
-            pce or raise KeyError
-
-        """
-        pipe_name = pipe_instance.processing_id()
-        pce = PipeCacheEntry(pipe_instance, uuid, path, rerun, is_left_edge_task)
-        if pipe_name not in DisdatFS.task_path_cache:
-            DisdatFS.task_path_cache[pipe_name] = pce
-        else:
-            if pce == DisdatFS.task_path_cache[pipe_name]: # The tuples are identical
-                _logger.error("path_cache dup key: pipe {} already bound to same PCE {} ".format(pipe_name, pce))
-            else:
-                if overwrite:
-                    DisdatFS.task_path_cache[pipe_name] = pce
-                else:
-                    raise KeyError("path_cache dup key: pipe {} bound to pce {} but trying to re-assign to {}".format(
-                        pipe_name, DisdatFS.task_path_cache[pipe_name], pce))
-        return pce
 
     def __init__(self):
         """ Create an FS object.
@@ -390,71 +292,56 @@ class DisdatFS(object):
         """
         return self.curr_context and self.curr_context.is_valid()
 
-    def reuse_hframe(self, pipe, hfr_uuid, is_left_edge_task, data_context=None):
+    def rmr(self, human_name=None, uuid=None, tags=None, dryrun=False, data_context=None):
         """
-        Re-use this bundle, everything stays the same, just put in the cache
-        Note: Currently doesn't use this FS instance, but to be consistent with
-        new_output_bundle below.
+        Remove bundle from remote.  If human_name provided, remove the latest.
+        This call uses the local index (sqlite db) to first find the uuid's and then
+        issue the remove.
+
+        Default: remove latest
+        rm_old_only: remove everything except most recent
+        rm_all: remove everything
 
         Args:
-            pipe (`pipe.PipeTask`): The pipe task that should not be re-run.
-            hfr_uuid (str): The UUID of the hyperframe to re-use.
-            is_left_edge_task (bool): Is this at the top of the DAG.
-            data_context: The context containing this bundle with UUID hfr_uuid.
+            human_name:  The human-given name for this hyperframe / bundle
+            uuid (str): Remove the particular bundle
+            tags (:dict):   A dict of (key,value) to find bundles
+            dryrun (bool): Do not remove any bundles, only print out what would be removed
+            data_context (`disdat.data_context.DataContext`): Context for particular removal
 
         Returns:
-            None
+            results (list:str):  List of strings of removed bundles
         """
-
-        pce = self.get_path_cache(pipe)
-        if pce is None:
-            _logger.debug("reuse_hframe: Adding a new (unseen) task to the path cache.")
-        else:
-            _logger.debug("reuse_hframe: Found a task in our dag already in the path cache: reusing!")
-            return
+        return_strings = []
 
         if data_context is None:
             data_context = self.curr_context
 
-        dir = data_context.implicit_hframe_path(hfr_uuid)
-        DisdatFS.put_path_cache(pipe, hfr_uuid, dir, False, is_left_edge_task)
+        return_strings.append("Disdat Context: {}".format(data_context.context))
 
-    def new_output_hframe(self, pipe, is_left_edge_task, force_uuid=None, data_context=None):
-        """
-        This proposes a new output hframe.
-        1.) Create a new UUID
-        2.) Create the directory in the context
-        3.) Add this to the path cache
+        uuids = self.ls(human_name,
+                        False, False, False, False, False,
+                        uuid=uuid,
+                        tags=tags,
+                        print_uuid_only=True,
+                        data_context=data_context)
 
-        Note: We don't add to context's db yet.  The job or pipe hasn't run yet.  So it
-        hasn't made all of its outputs.  If it fails, by definition it won't right out the
-        hframe to the context's directory.   On rebuild / restart we will delete the directory.
-        However, the path_cache will hold on to this directory in memory.
+        if dryrun:
+            if len(uuids) == 0:
+                return_strings.append("Remove remote found no bundles to remove")
+            for id in uuids:
+                return_strings.append("Remove remote dryrun uuid {}".format(id))
+            return return_strings
 
-        Args:
-            pipe:
-            is_left_edge_task:
-            force_uuid:
-            data_context:
-
-        Returns:
-
-        """
-
-        pce = self.get_path_cache(pipe)
-
-        if pce is None:
-            _logger.debug("new_output_hframe: Adding a new (unseen) task to the path cache.")
-        else:
-            _logger.debug("new_output_hframe: Found a task in our dag already in the path cache: reusing!")
-            return
-
-        if data_context is None:
-            data_context = self.curr_context
-
-        dir, uuid, _ = data_context.make_managed_path(uuid=force_uuid)
-
-        DisdatFS.put_path_cache(pipe, uuid, dir, True, is_left_edge_task)
+        try:
+            s3_urls = [os.path.join(data_context.get_remote_object_dir(), id) for id in uuids]
+            return_strings.append("Found {} local bundles to remove.".format(len(s3_urls)))
+            num_objects_deleted = aws_s3.delete_s3_dir_many(s3_urls)
+            return_strings.append("Removed {} remote bundles from S3.".format(num_objects_deleted))
+        except Exception as e:
+            return_strings.append("Remote remote ERROR: {} ".format(e))
+            #_logger.error(e)
+        return return_strings
 
     def rm(self, human_name=None, rm_all=False, rm_old_only=False, uuid=None, tags=None, force=False, data_context=None):
         """
@@ -587,7 +474,8 @@ class DisdatFS(object):
             return None
 
     def ls(self, search_name, print_tags, print_intermediates, print_roots, print_long, print_args,
-           before=None, after=None, uuid=None, maxbydate=False, committed=None, tags=None, data_context=None):
+           before=None, after=None, uuid=None, maxbydate=False, committed=None, tags=None, print_uuid_only=False,
+           data_context=None):
         """
         Enumerate bundles (hyperframes) in this context.
 
@@ -596,6 +484,7 @@ class DisdatFS(object):
             print_tags (bool): Whether to print the bundle tags
             print_intermediates (bool): Show only intermediate bundles
             print_roots (bool): Show only root bundles
+            print_long (bool): Display long header
             print_args (bool): Whether to print the arguments used to produce this bundle
             before (date.datetime): '01-03-19 02:40:37' or date '01-03-19' inclusive range
             after (date.datetime): '01-03-19 02:40:37' or date '01-03-19' inclusive range
@@ -603,6 +492,7 @@ class DisdatFS(object):
             maxbydate (bool): return the latest by date
             committed (bool): If True, just committed, if False, just uncommitted, if None then ignore.
             tags: Optional. A dictionary of tags to search for.
+            print_uuid_only (bool):  Return only a list of UUIDs (internal use)
             data_context (`disdat.data_context.DataContext`): Optional data context to operate in
 
         Returns:
@@ -647,11 +537,14 @@ class DisdatFS(object):
                 if r.get_tag('root_task'):
                     continue
 
-            if print_long:
-                output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags, print_args=print_args))
+            if print_uuid_only:
+                output_strings.append(r.pb.uuid)
             else:
-                if r.pb.human_name not in output_strings:
-                    output_strings.append(r.pb.human_name)
+                if print_long:
+                    output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags, print_args=print_args))
+                else:
+                    if r.pb.human_name not in output_strings:
+                        output_strings.append(r.pb.human_name)
         return output_strings
 
     @staticmethod
@@ -758,8 +651,8 @@ class DisdatFS(object):
         :param possible_bundle_name:
         :return: True / False
         """
-        
-        first  = DisdatFS.is_bundle_name(possible_bundle_name)         
+
+        first  = DisdatFS.is_bundle_name(possible_bundle_name)
         second = possible_bundle_name.endswith(".BNDL")
 
         return first and second
@@ -1395,6 +1288,11 @@ def _rm(fs, args):
         print(f)
 
 
+def _rmr(fs, args):
+    for f in fs.rmr(args.bundle, tags=common.parse_args_tags(args.tag), uuid=args.uuid, dryrun=args.dryrun):
+        print(f)
+
+
 def _parse_date(date_string, throw=False):
     """
 
@@ -1516,7 +1414,7 @@ def init_fs_cl(subparsers):
 
     # rm
     rm_p = subparsers.add_parser('rm')
-    rm_p.add_argument('bundle', nargs='?', type=str, default=None, help='The destination bundle in the current context')
+    rm_p.add_argument('bundle', nargs='?', type=str, default=None, help='The bundle in the current context')
     rm_p.add_argument('-f', '--force', action='store_true', default=False, help='Force remove of a committed bundle')
     rm_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to remove')
     rm_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
@@ -1526,6 +1424,15 @@ def init_fs_cl(subparsers):
     rm_p.add_argument('--old', action='store_true', default=False,
                       help='Remove everything except the most recent bundle.')
     rm_p.set_defaults(func=lambda args: _rm(fs, args))
+
+    # rmr remove from remote
+    rmr_p = subparsers.add_parser('rmr')
+    rmr_p.add_argument('bundle', nargs='?', type=str, default=None, help='The bundle in the current context')
+    rmr_p.add_argument('--dryrun', action='store_true', default=False, help='Do not delete found bundles')
+    rmr_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to remove')
+    rmr_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
+                       help="Having a specific tag: 'dsdt rm -t committed:True -t version:0.7.1'")
+    rmr_p.set_defaults(func=lambda args: _rmr(fs, args))
 
     # ls
     ls_p = subparsers.add_parser('ls')

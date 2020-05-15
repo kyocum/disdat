@@ -115,7 +115,7 @@ def test_managed_local():
     assert len(api.search(TEST_CONTEXT)) == 1, 'Only one bundle should be present'
     print(api.cat(TEST_CONTEXT, 'b3'))
 
-    assert os.path.exists(api.search(TEST_CONTEXT, search_name='b3')[0].data['file'][0]), \
+    assert os.path.exists(api.search(TEST_CONTEXT, human_name='b3')[0].data['file'][0]), \
         'Local file should be present in bundle'
 
 
@@ -129,7 +129,7 @@ def test_non_managed_local():
     assert len(api.search(TEST_CONTEXT)) == 1, 'Only one bundle should be present'
     print(api.cat(TEST_CONTEXT, 'b1'))
 
-    assert os.path.exists(api.search(TEST_CONTEXT, search_name='b1')[0].data['file'][0]), \
+    assert os.path.exists(api.search(TEST_CONTEXT, human_name='b1')[0].data['file'][0]), \
         'Local file should be present in bundle'
 
 
@@ -153,7 +153,7 @@ def test_remote_push_managed_s3():
     # Apply
     api.apply(TEST_CONTEXT, ManagedS3, incremental_push=True)
 
-    assert not os.path.exists(api.search(TEST_CONTEXT, search_name='b4')[0].data['file'][0]), \
+    assert not os.path.exists(api.search(TEST_CONTEXT, human_name='b4')[0].data['file'][0]), \
         'Managed S3 file should not be copied to local'
 
     # Get objects from remote
@@ -191,7 +191,7 @@ def test_remote_push_non_managed_s3():
     print(api.cat(TEST_CONTEXT, 'b2'))
 
     # Local context should contain file -- users must use managed to avoid this behavior.
-    assert os.path.exists(api.search(TEST_CONTEXT, search_name='b2')[0].data['file'][0]), \
+    assert os.path.exists(api.search(TEST_CONTEXT, human_name='b2')[0].data['file'][0]), \
         'Non Managed S3 file should be copied to local'
 
     # Get objects from remote
@@ -249,7 +249,7 @@ def test_remote_no_push_non_managed_s3():
     api.apply(TEST_CONTEXT, NonManagedS3)
     print(api.cat(TEST_CONTEXT, 'b2'))
 
-    assert os.path.exists(api.search(TEST_CONTEXT, search_name='b2')[0].data['file'][0]), \
+    assert os.path.exists(api.search(TEST_CONTEXT, human_name='b2')[0].data['file'][0]), \
         'Non Managed S3 file should be copied to local'
 
 
@@ -284,7 +284,7 @@ def test_no_remote_push_non_managed_s3():
     print(api.cat(TEST_CONTEXT, 'b2'))
     assert len(api.search(TEST_CONTEXT)) == 1, 'One bundle should be present'
 
-    assert os.path.exists(api.search(TEST_CONTEXT, search_name='b2')[0].data['file'][0]), \
+    assert os.path.exists(api.search(TEST_CONTEXT, human_name='b2')[0].data['file'][0]), \
         'Non Managed S3 file should be copied to local'
 
 
@@ -320,7 +320,7 @@ def test_no_remote_no_push_non_managed_s3():
     print(api.cat(TEST_CONTEXT, 'b2'))
     assert len(api.search(TEST_CONTEXT)) == 1, 'One bundle should be present'
 
-    assert os.path.exists(api.search(TEST_CONTEXT, search_name='b2')[0].data['file'][0]), \
+    assert os.path.exists(api.search(TEST_CONTEXT, human_name='b2')[0].data['file'][0]), \
         'Non Managed S3 file should be copied to local'
 
 

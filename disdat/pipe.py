@@ -33,17 +33,20 @@ author: Kenneth Yocum
 """
 
 import os
+import sys
 import time
 import hashlib
 
 import luigi
 
 from disdat.pipe_base import PipeBase
-from disdat.db_link import DBLink
 from disdat.driver import DriverTask
-from disdat.fs import DisdatFS
-from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PUSH_META, BUNDLE_TAG_PARAMS_PREFIX, ExtDepError
+from disdat.db_link import DBLink
+from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PUSH_META, ExtDepError
 from disdat import logger as _logger
+from disdat.fs import DisdatFS
+from disdat.path_cache import PathCache
+import disdat.api as api
 
 
 class PipeTask(luigi.Task, PipeBase):
@@ -93,37 +96,42 @@ class PipeTask(luigi.Task, PipeBase):
         self.user_set_human_name = None  # self.set_bundle_name()
         self.user_tags = {}              # self.add_tags()
         self.add_deps = {}               # self.add(_external)_dependency()
-        self.db_targets = []             # Deprecating
         self._input_tags = {}            # self.get_tags() of upstream tasks
         self._input_bundle_uuids = {}    # self.get_bundle_uuid() of upstream tasks
         self._mark_force = False         # self.mark_force()
 
     def bundle_output(self):
         """
-        Return the processing_name and uuid of the output bundle of this task.
+        Return the bundle being made or re-used by this task.
         NOTE: Currently un-used.  Consider removing.
+        Returns:
+            (dict): <user_arg_name>:<bundle>
         """
-        return self.processing_id(), self.pfs.get_path_cache(self).uuid
+        pce = PathCache.get_path_cache(self)
+        return {self.user_arg_name: pce.b}
 
     def bundle_inputs(self):
         """
-        Given this pipe, return the set of bundles created by the input pipes.
-        Mirrors Luigi task.inputs()
+        Given this pipe, return the set of bundles that this task used as input.
+        Return a list of tuples that contain (processing_name, uuid, arg_name)
 
         NOTE: Calls task.deps which calls task._requires which calls task.requires()
 
-        :param pipe_task:  A PipeTask or a DriverTask (both implement PipeBase)
-        :return:  [(bundle_name, uuid), ... ]
+        Args:
+            self (disdat.PipeTask):  The pipe task in question
 
+        Returns:
+            (dict(str:`disdat.api.Bundle`)):  {arg_name: bundle, ...}
         """
 
-        input_bundles = []
+        input_bundles = {}
         for task in self.deps():
             if isinstance(task, ExternalDepTask):
-                input_bundles.append((task.processing_name, task.uuid))
+                b = api.get(self.data_context.get_local_name(), None, uuid=task.uuid)
             else:
-                input_bundles.append((task.processing_id(), self.pfs.get_path_cache(task).uuid))
-
+                b = PathCache.get_path_cache(task).bundle
+            assert b is not None
+            input_bundles[task.user_arg_name] = b
         return input_bundles
 
     def processing_id(self):
@@ -212,7 +220,7 @@ class PipeTask(luigi.Task, PipeBase):
             hframe_uuid (str): The unique identifier for this task's hyperframe
         """
 
-        pce = self.pfs.get_path_cache(self)
+        pce = PathCache.get_path_cache(self)
         assert (pce is not None)
 
         return pce.uuid
@@ -291,21 +299,16 @@ class PipeTask(luigi.Task, PipeBase):
 
     def run(self):
         """
-
         Call users run function.
         1.) prepare the arguments
         2.) run and gather user result
         3.) interpret and wrap in a HyperFrame
 
         Returns:
-            (`hyperframe.HyperFrame`):
-
+            None
         """
-
         kwargs = self.prepare_pipe_kwargs(for_run=True)
-
-        pce = self.pfs.get_path_cache(self)
-
+        pce = PathCache.get_path_cache(self)
         assert(pce is not None)
 
         """ NOTE: If a user changes a task param in run(), and that param parameterizes a dependency in requires(), 
@@ -321,27 +324,12 @@ class PipeTask(luigi.Task, PipeBase):
             """ If user's pipe fails for any reason, remove bundle dir and raise """
             try:
                 _logger.error("User pipe_run encountered exception: {}".format(error))
-                PipeBase.rm_bundle_dir(pce.path, pce.uuid, self.db_targets)
+                pce.bundle.abandon()
             except OSError as ose:
                 _logger.error("User pipe_run encountered error, and error on remove bundle: {}".format(ose))
             raise
 
         try:
-            presentation, frames = PipeBase.parse_return_val(pce.uuid,
-                                                             user_rtn_val,
-                                                             self.data_context)
-
-            hfr = PipeBase.make_hframe(frames,
-                                       pce.uuid,
-                                       cached_bundle_inputs,
-                                       self.human_id(),
-                                       self.processing_id(),
-                                       self,
-                                       start_ts=start,
-                                       stop_ts=stop,
-                                       tags={"presentable": "True"},
-                                       presentation=presentation)
-
             # Add any output tags to the user tag dict
             if self.output_tags:
                 self.user_tags.update(self.output_tags)
@@ -350,25 +338,40 @@ class PipeTask(luigi.Task, PipeBase):
             if isinstance(self.calling_task, DriverTask):
                 self.user_tags.update({'root_task': 'True'})
 
-            # Lastly add any parameters associated with this class as tags.
-            # They are differentiated by a special prefix in the key
-            self.user_tags.update(self._get_subcls_params())
+            """ if we have a pce, we have a new bundle that we need to add info to and close """
+            pce.bundle.add_data(user_rtn_val)
 
-            # Overwrite the hyperframe tags with the complete set of tags
-            hfr.replace_tags(self.user_tags)
+            pce.bundle.add_timing(start, stop)
 
-            self.data_context.write_hframe(hfr)
+            pce.bundle.add_dependencies(cached_bundle_inputs.values(), cached_bundle_inputs.keys())
 
-            if self.incremental_push and (hfr.get_tag(BUNDLE_TAG_TRANSIENT) is None):
-                self.pfs.commit(None, None, uuid=pce.uuid, data_context=self.data_context)
+            pce.bundle.name = self.human_id()
+
+            pce.bundle.processing_name = self.processing_id()
+
+            pce.bundle.add_params(self._get_subcls_params())
+
+            pce.bundle.add_tags(self.user_tags)
+
+            pce.bundle.add_code_ref('{}.{}'.format(self.__class__.__module__, self.__class__.__name__))
+
+            pipeline_path = os.path.dirname(sys.modules[self.__class__.__module__].__file__)
+            cv = DisdatFS.get_pipe_version(pipeline_path)
+            pce.bundle.add_git_info(cv.url, cv.hash, cv.branch)
+
+            pce.bundle.close()  # Write out the bundle
+
+            """ Incrementally push the completed bundle """
+            if self.incremental_push and (BUNDLE_TAG_TRANSIENT not in pce.bundle.tags):
+                self.pfs.commit(None, None, uuid=pce.bundle.uuid, data_context=self.data_context)
                 self.pfs.push(uuid=pce.uuid, data_context=self.data_context)
 
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
-            PipeBase.rm_bundle_dir(pce.path, pce.uuid, self.db_targets)
+            pce.bundle.abandon()
             raise
 
-        return hfr
+        return None
 
     def _get_subcls_params(self):
         """ Given the child class, extract user defined Luigi parameters
@@ -378,20 +381,17 @@ class PipeTask(luigi.Task, PipeBase):
         It would give us the parameters in this class as well.  And then we'd have to do set difference.
         See luigi.Task.get_params()
 
-        NOTE: We do NOT keep the parameter order maintained by Luigi.  That's critical for Luigi creating the task_id.
-        However, we can implicitly re-use that ordering if we re-instantiate the Luigi class.
-
         Args:
             self: The instance of the subclass.  To get the normalized values for the Luigi Parameters
         Returns:
-            dict: {BUNDLE_TAG_PARAM_PREFIX.<name>:'string value',...}
+            dict: {<name>:'string value',...}
         """
         cls = self.__class__
         params = {}
         for param in vars(cls):
             attribute = getattr(cls, param)
             if isinstance(attribute, luigi.Parameter):
-                params["{}{}".format(BUNDLE_TAG_PARAMS_PREFIX, param)] = attribute.serialize(getattr(self, param))
+                params["{}".format(param)] = attribute.serialize(getattr(self, param))
         return params
 
     @classmethod
@@ -406,7 +406,6 @@ class PipeTask(luigi.Task, PipeBase):
         Returns:
             deser_params (dict): {<name>: Luigi.Parameter,...}
         """
-        # cls = self.__class__
         deser_params = {}
         for param, ser_value in ser_params.items():
             try:
@@ -414,10 +413,10 @@ class PipeTask(luigi.Task, PipeBase):
                 assert isinstance(attribute, luigi.Parameter)
                 deser_params[param] = attribute.parse(ser_value)
             except Exception as e:
-                _logger.warning("Bundle parameter ({}:{}) unable to be deserialized by class({}): {}".format(param,
-                                                                                                             ser_value,
-                                                                                                             cls.__name__,
-                                                                                                             e))
+                _logger.warning("Bundle parameter ({}:{}) can't be deserialized by class({}): {}".format(param,
+                                                                                                         ser_value,
+                                                                                                         cls.__name__,
+                                                                                                         e))
                 raise e
         return deser_params
 
@@ -436,31 +435,29 @@ class PipeTask(luigi.Task, PipeBase):
 
         # Place upstream task outputs into the kwargs.  Thus the user does not call
         # self.inputs().  If they did, they would get a list of output targets for the bundle
-        # that isn't very helpful.
         if for_run:
 
             # Reset the stored tags, in case this instance is run multiple times.
             self._input_tags = {}
             self._input_bundle_uuids = {}
 
-            upstream_tasks = [(t.user_arg_name, self.pfs.get_path_cache(t)) for t in self.deps()]
+            upstream_tasks = [(t.user_arg_name, PathCache.get_path_cache(t)) for t in self.deps()]
             for user_arg_name, pce in [u for u in upstream_tasks if u[1] is not None]:
-                hfr = self.pfs.get_hframe_by_uuid(pce.uuid, data_context=self.data_context)
-                assert hfr.is_presentable()
 
-                # Download any data that is not local (the linked files are not present).
+                b = api.get(self.data_context.get_local_name(), None, uuid=pce.uuid)
+                assert b.is_presentable
+
+                # Download data that is not local (the linked files are not present).
                 # This is the default behavior when running in a container.
-                # The non-default is to download and localize ALL bundles in the context before we run.
-                # That's in-efficient.   We only need meta-data to determine what to re-run.
                 if self.incremental_pull:
-                    DisdatFS()._localize_hfr(hfr, pce.uuid, self.data_context)
+                    b.pull(localize=True)
 
                 if pce.instance.user_arg_name in kwargs:
                     _logger.warning('Task human name {} reused when naming task dependencies: Dependency hyperframe shadowed'.format(pce.instance.user_arg_name))
 
-                self._input_tags[user_arg_name] = hfr.tag_dict
+                self._input_tags[user_arg_name] = b.tags
                 self._input_bundle_uuids[user_arg_name] = pce.uuid
-                kwargs[user_arg_name] = self.data_context.present_hfr(hfr)
+                kwargs[user_arg_name] = b.data
 
         return kwargs
 
@@ -590,7 +587,7 @@ class PipeTask(luigi.Task, PipeBase):
                                                                                                                    uuid)
                 raise ExtDepError(error_str)
 
-            bundle = api.Bundle(self.data_context.get_local_name(), 'unknown').fill_from_hfr(hfr)
+            bundle = api.Bundle(self.data_context.get_local_name()).fill_from_hfr(hfr)
 
         except ExtDepError as error:  # Swallow and allow Luigi to determine task is not available.
             _logger.error(error_str)
@@ -608,28 +605,7 @@ class PipeTask(luigi.Task, PipeBase):
                 self.add_deps[param_name] = (luigi.task.externalize(ExternalDepTask), {'uuid': bundle.uuid,
                                                                                        'processing_name': bundle.processing_name})
 
-
         return bundle
-
-    def add_db_target(self, db_target):
-        """
-        Unimplemented: deprecated until we revisit semantics of DB bundle links.
-
-        Allow user to record a versioned database table.   Behind the scenes the system records
-        the dsn, database, schema, and table (information sufficient to operate on the table).  On "commit' a
-        db link will create a view to the latest version of the database table.
-
-        Note: We add through the DBTarget object create, not through
-        pipe.create_db_target() in the case that people do some hacking and don't use that API.
-
-        Args:
-            db_target (`db_target.DBTarget`):
-
-        Returns:
-            None
-        """
-        assert False, "add_db_target is deprecated until we revisit semantics of DB bundle links."
-        self.db_targets.append(db_target)
 
     def create_output_table(self, dsn, table_name, schema_name=None):
         """
@@ -662,7 +638,7 @@ class PipeTask(luigi.Task, PipeBase):
             (`luigi.LocalTarget`): Singleton, list, or dictionary of Luigi Target objects.
         """
 
-        pce = self.pfs.get_path_cache(self)
+        pce = PathCache.get_path_cache(self)
         assert (pce is not None)
         output_dir = pce.path
         return self.filename_to_luigi_targets(output_dir, filename)
@@ -683,7 +659,7 @@ class PipeTask(luigi.Task, PipeBase):
             (`luigi.contrib.s3.S3Target`): Singleton, list, or dictionary of Luigi Target objects.
 
         """
-        pce = self.pfs.get_path_cache(self)
+        pce = PathCache.get_path_cache(self)
         assert (pce is not None)
         output_dir = self.get_output_dir_remote()
         return self.filename_to_luigi_targets(output_dir, filename)
@@ -743,7 +719,7 @@ class PipeTask(luigi.Task, PipeBase):
             output_dir (str):  The bundle's output directory
 
         """
-        pce = self.pfs.get_path_cache(self)
+        pce = PathCache.get_path_cache(self)
         assert(pce is not None)
         return pce.path
 
@@ -758,7 +734,7 @@ class PipeTask(luigi.Task, PipeBase):
             output_dir (str):  The bundle's output directory on S3
 
         """
-        pce = self.pfs.get_path_cache(self)
+        pce = PathCache.get_path_cache(self)
         assert(pce is not None)
         if self.data_context.remote_ctxt_url and self.incremental_push:
             output_dir = os.path.join(self.data_context.get_remote_object_dir(), pce.uuid)
