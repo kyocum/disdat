@@ -26,7 +26,7 @@ import os
 import pkg_resources
 from getpass import getuser
 import six
-from multiprocessing import Pool, cpu_count
+from multiprocessing import get_context
 
 from botocore.exceptions import ClientError
 import boto3 as b3
@@ -309,7 +309,7 @@ def s3_list_objects_at_prefix(bucket, prefix):
     try:
         s3_b = s3.Bucket(bucket)
         for i in s3_b.objects.filter(Prefix=prefix, MaxKeys=1024):
-            result.append(i.key)
+            result.append(i)
     except Exception as e:
         _logger.error("s3_list_objects_starting_hex: failed with exception {}".format(e))
         raise
@@ -332,6 +332,9 @@ def s3_list_objects_at_prefix_v2(bucket, prefix):
     """
     result = []
     client = b3.client('s3')
+
+    #print(f"s3_list_objects_at_prefix_v2 the b3[{b3}] and client[{b3.client} and resource[{b3.resource}]")
+
     try:
         paginator = client.get_paginator('list_objects_v2')
         page_iterator = paginator.paginate(Bucket=bucket, Prefix=prefix)
@@ -345,9 +348,9 @@ def s3_list_objects_at_prefix_v2(bucket, prefix):
     return result
 
 
-def ls_s3_url_objects(s3_url, is_object_directory=False):
+def ls_s3_url_keys(s3_url, is_object_directory=False):
     """
-    List all objects at this s3_url.  If `is_object_directory` is True, then
+    List all keys at this s3_url.  If `is_object_directory` is True, then
     treat this `s3_url` as a Disdat object directory, consisting of uuids that start
     with one of 16 ascii characters.  This allows the ls operation to run in parallel.
 
@@ -369,7 +372,11 @@ def ls_s3_url_objects(s3_url, is_object_directory=False):
 
     MAX_WAIT = 12 * 60
     multiple_results = []
-    pool = Pool(processes=cpu_count()) # I/O bound, so let it use at least cpu_count()
+
+    # MacOS X fails when we multi-process using fork and boto sessions.
+    # One fix is to set export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    mp_ctxt = get_context('forkserver')
+    pool = mp_ctxt.Pool(processes=mp_ctxt.cpu_count()) # I/O bound, so let it use at least cpu_count()
 
     prefixes = ['']
     if is_object_directory:
@@ -386,6 +393,29 @@ def ls_s3_url_objects(s3_url, is_object_directory=False):
         results = s3_list_objects_at_prefix_v2(bucket, s3_path)
 
     return results
+
+
+def ls_s3_url_objects(s3_url):
+    """
+    List all objects under this s3_url.
+
+    Note: If you want to get a specific boto s3 object for a key, use s3_list_objects_at_prefix directly.
+
+    Note: the objects returned from this call cannot be subsequently passed into python multiprocessing
+    because they cannot be serialized by default.
+
+    Args:
+        s3_url(str): The bucket and key of the "directory" under which to search
+
+    Returns:
+        list (str): list of s3 objects under the bucket in the s3_path
+    """
+    if s3_url[-1] is not '/':
+        s3_url += '/'
+
+    bucket, s3_path = split_s3_url(s3_url)
+
+    return s3_list_objects_at_prefix(bucket, s3_path)
 
 
 def ls_s3_url(s3_url):
@@ -506,13 +536,9 @@ def get_s3_key(bucket, key, filename=None):
     Returns:
 
     """
-    import multiprocessing
-
-    # print ("PID({}) START bkt[] key[{}] file[{}]".format(multiprocessing.current_process(), bucket, key,filename))
-
     dl_retry = 3
-
     s3 = b3.resource('s3')
+    #print(f"get_s3_key the b3[{b3}] and client[{b3.client} and resource[{b3.resource}]")
 
     if filename is None:
         filename = os.path.basename(key)
@@ -539,6 +565,34 @@ def get_s3_key(bucket, key, filename=None):
     #print "PID({}) STOP bkt[] key[{}] file[{}]".format(multiprocessing.current_process(),key,filename)
 
     return filename
+
+
+def get_s3_key_many(bucket_key_file_tuples):
+    """ Retrieve many s3 keys in parallel and copy to the filename
+
+    This was done primarily because when testing from an external module, moto
+    fails to stub out calls to aws clients/resources if the multiprocessing occurs
+    outside of the module doing the s3 calls.
+
+    Args:
+        bucket_key_file_tuples (tuple): (bucket:str, key:str, filename=None)
+
+    Returns:
+        filenames (list): list of filenames
+
+    """
+    MAX_WAIT = 12 * 60
+    mp_ctxt = get_context('fork')  # Using forkserver here causes moto / pytest failures
+    pool = mp_ctxt.Pool(processes=mp_ctxt.cpu_count())
+    multiple_results = []
+    for s3_bucket, s3_key, local_object_path in bucket_key_file_tuples:
+        multiple_results.append(pool.apply_async(get_s3_key,
+                                                 (s3_bucket, s3_key, local_object_path)))
+
+    pool.close()
+    results = [res.get(timeout=MAX_WAIT) for res in multiple_results]
+    pool.join()
+    return results
 
 
 def get_s3_file(s3_url, filename=None):

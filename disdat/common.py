@@ -130,6 +130,7 @@ class DisdatConfig(object):
             meta_dir_root (str): Optional place to store disdat contexts. Default `~/`
             config_dir (str): Optional directory from which to get disdat.cfg and luigi.cfg.  Default SYSTEM_CONFIG_DIR
         """
+
         # Find configuration directory
         if config_dir:
             config_dir = config_dir
