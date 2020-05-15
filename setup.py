@@ -98,7 +98,7 @@ setup(
 
     install_requires=[
         'luigi==2.8.11',
-        'boto3==1.11.9',
+        'boto3==1.13.10', # 1.11.9
         'termcolor==1.1.0',
         'docker==4.1.0',
         'pandas==0.25.3',

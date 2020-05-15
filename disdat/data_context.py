@@ -304,6 +304,11 @@ class DataContext(object):
     def get_local_name(self):
         return self.local_ctxt
 
+    @property
+    def context(self):
+        """ Return fully qualified context string """
+        return f"local [{self.local_ctxt}] remote [{self.remote_ctxt}@{self.remote_ctxt_url}/{self.remote_ctxt}]"
+
     def init_remote_db(self):
         """
         Currently a no-op.  Will connect to something like dynamodb
