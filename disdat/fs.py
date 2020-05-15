@@ -497,15 +497,14 @@ class DisdatFS(object):
                 return_strings.append("Remove remote dryrun uuid {}".format(id))
             return return_strings
 
-        for id in uuids:
-            try:
-                s3_url = os.path.join(data_context.get_remote_object_dir(), id)
-                aws_s3.delete_s3_dir(s3_url)
-                return_strings.append("Remove remote deleted uuid {}".format(id))
-            except Exception as e:
-                return_strings.append("Remote remote ERROR deleting uuid {}: {} ".format(id, e))
-                #_logger.error(e)
-
+        try:
+            s3_urls = [os.path.join(data_context.get_remote_object_dir(), id) for id in uuids]
+            return_strings.append("Found {} local bundles to remove.".format(len(s3_urls)))
+            num_objects_deleted = aws_s3.delete_s3_dir_many(s3_urls)
+            return_strings.append("Removed {} remote bundles from S3.".format(num_objects_deleted))
+        except Exception as e:
+            return_strings.append("Remote remote ERROR: {} ".format(e))
+            #_logger.error(e)
         return return_strings
 
     def rm(self, human_name=None, rm_all=False, rm_old_only=False, uuid=None, tags=None, force=False, data_context=None):

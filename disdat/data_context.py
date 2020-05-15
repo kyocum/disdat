@@ -307,7 +307,7 @@ class DataContext(object):
     @property
     def context(self):
         """ Return fully qualified context string """
-        return f"local:{self.local_ctxt} remote:{self.remote_ctxt}@s3://{self.remote_ctxt_url}/{self.remote_ctxt}"
+        return f"local [{self.local_ctxt}] remote [{self.remote_ctxt}@{self.remote_ctxt_url}/{self.remote_ctxt}]"
 
     def init_remote_db(self):
         """
