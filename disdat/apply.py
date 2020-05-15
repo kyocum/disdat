@@ -272,8 +272,9 @@ def resolve_bundle(pipe, data_context):
 
     """
 
+    # TODO: Find a better solution to this import loop
     from disdat.pipe import ExternalDepTask  # pipe.py->api.py->apply.py->pipe.ExternalDepTask fails b/c pipe importing
-    import disdat.api as api # 3.7 allows us to put this import at the top, but not 3.6.8
+    import disdat.api as api  # 3.7 allows us to put this import at the top, but not 3.6.8
 
     # These are constants
     verbose = False
@@ -455,9 +456,9 @@ def reuse_bundle(pipe, bundle, uuid, data_context):
     """
     pce = PathCache.get_path_cache(pipe)
     if pce is None:
-        _logger.debug("reuse_hframe: Adding a new (unseen) task to the path cache.")
+        _logger.debug("reuse_bundle: Adding a new (unseen) task to the path cache.")
     else:
-        _logger.debug("reuse_hframe: Found a task in our dag already in the path cache: reusing!")
+        _logger.debug("reuse_bundle: Found a task in our dag already in the path cache: reusing!")
         return
 
     dir = data_context.implicit_hframe_path(uuid)
@@ -489,9 +490,9 @@ def new_output_bundle(pipe, data_context, force_uuid=None):
     pce = PathCache.get_path_cache(pipe)
 
     if pce is None:
-        _logger.debug("new_output_hframe: Adding a new (unseen) task to the path cache.")
+        _logger.debug("new_output_bundle: Adding a new (unseen) task to the path cache.")
     else:
-        _logger.debug("new_output_hframe: Found a task in our dag already in the path cache: reusing!")
+        _logger.debug("new_output_bundle: Found a task in our dag already in the path cache: reusing!")
         return
 
     b = api.Bundle(data_context).open(force_uuid=force_uuid)

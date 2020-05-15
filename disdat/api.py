@@ -152,7 +152,7 @@ class Bundle(HyperFrameRecord):
         self._data = None        # The df, array, dictionary the user wants to store
 
         super(Bundle, self).__init__(human_name=name, #'' if name is None else name,
-                                     owner='unknown' if owner is None else owner,
+                                     owner=getpass.getuser() if owner is None else owner,
                                      processing_name=processing_name, #'' if processing_name is None else processing_name
                                      )
 

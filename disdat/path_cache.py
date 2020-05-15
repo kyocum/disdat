@@ -31,11 +31,11 @@ class PathCache(object):
     """
     PipeCache singelton
 
-    The path cache requires that everyone import "disdat.path_cache" and not "import path_cache".
-    Otherwise we will put entries in a class object whose name is '<class 'fs.DisdatFS'>' but search in an instance
-    of <class 'disdat.path_cache.PathCache'>. The driver uses the path_cache.PathCache class object, but when you run
-    from a pipe defined outside the project, then the system finds the class object with the package name appended.
-    And that class object doesn't have a path_cache with anything in it.
+    The path cache requires that other components import "disdat.path_cache" and not "import path_cache".
+    Otherwise we will put entries in a class object whose name is '<class 'path_cache.PathCache'>' but search in an
+    instanceof <class 'disdat.path_cache.PathCache'>. The driver uses the path_cache.PathCache class object, but when
+    you run from a pipe defined outside the project, then the system finds the class object with the package name
+    appended. And that class object doesn't have a path_cache with anything in it.
 
     """
     task_path_cache = {}  ## [<pipe/luigi task id>] -> PipeCacheEntry(instance, bundle, uuid, directory, re-run)
