@@ -344,6 +344,7 @@ class Bundle(HyperFrameRecord):
         assert isinstance(params, dict)
         params = {f'{common.BUNDLE_TAG_PARAMS_PREFIX}{k}': v for k, v in params.items()}
         super(Bundle, self).add_tags(params)
+        return self
 
     def add_dependencies(self, bundles, arg_names=None):
         """ Add one or more upstream bundles as dependencies
@@ -462,7 +463,6 @@ class Bundle(HyperFrameRecord):
         self.pb = hfr.pb
         self.init_internal_state()
         self._data = self.data_context.present_hfr(hfr)
-
         return self
 
     """ Python Context Manager Interface """
