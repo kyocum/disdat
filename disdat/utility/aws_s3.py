@@ -604,7 +604,7 @@ def get_s3_key_many(bucket_key_file_tuples):
 
     """
     MAX_WAIT = 12 * 60
-    mp_ctxt = get_context('fork')  # Using forkserver here causes moto / pytest failures
+    mp_ctxt = get_context('forkserver')  # Using forkserver here causes moto / pytest failures
     pool = mp_ctxt.Pool(processes=mp_ctxt.cpu_count())
     multiple_results = []
     for s3_bucket, s3_key, local_object_path in bucket_key_file_tuples:
