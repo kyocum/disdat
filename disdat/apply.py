@@ -310,7 +310,6 @@ def resolve_bundle(pipe, data_context):
         if verbose: print("resolve_bundle: found ExternalDepTask re-using bundle with UUID[{}].\n".format(pipe.uuid))
         b = api.get(data_context.get_local_name(), None, uuid=pipe.uuid)  # TODO:cache b in ext dep object, no 2x lookup
         if b is None:
-            _logger.warn(f"Unable to resolve bundle[{pipe.uuid}] in context[{data_context.get_local_name()}]")
             reuse_bundle(pipe, b, pipe.uuid, data_context)  # Ensure that the PCE results in a file that cannot be found
         else:
             reuse_bundle(pipe, b, b.uuid, data_context)
