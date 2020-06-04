@@ -790,7 +790,7 @@ def delete_context(context_name, remote=False, force=False):
         None
     """
     fs = _get_fs()
-    fs.delete_branch(context_name, remote=remote, force=force)
+    fs.delete_context(context_name, remote=remote, force=force)
 
 
 def switch(context_name):

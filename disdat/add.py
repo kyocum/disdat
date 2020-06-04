@@ -47,7 +47,7 @@ def _add(args):
     return
 
 
-def init_add_cl(subparsers):
+def add_arg_parser(subparsers):
     """Initialize a command line set of subparsers with the add command.
 
     Args:

@@ -102,7 +102,7 @@ def _lineage(**kwargs):
     return
 
 
-def init_lineage_cl(subparsers):
+def add_arg_parser(subparsers):
     """Initialize a command line set of subparsers with the lineage command.
 
     Args:
