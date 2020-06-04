@@ -110,7 +110,7 @@ class DataContext(object):
         else:
             os.makedirs(local_ctxt_dir)
 
-    def delete_branch(self, force=False):
+    def delete_context(self, force=False):
         """
         Any checks on the local context before we delete all the objects in here?
 

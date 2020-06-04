@@ -96,9 +96,10 @@ if [ -f $package_root/setup.py ]; then
 	cd $package_root
 	run python setup.py install
 else
-    echo "pip install $package_root"
+  echo "pip install $package_root"
 	pip install --no-cache-dir $package_root
 fi
+
 success "Successfully installed $(basename $package_root) in $virtual_env"
 if [ x$use_conda != 'x' ]; then
 	success "'source $virtual_env/bin/activate $virtual_env' to start using it"

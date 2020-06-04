@@ -514,6 +514,7 @@ class Bundle(HyperFrameRecord):
             self.add_frames(frames)
             self.pb.presentation = presentation
             assert self.uuid != '', "Disdat API Error: Cannot close a bundle without a UUID."
+            self.pb.lineage.hframe_uuid = self.uuid
             if self.name == '':
                 if self.code_ref != '':
                     self.name = extract_human_name(self.code_ref)
@@ -789,7 +790,7 @@ def delete_context(context_name, remote=False, force=False):
         None
     """
     fs = _get_fs()
-    fs.delete_branch(context_name, remote=remote, force=force)
+    fs.delete_context(context_name, remote=remote, force=force)
 
 
 def switch(context_name):

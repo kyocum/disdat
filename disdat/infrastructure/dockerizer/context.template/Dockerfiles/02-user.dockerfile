@@ -29,6 +29,7 @@ fi
 RUN files=$(echo $BUILD_ROOT/config/$OS_NAME/*.deb); if [ "$files" != $BUILD_ROOT/config/$OS_NAME/'*.deb' ]; then \
 	for i in $files; do echo "Installing $i..."; dpkg -i $i; apt-get install -y -f;  done; \
 fi
+
 # Install R and packages
 RUN if [ -f $BUILD_ROOT/config/$OS_NAME/r.txt ]; then \
     apt-get update -y \
@@ -50,14 +51,6 @@ RUN if [ -f $BUILD_ROOT/config/$OS_NAME/r.txt ]; then \
 	done; \
 fi
 
-# NOTE: We were installing gdebi in the slim.dockerfile.  It includes an enormous number of dependencies.
-# We can't use autoremove, since it removes more than we installed.   The below is one way to
-# use gdebi, only installing if they have actual .deb files to install.
-#	apt-get install -y gdebi; \
-#	for i in $files; do echo "Installing $i..."; gdebi -n $i; done; \
-#	apt-get -y purge gdebi; \
-
-
 # Install user Python sdist package dependencies
 # NOTE: Since PIP 19.0 fails with --no-cache-dir, removed '-n' flag on kickstart-python.py script
 RUN files=$(echo $BUILD_ROOT/config/python-sdist/*.tar.gz); if [ "$files" != $BUILD_ROOT/config/python-sdist/'*.tar.gz' ]; then \
@@ -67,17 +60,18 @@ RUN files=$(echo $BUILD_ROOT/config/python-sdist/*.tar.gz); if [ "$files" != $BU
 	done; \
 fi
 
-# Install the pipeline package. The user must have a valid setup.py that can generate an sdist .tar.gz.
-# That will have been copied into the docker context.  Note, the install-python-package-from-source-tree script
-# installs with '--no-cache-dir' option.
+# NOTE: 01-disdat-python.dockerfile has set the PATH using ENV, so $VIRTUAL_ENV is already activated.
+
+# Install the user's package.   Split into two parts: package dependencies and user code.
+# First, the Makefile creates egginfo, to create a requires.txt file, and copies into context
+# We only issue the COPY for that file.  This will invalidate the docker layer cache if the requires.txt changes.
+# Second, we install the sdist *.tar.gz.  B/c sdists change on each create, that's installed every time.
 ARG PIPELINE_ROOT
+COPY pipeline/user_package_egg_requires.txt $PIPELINE_ROOT/
+RUN pip install `sed -n '1,/\[.*\]/p' $PIPELINE_ROOT/user_package_egg_requires.txt | grep -v '\[' | awk 'NF'`
+
 COPY pipeline $PIPELINE_ROOT
-RUN files=$(echo $PIPELINE_ROOT/*.tar.gz);  if [ "$files" != $PIPELINE_ROOT/'*.tar.gz' ]; then \
-	for i in $files; do \
-	    echo $i; \
-    	$KICKSTART_ROOT/bin/install-python-package-from-source-tree.sh $VIRTUAL_ENV $i; \
-    done; \
-fi
+RUN pip install --no-cache-dir $PIPELINE_ROOT/*.tar.gz
 
 # Set the git status env variables for the container. This represents the most recent git hash for the pipeline.
 ARG GIT_HASH

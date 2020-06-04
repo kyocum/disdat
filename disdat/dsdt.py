@@ -27,13 +27,8 @@ import logging
 import sys
 import os
 
-from disdat import apply
-from disdat import dockerize
-from disdat import run
-from disdat.fs import init_fs_cl
-from disdat.add import init_add_cl
-from disdat.lineage import init_lineage_cl
-from disdat.common import DisdatConfig, load_class
+from disdat import apply, dockerize, run, fs, add, lineage
+from disdat.common import DisdatConfig
 from disdat import log
 
 _pipes_fs = None
@@ -73,39 +68,13 @@ def main():
     ls_p = subparsers.add_parser('init')
     ls_p.set_defaults(func=lambda args: DisdatConfig.init())
 
-    # dockerize
-    subparsers = dockerize.add_arg_parser(subparsers)
-
-    # run
-    subparsers = run.add_arg_parser(subparsers)
-
-    # apply
-    apply_p = subparsers.add_parser('apply', description="Apply a transform to an input bundle to produce an output bundle.")
-    apply_p.add_argument('-cs', '--central-scheduler', action='store_true', default=False, help="Use a central Luigi scheduler (defaults to local scheduler)")
-    apply_p.add_argument('-w', '--workers', type=int, default=1, help="Number of Luigi workers on this node")
-    apply_p.add_argument('-it', '--input-tag', nargs=1, type=str, action='append',
-                         help="Input bundle tags: '-it authoritative:True -it version:0.7.1'")
-    apply_p.add_argument('-ot', '--output-tag', nargs=1, type=str, action='append',
-                         help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'")
-    apply_p.add_argument('-o', '--output-bundle', type=str, default='-',
-                         help="Name output bundle: '-o my.output.bundle'.  Default name is '<TaskName>_<param_hash>'")
-    apply_p.add_argument('-f', '--force', action='store_true', help="Force re-computation of only this task.")
-    apply_p.add_argument('--force-all', action='store_true', help="Force re-computation of ALL upstream tasks.")
-    apply_p.add_argument('--incremental-push', action='store_true', help="Commit and push each task's bundle as it is produced to the remote.")
-    apply_p.add_argument('--incremental-pull', action='store_true', help="Localize bundles as they are needed by downstream tasks from the remote.")
-    apply_p.add_argument('pipe_cls', type=load_class, help="User-defined transform, e.g., 'module.PipeClass'")
-    apply_p.add_argument('params', type=str,  nargs=argparse.REMAINDER,
-                         help="Optional set of parameters for this pipe '--parameter value'")
-    apply_p.set_defaults(func=lambda args: apply.cli_apply(args))
-
-    # File system operations
-    init_fs_cl(subparsers)
-
-    # add
-    init_add_cl(subparsers)
-
-    # add
-    init_lineage_cl(subparsers)
+    # Add additional subparsers
+    dockerize.add_arg_parser(subparsers)
+    run.add_arg_parser(subparsers)
+    apply.add_arg_parser(subparsers)
+    fs.add_arg_parser(subparsers)
+    add.add_arg_parser(subparsers)
+    lineage.add_arg_parser(subparsers)
 
     args = parser.parse_args(args)
 
@@ -118,7 +87,10 @@ def main():
     if args.aws_profile is not None:
         os.environ['AWS_PROFILE'] = args.aws_profile
 
-    args.func(args)
+    if hasattr(args,'func'):
+        args.func(args)
+    else:
+        print("dsdt requires arguments, see `dsdt -h` for usage")
 
 
 if __name__ == "__main__":

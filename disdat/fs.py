@@ -212,7 +212,10 @@ class DisdatFS(object):
     @property
     def curr_context(self):
         if self._curr_context is None:
-            active_context_name = self.load()
+            try:
+                active_context_name = self.load()
+            except RuntimeError:
+                return None
             try:
                 self._curr_context = self._all_contexts[active_context_name]
             except KeyError:
@@ -235,7 +238,7 @@ class DisdatFS(object):
 
         if not os.path.isfile(meta_file):
             _logger.debug("No disdat {} meta fs data file found.".format(meta_file))
-            raise IOError("No disdat {} meta fs data file found.".format(meta_file))
+            raise RuntimeError("No current local context, please change context with 'dsdt switch'")
         else:
             with open(meta_file, 'r') as json_file:
                 state_dict = json.loads(json_file.readline())
@@ -314,8 +317,9 @@ class DisdatFS(object):
         """
         return_strings = []
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            return return_strings
 
         return_strings.append("Disdat Context: {}".format(data_context.context))
 
@@ -365,8 +369,9 @@ class DisdatFS(object):
         """
         return_strings = []
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            return return_strings
 
         return_strings.append("Disdat Context {}".format(data_context.get_remote_name()))
         return_strings.append("On local branch {}".format(data_context.get_local_name()))
@@ -402,8 +407,9 @@ class DisdatFS(object):
             None or (`hyperframe.HyperFrameRecord`): None or latest hframe
         """
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            raise Exception("No current context")
 
         found = data_context.get_hframes(human_name=human_name, tags=tags)
 
@@ -428,8 +434,9 @@ class DisdatFS(object):
             `hyperframe.HyperFrameRecord`:
         """
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            raise Exception("No current context")
 
         found = data_context.get_hframes(uuid=uuid, tags=tags)
 
@@ -459,8 +466,9 @@ class DisdatFS(object):
             None or HyperFrameRecord
         """
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            raise Exception("No current context")
 
         found = data_context.get_hframes(processing_name=processing_name)
 
@@ -472,6 +480,24 @@ class DisdatFS(object):
                 return found[0]
         else:
             return None
+
+    def ensure_data_context(self, data_context):
+        """
+        Check if there's a valid data context,
+        and if not, get default, if still none, print out and return none.
+
+        Args:
+            data_context:
+
+        Returns:
+
+        """
+        if data_context is None:
+            data_context = self.curr_context
+            if data_context is None:
+                print("No current context.  `dsdt switch <othercontext>`")
+                return None
+        return data_context
 
     def ls(self, search_name, print_tags, print_intermediates, print_roots, print_long, print_args,
            before=None, after=None, uuid=None, maxbydate=False, committed=None, tags=None, print_uuid_only=False,
@@ -499,8 +525,11 @@ class DisdatFS(object):
 
         """
 
+        output_strings = []
+
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            return output_strings
 
         # Print roots if
         # not print_intermediates and print_roots: just print roots
@@ -513,8 +542,6 @@ class DisdatFS(object):
                 tags.update({'root_task': True})
             else:
                 tags = {'root_task': True}
-
-        output_strings = []
 
         if print_long:
             output_strings.append(DisdatFS._pretty_print_header())
@@ -593,8 +620,9 @@ class DisdatFS(object):
             (`DataFrame`) or (`numpy.ndarray`) or scalar type
         """
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            raise CatNoBundleError("No bundle found with name({}) uuid({})".format(human_name,uuid))
 
         if uuid is None:
             hfr = self.get_latest_hframe(human_name, tags=tags, data_context=data_context)
@@ -735,7 +763,7 @@ class DisdatFS(object):
                                                                                   context.get_object_dir()))
         return 0
 
-    def delete_branch(self, fq_context_name, remote, force):
+    def delete_context(self, fq_context_name, remote, force):
         """
 
         Delete a branch at <repo>/<context_name> or <context name>
@@ -752,14 +780,14 @@ class DisdatFS(object):
 
         ctxt_dir = os.path.join(DisdatConfig.instance().get_context_dir(), local_context)
 
-        if self._curr_context is not None and (fq_context_name == self.curr_context_name):
-            print("Disdat on context {}, please 'dsdt switch <otherbranch>' before deleting.".format(fq_context_name))
-            return
+        if self.curr_context is not None and (fq_context_name == self.curr_context_name):
+            print("Disdat deleting the current context {}, remember to 'dsdt switch <otherbranch>' afterwords!".format(fq_context_name))
+            os.remove(os.path.join(DisdatConfig.instance().get_meta_dir(), META_FS_FILE))
 
         if local_context in self._all_contexts:
             dc = self._all_contexts[local_context]
             remote_context_url = dc.get_remote_object_dir()
-            dc.delete_branch(force=force)
+            dc.delete_context(force=force)
             del self._all_contexts[local_context]
 
         if os.path.exists(ctxt_dir):
@@ -805,7 +833,7 @@ class DisdatFS(object):
 
         repo, local_context = DisdatFS._parse_fq_context_name(local_context_name)
 
-        if self._curr_context is not None and self.curr_context_name == local_context_name:
+        if self.curr_context is not None and self.curr_context_name == local_context_name:
             assert(local_context in self._all_contexts)
             assert(self.curr_context == self._all_contexts[local_context_name])
             _logger.info("Disdat already within a valid data context_name {}".format(local_context))
@@ -835,8 +863,9 @@ class DisdatFS(object):
 
         """
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            return
 
         _logger.debug('Committing bundle {} in context {}'.format(bundle_name, data_context.get_remote_name()))
 
@@ -1015,8 +1044,9 @@ class DisdatFS(object):
 
         """
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            return None
 
         if data_context.remote_ctxt_url is None:
             print("Push cannot execute.  Local context {} on remote {} not bound.".format(data_context.local_ctxt,
@@ -1136,8 +1166,9 @@ class DisdatFS(object):
             UserWarning: If we are not in a valid context.
         """
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            return
 
         if data_context.remote_ctxt_url is None:
             print("Pull cannot execute.  Local context {} on remote {} not bound.".format(data_context.local_ctxt, data_context.remote_ctxt))
@@ -1248,7 +1279,7 @@ class DisdatFS(object):
 
 def _branch(fs, args):
     if args.delete:
-        fs.delete_branch(args.context, args.remote, args.force)
+        fs.delete_context(args.context, args.remote, args.force)
     else:
         fs.branch(args.context)
 
@@ -1375,7 +1406,7 @@ def _cat(fs, args):
         print("Disdat cat found no bundle with name {} or uuid {}".format(args.bundle, args.uuid))
 
 
-def init_fs_cl(subparsers):
+def add_arg_parser(subparsers):
     """Initialize a command line set of subparsers with file system commands.
 
     Args:
