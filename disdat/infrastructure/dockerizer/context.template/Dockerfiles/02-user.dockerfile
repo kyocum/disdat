@@ -68,7 +68,7 @@ fi
 # Second, we install the sdist *.tar.gz.  B/c sdists change on each create, that's installed every time.
 ARG PIPELINE_ROOT
 COPY pipeline/user_package_egg_requires.txt $PIPELINE_ROOT/
-RUN pip install `grep -v '^\[' $PIPELINE_ROOT/user_package_egg_requires.txt`
+RUN pip install `sed -n '1,/\[.*\]/p' $PIPELINE_ROOT/user_package_egg_requires.txt | grep -v '\[' | awk 'NF'`
 
 COPY pipeline $PIPELINE_ROOT
 RUN pip install --no-cache-dir $PIPELINE_ROOT/*.tar.gz
