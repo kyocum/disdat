@@ -41,7 +41,6 @@ import luigi
 
 from disdat.pipe_base import PipeBase
 from disdat.driver import DriverTask
-from disdat.db_link import DBLink
 from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PUSH_META, ExtDepError
 from disdat import logger as _logger
 from disdat.fs import DisdatFS
@@ -607,24 +606,6 @@ class PipeTask(luigi.Task, PipeBase):
 
         return bundle
 
-    def create_output_table(self, dsn, table_name, schema_name=None):
-        """
-        Create an output table target.  Use the target to parameterize queries with the
-        target table name.
-
-        Args:
-            dsn (unicode): The dsn indicating the configuration to connect to the db
-            table_name (unicode): The table name.
-            schema_name (unicode): Optional force use of schema (default None)
-
-        Returns:
-            (`disdat.db_target.DBTarget`)
-
-        """
-        target = DBLink(self, dsn, table_name, schema_name=schema_name)
-
-        return target
-
     def create_output_file(self, filename):
         """
         Disdat Pipe API Function
@@ -643,7 +624,7 @@ class PipeTask(luigi.Task, PipeBase):
         output_dir = pce.path
         return self.filename_to_luigi_targets(output_dir, filename)
 
-    def create_output_file_remote(self, filename):
+    def create_remote_output_file(self, filename):
         """
         Disdat Pipe API Function
 
@@ -661,7 +642,7 @@ class PipeTask(luigi.Task, PipeBase):
         """
         pce = PathCache.get_path_cache(self)
         assert (pce is not None)
-        output_dir = self.get_output_dir_remote()
+        output_dir = self.get_remote_output_dir()
         return self.filename_to_luigi_targets(output_dir, filename)
 
     def create_output_dir(self, dirname):
@@ -688,7 +669,7 @@ class PipeTask(luigi.Task, PipeBase):
 
         return fqp
 
-    def create_output_dir_remote(self, dirname):
+    def create_remote_output_dir(self, dirname):
         """
         Disdat Pipe API Function
 
@@ -704,7 +685,7 @@ class PipeTask(luigi.Task, PipeBase):
             output_dir (str):  Fully qualified path of a directory whose prefix is the bundle's remote output directory.
 
         """
-        prefix_dir = self.get_output_dir_remote()
+        prefix_dir = self.get_remote_output_dir()
         fqp = os.path.join(prefix_dir, dirname)
         return fqp
 
@@ -723,7 +704,7 @@ class PipeTask(luigi.Task, PipeBase):
         assert(pce is not None)
         return pce.path
 
-    def get_output_dir_remote(self):
+    def get_remote_output_dir(self):
         """
         Disdat Pipe API Function
 

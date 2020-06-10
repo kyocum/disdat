@@ -37,7 +37,7 @@ from disdat import logger as _logger
 S3_LS_USE_MP_THRESH = 4000  # the threshold after which we should use MP to look up bundles on s3
 
 MP_CONTEXT_TYPE = 'forkserver'  # Use for published version
-# MP_CONTEXT_TYPE = 'fork'        # Use for testing
+#MP_CONTEXT_TYPE = 'fork'        # Use for testing
 
 
 def batch_get_job_definition_name(pipeline_image_name):
@@ -435,8 +435,6 @@ def ls_s3_url(s3_url):
     result = []
     client = b3.client('s3')
     paginator = client.get_paginator('list_objects_v2')
-    # use delimiter to groupby, which means, list things only at this level.
-    #page_iterator = paginator.paginate(Bucket=bucket, Delimiter='/', Prefix=s3_path)
     page_iterator = paginator.paginate(Bucket=bucket,Prefix=s3_path)
     for page in page_iterator:
         result += page['Contents']
@@ -527,6 +525,23 @@ def cp_s3_file(s3_src_path, s3_root):
     return os.path.join("s3://", bucket, output_path)
 
 
+def cp_local_to_s3_file(local_file, s3_file):
+    """
+    Put fqp local file to fqp s3_file
+
+    Args:
+        local_file (str): Fully qualified path to local file
+        s3_file (str): Fully qualified path to file on s3
+
+    Returns:
+        s3_file
+    """
+    s3 = b3.resource('s3')
+    bucket, s3_path = split_s3_url(s3_file)
+    s3.Object(bucket, s3_path).upload_file(local_file, ExtraArgs={"ServerSideEncryption": "AES256"})
+    return s3_file
+
+
 def put_s3_file(local_path, s3_root):
     """
     Put local file to location at s3_root.
@@ -540,6 +555,8 @@ def put_s3_file(local_path, s3_root):
     """
     s3 = b3.resource('s3')
     bucket, s3_path = split_s3_url(s3_root)
+    if s3_path is None:
+        s3_path = ''
     filename = os.path.basename(local_path)
     s3.Object(bucket, os.path.join(s3_path, filename)).upload_file(local_path, ExtraArgs={"ServerSideEncryption": "AES256"})
     return filename
@@ -563,7 +580,6 @@ def get_s3_key(bucket, key, filename=None):
     """
     dl_retry = 3
     s3 = b3.resource('s3')
-    #print(f"get_s3_key the b3[{b3}] and client[{b3.client} and resource[{b3.resource}]")
 
     if filename is None:
         filename = os.path.basename(key)

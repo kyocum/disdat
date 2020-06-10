@@ -46,7 +46,7 @@ def test_push(run_test):
     assert 'Contents' not in objects, 'Bucket should be empty'
 
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
-    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL, force=True)
+    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
 
     api.apply(TEST_CONTEXT, RemoteTest)
     bundle = api.get(TEST_CONTEXT, 'remote_test')
@@ -75,7 +75,7 @@ def test_pull(run_test):
     assert 'Contents' not in objects, 'Bucket should be empty'
 
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
-    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL, force=True)
+    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
 
     api.apply(TEST_CONTEXT, RemoteTest)
     bundle = api.get(TEST_CONTEXT, 'remote_test')
@@ -91,7 +91,7 @@ def test_pull(run_test):
 
     api.delete_context(context_name=TEST_CONTEXT)
     api.context(context_name=TEST_CONTEXT)
-    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL, force=True)
+    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
     api.pull(TEST_CONTEXT)
 
     pulled_bundles = api.search(TEST_CONTEXT)

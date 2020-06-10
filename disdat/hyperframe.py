@@ -1964,7 +1964,7 @@ class FrameRecord(PBObject):
         return frame
 
     @staticmethod
-    def make_link_frame(hfid, name, file_paths, managed_path):
+    def make_link_frame(hfid, name, file_paths, local_managed_path, remote_managed_path):
         """ Create link frame from file paths (file, s3, or db) or luigi.Target objects.
 
         Assumes file_paths are 'file:///' or 's3://' or 'db://'
@@ -1978,7 +1978,8 @@ class FrameRecord(PBObject):
             hfid: hyperframe id
             name: column name
             file_paths (:list:str): array of paths or luigi.Target objects
-            managed_path (str): The current directory structure
+            local_managed_path (str): The current local directory structure
+            remote_managed_path (str): The current remote directory structure
 
         Returns:
             (FrameRecord)
@@ -2000,9 +2001,10 @@ class FrameRecord(PBObject):
             raise ValueError("Bad file paths -- cannot determine link type: example path {}".format(file_paths[0]))
 
         if link_type is FileLinkRecord:
-            to_remove = "file:///" + managed_path
+            to_remove = "file://" + local_managed_path
         elif link_type is S3LinkRecord:
-            to_remove = "s3://" + managed_path
+            assert remote_managed_path.startswith('s3://')
+            to_remove = remote_managed_path
 
         frame = FrameRecord(name=name,
                             hframe_uuid=hfid,
@@ -2010,23 +2012,8 @@ class FrameRecord(PBObject):
 
         frame_uuid = frame.get_uuid()
 
-        if link_type is DatabaseLinkRecord:
-            # What the user sees in a db link URL
-            # db://<database>.<schema>.<disdat>_<context>_<virt_name>_<uuid prefix>@servername
-            links = [link_type(frame_uuid,  # hframe_uuid
-                               None,  # linkauth_uuid
-                               db_tgt.url(), # url
-                               db_tgt.servername, # servername
-                               db_tgt.database,   # database
-                               db_tgt.schema,     # schema
-                               db_tgt.tn, # table name, i.e, no schema, disdat_prefix, context, or uuid
-                               None, # columns
-                               db_tgt.port, # port
-                               db_tgt.dsn # data source name
-                               ) for db_tgt in file_paths]
-        else:
-            file_paths = [common.BUNDLE_URI_SCHEME + fn[len(to_remove):] for fn in file_paths]
-            links = [link_type(frame_uuid, None, fn) for fn in file_paths]
+        file_paths = [common.BUNDLE_URI_SCHEME + os.path.relpath(fn, to_remove) for fn in file_paths]
+        links = [link_type(frame_uuid, None, fn) for fn in file_paths]
 
         return frame.add_links(links)
 

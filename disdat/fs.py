@@ -299,7 +299,8 @@ class DisdatFS(object):
         """
         Remove bundle from remote.  If human_name provided, remove the latest.
         This call uses the local index (sqlite db) to first find the uuid's and then
-        issue the remove.
+        issue the remove.  If the uuid is provided, rmr will remove from the remote even
+        if it doesn't exist locally.
 
         Default: remove latest
         rm_old_only: remove everything except most recent
@@ -330,6 +331,12 @@ class DisdatFS(object):
                         print_uuid_only=True,
                         data_context=data_context)
 
+        local_uuids_found = len(uuids)
+
+        # if a specific uuid, it may not be found locally.
+        if uuid is not None:
+            uuids = [uuid,]
+
         if dryrun:
             if len(uuids) == 0:
                 return_strings.append("Remove remote found no bundles to remove")
@@ -339,7 +346,7 @@ class DisdatFS(object):
 
         try:
             s3_urls = [os.path.join(data_context.get_remote_object_dir(), id) for id in uuids]
-            return_strings.append("Found {} local bundles to remove.".format(len(s3_urls)))
+            return_strings.append("Found {} local bundles to remove.".format(local_uuids_found))
             num_objects_deleted = aws_s3.delete_s3_dir_many(s3_urls)
             return_strings.append("Removed {} remote bundles from S3.".format(num_objects_deleted))
         except Exception as e:
@@ -1257,14 +1264,13 @@ class DisdatFS(object):
                     DisdatFS._localize_hfr(self.get_hframe_by_uuid(s3_uuid, data_context=data_context),
                                            s3_uuid, data_context)
 
-    def remote_add(self, remote_context, s3_url, force, ):
+    def remote_add(self, remote_context, s3_url):
         """
-        Bind the context name to this s3path.   For all branches with context name, set remote to s3path.
+        Bind the context name to this s3 url.
 
         Args:
             remote_context (str):  the name of the remote context
             s3_url (str):   the s3 path to bind to this remote context
-            force (bool):
 
         Returns:
             None
@@ -1274,7 +1280,7 @@ class DisdatFS(object):
 
         assert ctxt_obj is not None, "Disdat must be in a context to use 'remote'"
 
-        ctxt_obj.bind_remote_ctxt(remote_context, s3_url, force=force)
+        ctxt_obj.bind_remote_ctxt(remote_context, s3_url)
 
 
 def _branch(fs, args):
@@ -1289,7 +1295,7 @@ def _commit(fs, args):
 
 
 def _remote(fs, args):
-    fs.remote_add(args.context, args.s3_url, args.force)
+    fs.remote_add(args.context, args.s3_url)
 
 
 def _push(fs, args):
@@ -1506,8 +1512,6 @@ def add_arg_parser(subparsers):
     remote_p = subparsers.add_parser('remote')
     remote_p.add_argument('context', type=str, help='Name of the remote context')
     remote_p.add_argument('s3_url', type=str, help="Remote context site, i.e, 's3://<bucket>/dsdt/'")
-    remote_p.add_argument('-f', '--force', action='store_true',
-                          help="Force re-binding of remote. Executes 'dsdt pull --localize' to resolve files, which might take awhile.")
     remote_p.set_defaults(func=lambda args: _remote(fs, args))
 
     # push <name> --uuid <uuid>
