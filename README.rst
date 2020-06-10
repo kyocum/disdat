@@ -24,7 +24,7 @@ Disdat's bundle API and pipelines provide:
 
 * **Auto-docking** -- Disdat *dockerizes* pipelines so that they can run locally or execute on the cloud.
 
-Find our latest documentation on `gitbook here <https://disdat.gitbook.io/disdat-documentation/-Lyai3yH_PcBhyPh4ozb/>`_!
+Find our latest documentation on `gitbook here <https://disdat.gitbook.io>`_!
 
 
 Authors
