@@ -11,9 +11,7 @@ from __future__ import print_function
 
 from abc import ABCMeta, abstractmethod
 import os
-import sys
 import shutil
-import getpass
 import collections
 
 import luigi
@@ -26,7 +24,7 @@ import pandas as pd
 import disdat.common as common
 from disdat.fs import DisdatFS
 from disdat.data_context import DataContext
-from disdat.hyperframe import LineageRecord, HyperFrameRecord, FrameRecord
+from disdat.hyperframe import HyperFrameRecord, FrameRecord
 import disdat.hyperframe_pb2 as hyperframe_pb2
 from disdat.path_cache import PathCache
 from disdat import logger as _logger
@@ -245,12 +243,10 @@ class PipeBase(object):
 
         frames = []
 
-        managed_path = os.path.join(data_context.get_object_dir(), hfid)
-
         if val is None:
             """ None's stored as json.dumps([None]) or '[null]' """
             presentation = hyperframe_pb2.JSON
-            frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
+            frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
 
         elif isinstance(val, HyperFrameRecord):
             presentation = hyperframe_pb2.HF
@@ -260,12 +256,12 @@ class PipeBase(object):
             presentation = hyperframe_pb2.TENSOR
             if isinstance(val, list):
                 val = np.array(val)
-            frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
+            frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
 
         elif isinstance(val, tuple):
             presentation = hyperframe_pb2.ROW
             val = np.array(val)
-            frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
+            frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
 
         elif isinstance(val, dict):
             presentation = hyperframe_pb2.ROW
@@ -273,18 +269,18 @@ class PipeBase(object):
                 if not isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, collections.Sequence)):
                     # assuming this is a scalar
                     assert isinstance(v, possible_scalar_types), 'Disdat requires dictionary values to be one of {} not {}'.format(possible_scalar_types, type(v))
-                    frames.append(data_context.convert_scalar2frame(hfid, k, v, managed_path))
+                    frames.append(data_context.convert_scalar2frame(hfid, k, v))
                 else:
                     assert isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, collections.Sequence))
-                    frames.append(data_context.convert_serieslike2frame(hfid, k, v, managed_path))
+                    frames.append(data_context.convert_serieslike2frame(hfid, k, v))
 
         elif isinstance(val, pd.DataFrame):
             presentation = hyperframe_pb2.DF
-            frames.extend(data_context.convert_df2frames(hfid, val, managed_path))
+            frames.extend(data_context.convert_df2frames(hfid, val))
 
         else:
             presentation = hyperframe_pb2.SCALAR
-            frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
+            frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
 
         return presentation, frames
 

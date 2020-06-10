@@ -92,7 +92,7 @@ def _remote(context_arg, remote_url):
         return False
 
     try:
-        disdat.api.remote(local_context, remote_context, remote_url, force=True)
+        disdat.api.remote(local_context, remote_context, remote_url)
     except Exception:
         return False
     return True

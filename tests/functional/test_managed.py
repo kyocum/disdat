@@ -89,7 +89,7 @@ class ManagedS3(PipeTask):
         self.set_bundle_name('b4')
 
     def pipe_run(self):
-        target = self.create_output_file_remote('test.parquet')
+        target = self.create_remote_output_file('test.parquet')
 
         # Write dataframe to S3 Managed Path
         d = {'col1': [1, 2], 'col2': [3, 4]}
@@ -148,7 +148,7 @@ def test_remote_push_managed_s3():
     assert 'Contents' not in objects, 'Bucket should be empty'
 
     # Bind remote context
-    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL, force=True)
+    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
 
     # Apply
     api.apply(TEST_CONTEXT, ManagedS3, incremental_push=True)
@@ -184,15 +184,17 @@ def test_remote_push_non_managed_s3():
     assert 'Contents' not in objects, 'Bucket should be empty'
 
     # Bind remote context
-    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL, force=True)
+    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
 
     # Apply
     api.apply(TEST_CONTEXT, NonManagedS3, incremental_push=True)
     print(api.cat(TEST_CONTEXT, 'b2'))
 
-    # Local context should contain file -- users must use managed to avoid this behavior.
-    assert os.path.exists(api.search(TEST_CONTEXT, human_name='b2')[0].data['file'][0]), \
-        'Non Managed S3 file should be copied to local'
+    # Local context should not contain file if a remote exists.
+    b = api.search(TEST_CONTEXT, human_name='b2')[0]
+    assert not os.path.exists(b.data['file'][0]), 'Non Managed S3 file w/ remote should be copied to remote'
+    b.pull(localize=True)
+    assert os.path.exists(b.data['file'][0]), 'Non Managed S3 file after pull should be copied to local'
 
     # Get objects from remote
     objects = s3_client.list_objects(Bucket=TEST_BUCKET_OTHER)
@@ -219,7 +221,7 @@ def test_remote_no_push_managed_s3():
     assert 'Contents' not in objects, 'Bucket should be empty'
 
     # Bind remote context
-    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL, force=True)
+    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
 
     with pytest.raises(Exception) as e:
         api.apply(TEST_CONTEXT, ManagedS3)
@@ -243,14 +245,16 @@ def test_remote_no_push_non_managed_s3():
     assert 'Contents' not in objects, 'Bucket should be empty'
 
     # Bind remote context
-    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL, force=True)
+    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
 
     # Apply
     api.apply(TEST_CONTEXT, NonManagedS3)
     print(api.cat(TEST_CONTEXT, 'b2'))
 
-    assert os.path.exists(api.search(TEST_CONTEXT, human_name='b2')[0].data['file'][0]), \
-        'Non Managed S3 file should be copied to local'
+    # Local context should not contain file if a remote exists.
+    b = api.search(TEST_CONTEXT, human_name='b2')[0]
+    assert not os.path.exists(b.data['file'][0]), 'Non Managed S3 file w/ remote should be copied to remote'
+    assert b.data['file'][0].startswith("s3://")
 
 
 def test_no_remote_push_managed_s3():

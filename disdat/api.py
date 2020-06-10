@@ -589,10 +589,10 @@ class Bundle(HyperFrameRecord):
             self._data = self.data_context.present_hfr(self) # actualize link urls
         return self
 
-    def make_directory(self, dir_name):
-        """ Returns path `<disdat-managed-directory>/<dir_name>`.  This is used if you need
-        to hand a process an output directory and you do not have control of what it writes in
-        that directory.
+    def get_directory(self, dir_name):
+        """ Returns path `<disdat-managed-directory>/<dir_name>`.  This gives the user a local
+        output directory into which to write files.  This is useful when a user needs to give an external tool, such
+        as Spark or Tensorflow, a directory to place output files.
 
         Add this path as you would add file paths to your output bundle.  Disdat will incorporate
         all the data found in this directory into the bundle.
@@ -600,21 +600,22 @@ class Bundle(HyperFrameRecord):
         See Pipe.create_output_dir()
 
         Arguments:
-            dir_name (str): Either a FQP (prefix is the bundle path) or a basedir of a directory to appear in the bundle.  Neither should end in /
+            dir_name (str): A basedir of a directory to appear in the local bundle.
 
         Returns:
             str: A directory path managed by disdat
         """
         self._check_open()
 
-        # remove the prefix iff it exists
-        dst_base_path = dir_name.replace(self._local_dir, '')
+        if dir_name[-1] == '/':
+            dir_name = dir_name[:-1]
 
         # if the user erroneously passes in the directory of the bundle, return same
-        if dst_base_path == '':
+        if dir_name == self._local_dir:
             return self._local_dir
 
-        fqp = os.path.join(self._local_dir, dst_base_path.lstrip('/'))
+        fqp = os.path.join(self._local_dir, dir_name.lstrip('/'))
+
         try:
             os.makedirs(fqp)
         except OSError as why:
@@ -628,12 +629,13 @@ class Bundle(HyperFrameRecord):
 
         return fqp
 
-    def make_file(self, filename):
-        """ Create a file target called "filename" that will exist in the bundle.  This is used when you have
-        data in memory and wish to write it to a file, e.g., create a parquet file.
+    def get_file(self, filename):
+        """ Create a "managed path" to store file `filename` directly in the local data context.
+        This allows you to create versioned data sets without file copies and without worrying about where
+        your data files are to be stored.
 
-        To use, you must a.) write data into this file-like object (a 'target'), and b.) you must add this
-        target to the bundle via `bundle.add_data(bundle.make_file("my_file"))`
+        To use, you must a.) write data into this file-like object (a 'target'), and b.) add this
+        target to the bundle by either including its file path or the luigi target object itself.
 
         TODO: for binary files add a binary=True, and return luigi.LocalTarget('test.npz', format=luigi.format.Nop)
 
@@ -641,32 +643,54 @@ class Bundle(HyperFrameRecord):
             filename (str,list,dict): filename to create in the bundle
 
         Returns:
-            `luigi.LocalTarget` or `luigi.s3.S3Target`
+            `luigi.LocalTarget`
         """
         self._check_open()
         return PipeBase.filename_to_luigi_targets(self._local_dir, filename)
 
-    def copy_in_file(self, existing_file):
-        """ This function copies the file 'existing_file' into the output bundle.  This is used when you have
-        an existing file on disk and wish to add it to the bundle.
+    def get_remote_directory(self, dir_name):
+        """ Returns path `<disdat-managed-remote-directory>/<dir_name>`.  This gives the user a remote (e.g., s3)
+        output directory into which to write files.  This is useful when a user needs to give an external tool, such
+        as Spark or Tensorflow, a directory to place output files.
 
-        To use, you must record this as part of the bundle with `bundle.add_data(bundle.copy_in_file("my_file"))`
+        Add this path as you would add file paths to your output bundle.  Disdat will incorporate
+        all the data found in this directory into the bundle.
 
-        Args:
-            existing_file (str): Path to an existing file
+        See Pipe.create_output_dir_remote()
+
+        Arguments:
+            dir_name (str): A basedir of a directory to appear in the remote bundle.
 
         Returns:
-            `luigi.LocalTarget` or `luigi.s3.S3Target`
-
+            str: A directory path managed by disdat
         """
         self._check_open()
-        file_basename = os.path.basename(existing_file)
-        target = PipeBase.filename_to_luigi_targets(self._local_dir, file_basename)
 
-        with target.temporary_path() as temp_path:
-            shutil.copyfile(existing_file, temp_path)
+        fqp = os.path.join(self._remote_dir, dir_name.lstrip('/'))
 
-        return target
+        return fqp
+
+    def get_remote_file(self, filename):
+        """  Create a "managed path" to store file `filename` directly in the remote data context.
+        This allows you to create versioned data sets without file copies.
+
+        To use, you must a.) write data into this file-like object (a 'target'), and b.) add this
+        target to the bundle by either including its file path or the luigi target object itself.
+
+        Note: This requires that the local context has been bound to a remote data context.
+
+        Arguments:
+            filename (str,list,dict): filename to create in the bundle
+
+        Returns:
+            `luigi.s3.S3Target`
+        """
+        self._check_open()
+
+        if not self.data_context.remote_ctxt_url:
+            raise Exception('Managed S3 path creation requires a remote context')
+
+        return PipeBase.filename_to_luigi_targets(self._remote_dir, filename)
 
     @staticmethod
     def calc_default_processing_name(code_ref, params, dep_proc_ids):
@@ -807,18 +831,16 @@ def switch(context_name):
     fs.switch(context_name)
 
 
-def remote(local_context, remote_context, remote_url, force=False):
+def remote(local_context, remote_context, remote_url):
     """ Add a remote to local_context.
 
     Note that this local context may already have a remote bound.   This means that it might have
-    references to bundles that have not been localized (file references will be 's3:`).  In this case
-    you must set `force` to be True.
+    references to bundles that have not been localized (file references will be 's3:`).
 
     Args:
         local_context (str):  The name of the local context to which to add the remote.
         remote_context (str):  The name of the remote context.
         remote_url (str): The S3 path that holds the contexts, e.g., s3://disdat-prod/beta/
-        force (bool): If this local context already has a remote, you must set force=True
 
     Returns:
         None
@@ -833,7 +855,7 @@ def remote(local_context, remote_context, remote_url, force=False):
 
     data_context = _get_context(local_context)
 
-    data_context.bind_remote_ctxt(remote_context, remote_url, force=force)
+    data_context.bind_remote_ctxt(remote_context, remote_url)
 
 
 def search(local_context, human_name=None, processing_name=None, tags=None,
@@ -1056,8 +1078,7 @@ def add(local_context, bundle_name, path, tags=None):
             assert os.path.exists(path), "Disdat cannot find file at path: {}".format(path)
 
             if os.path.isfile(path):
-                thing = b.copy_in_file(path)
-                file_list.append(thing)
+                file_list.append(path)
             else:
                 base_path = path
                 for root, dirs, files in os.walk(path, topdown=True):
@@ -1068,7 +1089,7 @@ def add(local_context, bundle_name, path, tags=None):
                     if dst_base_path == '':
                         dst_base_path = b._local_dir
                     else:
-                        dst_base_path = b.make_directory(dst_base_path)
+                        dst_base_path = b.get_directory(dst_base_path)
                     for name in files:
                         dst_full_path = os.path.join(dst_base_path, name)
                         src_full_path = os.path.join(root,name)

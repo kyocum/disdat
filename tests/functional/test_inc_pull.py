@@ -98,7 +98,7 @@ def test_add_with_treat_as_bundle():
     assert 'Contents' not in objects, 'Bucket should be empty'
 
     # Bind remote context
-    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL, force=True)
+    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
 
     # Run test pipeline
     api.apply(TEST_CONTEXT, CIP)
@@ -115,7 +115,7 @@ def test_add_with_treat_as_bundle():
     assert TEST_CONTEXT not in api.ls_contexts()
 
     api.context(context_name=TEST_CONTEXT)
-    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL, force=True)
+    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
 
     assert api.search(TEST_CONTEXT) == [], 'Context should be empty'
 

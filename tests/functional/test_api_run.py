@@ -119,7 +119,7 @@ def manual_test_run_aws_batch(run_test, build_container_setup_only):
 
     # Add a remote.   Pull and Push!
     manual_s3_url = 's3://'
-    api.remote(TEST_CONTEXT, TEST_CONTEXT, manual_s3_url, force=True)
+    api.remote(TEST_CONTEXT, TEST_CONTEXT, manual_s3_url)
 
     retval = api.run(SETUP_DIR,
                      TEST_CONTEXT,
