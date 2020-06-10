@@ -45,7 +45,7 @@ def md5_file(fname):
     return hash_md5.hexdigest()
 
 
-def est_local_file(run_test):
+def test_local_file(run_test):
     """ Test copying in local file """
 
     local_fp = tempfile.NamedTemporaryFile()
@@ -64,7 +64,7 @@ def est_local_file(run_test):
     assert md5_file(b.data) == saved_md5
 
 
-def est_zero_copy_local_file(run_test):
+def test_zero_copy_local_file(run_test):
     """ Test managed path of a local file """
 
     with api.Bundle(TEST_CONTEXT, name=TEST_BUNDLE) as b:

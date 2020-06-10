@@ -36,8 +36,8 @@ from disdat import logger as _logger
 
 S3_LS_USE_MP_THRESH = 4000  # the threshold after which we should use MP to look up bundles on s3
 
-#MP_CONTEXT_TYPE = 'forkserver'  # Use for published version
-MP_CONTEXT_TYPE = 'fork'        # Use for testing
+MP_CONTEXT_TYPE = 'forkserver'  # Use for published version
+#MP_CONTEXT_TYPE = 'fork'        # Use for testing
 
 
 def batch_get_job_definition_name(pipeline_image_name):
