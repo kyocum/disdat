@@ -660,9 +660,8 @@ class DisdatFS(object):
     @staticmethod
     def disdat_uuid():
         """
-        Identical to pythia_uuid()
         """
-        return str(uuid.uuid4())
+        return common.create_uuid()
 
     @staticmethod
     def is_bundle_name(possible_bundle_name):

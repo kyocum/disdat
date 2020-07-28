@@ -23,6 +23,7 @@ import sys
 import shutil
 import importlib
 import subprocess
+import uuid
 
 import luigi
 from six.moves import urllib
@@ -285,6 +286,21 @@ def do_subprocess_with_output(cmd):
         return output
     except subprocess.CalledProcessError as cpe:
         raise
+
+#
+# One place to update all the uuid's made by Disdat
+#
+
+def create_uuid():
+    """
+    Note: We had been using uuid1, but found duplicate uuid's when using multiprocessing
+
+    Returns:
+        str: byte string of the 128bit UUID
+
+    """
+    return str(uuid.uuid4())
+
 
 #
 # Make Docker images names from pipeline class names

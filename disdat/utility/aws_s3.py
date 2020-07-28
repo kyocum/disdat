@@ -36,8 +36,8 @@ from disdat import logger as _logger
 
 S3_LS_USE_MP_THRESH = 4000  # the threshold after which we should use MP to look up bundles on s3
 
-MP_CONTEXT_TYPE = 'forkserver'  # Use for published version
-#MP_CONTEXT_TYPE = 'fork'        # Use for testing
+#MP_CONTEXT_TYPE = 'forkserver'  # Use for published version
+MP_CONTEXT_TYPE = 'fork'        # Use for testing
 
 
 def batch_get_job_definition_name(pipeline_image_name):
@@ -379,7 +379,10 @@ def ls_s3_url_keys(s3_url, is_object_directory=False):
     # MacOS X fails when we multi-process using fork and boto sessions.
     # One fix is to set export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
     mp_ctxt = get_context(MP_CONTEXT_TYPE)
-    pool = mp_ctxt.Pool(processes=mp_ctxt.cpu_count()) # I/O bound, so let it use at least cpu_count()
+
+    est_cpu_count = mp_ctxt.cpu_count()
+    print("ls_s3_url_keys using MP with cpu_count {}".format(est_cpu_count))
+    pool = mp_ctxt.Pool(processes=est_cpu_count)
 
     prefixes = ['']
     if is_object_directory:
@@ -624,7 +627,9 @@ def get_s3_key_many(bucket_key_file_tuples):
     """
     MAX_WAIT = 12 * 60
     mp_ctxt = get_context(MP_CONTEXT_TYPE)  # Using forkserver here causes moto / pytest failures
-    pool = mp_ctxt.Pool(processes=mp_ctxt.cpu_count())
+    est_cpu_count = mp_ctxt.cpu_count()
+    print("get_s3_key_many using MP with cpu_count {}".format(est_cpu_count))
+    pool = mp_ctxt.Pool(processes=est_cpu_count)
     multiple_results = []
     for s3_bucket, s3_key, local_object_path in bucket_key_file_tuples:
         multiple_results.append(pool.apply_async(get_s3_key,

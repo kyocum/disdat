@@ -47,7 +47,6 @@ import time
 import os
 import tempfile
 from datetime import datetime
-import uuid
 
 import numpy as np
 import pandas as pd
@@ -1446,7 +1445,7 @@ class FrameRecord(PBObject):
         self.hframe_uuid = hframe_uuid
 
         self.pb = self._pb_type()
-        self.pb.uuid = str(uuid.uuid1())
+        self.pb.uuid = common.create_uuid()
         self.pb.name = name
         self.pb.type = hyperframe_pb2.Type.Value(type)
 
@@ -1608,7 +1607,7 @@ class FrameRecord(PBObject):
         """
         self.hframe_uuid = new_hfr_uuid
 
-        self.pb.uuid = str(uuid.uuid1())
+        self.pb.uuid = common.create_uuid()
 
         self.pb.ClearField('hash')
 
@@ -1988,15 +1987,13 @@ class FrameRecord(PBObject):
         if isinstance(file_paths[0], luigi.LocalTarget):
             file_paths = ['file://{}'.format(lt.path) if lt.path.startswith('/') else lt.path for lt in file_paths]
 
-        if isinstance(file_paths[0], DBLink):
-            link_type = DatabaseLinkRecord
-        elif file_paths[0].startswith('file:///'):
+        if file_paths[0].startswith('file:///'):
             link_type = FileLinkRecord
         elif file_paths[0].startswith('s3://'):
             link_type = S3LinkRecord
-        elif file_paths[0].startswith('db://'):
-            _logger.error("Found string-based database reference[{}], use DBLink object instead.".format(file_paths[0]))
-            raise Exception("hyperframe:make_link_frame: error trying to copy in string-based database reference.")
+        elif file_paths[0].startswith('db://') or isinstance(file_paths[0], DBLink):
+            _logger.error("Found database reference[{}], DBLinks deprecated in 0.9.3 ".format(file_paths[0]))
+            raise Exception("hyperframe:make_link_frame: error trying to use a database reference.")
         else:
             raise ValueError("Bad file paths -- cannot determine link type: example path {}".format(file_paths[0]))
 
@@ -2126,7 +2123,7 @@ class S3LinkAuthRecord(LinkAuthBase):
         super(S3LinkAuthRecord, self).__init__()
 
         self.pb.profile = 'default-disdat' if profile is None else profile
-        self.pb.uuid = str(uuid.uuid1())
+        self.pb.uuid = common.create_uuid()
 
         self.pb.s3_auth.aws_access_key_id = aws_access_key_id
         self.pb.s3_auth.aws_secret_access_key = aws_secret_access_key
@@ -2143,39 +2140,6 @@ class S3LinkAuthRecord(LinkAuthBase):
         Deploy ini file updates
         """
         self.__deploy_ini("~/.aws/test_credentials")
-
-
-class DBLinkAuthRecord(LinkAuthBase):
-    """
-    DB Authentication information
-    Note: Does not contain password, instead capture description (DSN)
-    """
-    def __init__(self, driver, description, database, servername, uid, pwd, port, sslmode, profile=None):
-        super(DBLinkAuthRecord, self).__init__()
-
-        self.pb.profile = 'default-disdat' if profile is None else profile
-        self.pb.uuid = str(uuid.uuid1())
-
-        self.pb.db_auth.driver = driver
-        self.pb.db_auth.description = description
-        self.pb.db_auth.database = database
-        self.pb.db_auth.servername = servername
-        self.pb.db_auth.uid = uid
-        self.pb.db_auth.pwd = pwd
-        self.pb.db_auth.port= port
-        self.pb.db_auth.sslmode = sslmode
-
-        self.pb.ClearField('hash')
-        self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
-
-        assert (self.pb.IsInitialized())
-
-    def deploy(self):
-        """
-        Deploy ini file updates
-        :return:
-        """
-        self.__deploy_ini("~/.odbc.ini")
 
 
 class LinkBase(PBObject):
@@ -2321,42 +2285,3 @@ class S3LinkRecord(LinkBase):
         self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
         # XXX Add size?   self.size = 0
         assert (self.pb.IsInitialized())
-
-
-class DatabaseLinkRecord(LinkBase):
-    def __init__(self, hframe_uuid, linkauth_uuid, url, servername, database, schema, table, columns, port, dsn):
-        """
-
-        At this time we store the DSN in the database_link.   This is to avoid users placing userids and passwords
-        in code to create DBLinks.  Only committed bundles can be shared, so only the user creating the bundle
-        should be able to commit it.
-
-        Args:
-            hframe_uuid (str):  The UUID of the hyperframe
-            linkauth_uuid (str): The UUID of the linkauth.  Currently unused.
-            url (str): The string passed to the user representing this resource: "db://<virt-table>".  Note that we transform
-            this into the presented name in the bundle based on the context, uuid, and whether this bundle is committed.
-            servername (str):  DNS name for the database in question
-            database (str):    The name of the database containing the schema
-            schema (str):      The schema name
-            table (str):       The virtual table name
-            columns (list:str): A list of strings of column names.  Currently unused.
-            port (int):  The port at which the server is listening
-            dsn (str): data source name
-        """
-        super(DatabaseLinkRecord, self).__init__(hframe_uuid, linkauth_uuid)
-        assert (url.startswith('db://'))
-        self.pb.database.url = url
-        self.pb.database.servername = servername
-        self.pb.database.database = database
-        self.pb.database.schema = schema
-        self.pb.database.table = table
-        self.pb.database.columns.extend(columns)
-        self.pb.database.port = port
-        self.pb.database.dsn = dsn
-
-        self.pb.ClearField('hash')
-        self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
-        assert (self.pb.IsInitialized())
-
-
