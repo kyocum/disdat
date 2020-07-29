@@ -41,6 +41,28 @@ MP_CONTEXT_TYPE = 'forkserver'  # Use for published version
 MAX_TASKS_PER_CHILD = 100       # Force the pool to kill workers when they've done 100 tasks.
 
 
+def disdat_cpu_count():
+    """
+    Turns out that Python doesn't do a great job of retrieving the number of available cpus
+    when running within a container.   As of 7-2020, it returns the actual count on the machine that's
+    hosting the container.   For Disdat, this can be very bad.  When we use multiprocessing, we use
+    the forkserver.  This tends to be memory intensive, especially when creating more workers than actual
+    CPUs.  To help avoid (but not completely avoid the out-of-memory exceptions that arise), we allow
+    the calling convention to include an environment variable called DISDAT_CPU_COUNT to be set.
+    For example in `dsdt.run`, we set this to be equal to the requested vcpu count.
+
+    Returns:
+        int: the number of available cpus
+
+    """
+
+    env_cpu_count = os.getenv('DISDAT_CPU_COUNT')
+    if env_cpu_count is None:
+        return os.cpu_count()  # we did our best.
+    else:
+        return env_cpu_count
+
+
 def batch_get_job_definition_name(pipeline_image_name):
     """Get the most recent active AWS Batch job definition for a dockerized
     pipeline.
@@ -374,32 +396,23 @@ def ls_s3_url_keys(s3_url, is_object_directory=False):
 
     hexes = '0123456789abcdef'
 
-    multiple_results = []
-
-    # MacOS X fails when we multi-process using fork and boto sessions.
-    # One fix is to set export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-    mp_ctxt = get_context(MP_CONTEXT_TYPE)
-
-    est_cpu_count = mp_ctxt.cpu_count()
-    print("ls_s3_url_keys using MP with cpu_count {}".format(est_cpu_count))
-    pool = mp_ctxt.Pool(processes=est_cpu_count, maxtasksperchild=MAX_TASKS_PER_CHILD)
-
-    prefixes = ['']
-    if is_object_directory:
-        prefixes = [f'{c}{d}' for c in hexes for d in hexes]
-
     results = []
 
     if is_object_directory:
-        for i, prefix in enumerate(prefixes):
-            prefix = os.path.join(s3_path, prefix)
-            multiple_results.append(pool.apply_async(s3_list_objects_at_prefix_v2,
-                                                     (bucket, prefix),
-                                                     callback=results.extend))
-        pool.close()
-        pool.join()
+        prefixes = [f'{c}{d}' for c in hexes for d in hexes]
+        multiple_results = []
+        mp_ctxt = get_context(MP_CONTEXT_TYPE)
+        est_cpu_count = disdat_cpu_count()
+        print("ls_s3_url_keys using MP with cpu_count {}".format(est_cpu_count))
+        with mp_ctxt.Pool(processes=est_cpu_count, maxtasksperchild=MAX_TASKS_PER_CHILD) as pool:
+            for i, prefix in enumerate(prefixes):
+                prefix = os.path.join(s3_path, prefix)
+                multiple_results.append(pool.apply_async(s3_list_objects_at_prefix_v2,
+                                                         (bucket, prefix),
+                                                         callback=results.extend))
+            pool.close()
+            pool.join()
     else:
-        print("ls_s3_url_keys not using MP for this list operation")
         results = s3_list_objects_at_prefix_v2(bucket, s3_path)
 
     return results
@@ -471,14 +484,14 @@ def delete_s3_dir_many(s3_urls):
 
     """
     mp_ctxt = get_context(MP_CONTEXT_TYPE)  # Using forkserver here causes moto / pytest failures
-    pool = mp_ctxt.Pool(processes=mp_ctxt.cpu_count(), maxtasksperchild=MAX_TASKS_PER_CHILD)
-    multiple_results = []
-    results = []
-    for s3_url in s3_urls:
-        multiple_results.append(pool.apply_async(delete_s3_dir, (s3_url,), callback=results.extend))
+    with mp_ctxt.Pool(processes=disdat_cpu_count(), maxtasksperchild=MAX_TASKS_PER_CHILD) as pool:
+        multiple_results = []
+        results = []
+        for s3_url in s3_urls:
+            multiple_results.append(pool.apply_async(delete_s3_dir, (s3_url,), callback=results.extend))
+        pool.close()
+        pool.join()
 
-    pool.close()
-    pool.join()
     return sum([1 if r > 0 else 0 for r in results])
 
 
@@ -629,18 +642,18 @@ def get_s3_key_many(bucket_key_file_tuples):
 
     """
     mp_ctxt = get_context(MP_CONTEXT_TYPE)  # Using forkserver here causes moto / pytest failures
-    est_cpu_count = mp_ctxt.cpu_count()
+    est_cpu_count = disdat_cpu_count()
     print("get_s3_key_many using MP with cpu_count {}".format(est_cpu_count))
-    pool = mp_ctxt.Pool(processes=est_cpu_count, maxtasksperchild=MAX_TASKS_PER_CHILD)
-    multiple_results = []
-    results = []
-    for s3_bucket, s3_key, local_object_path in bucket_key_file_tuples:
-        multiple_results.append(pool.apply_async(get_s3_key,
-                                                 (s3_bucket, s3_key, local_object_path),
-                                                 callback=results.extend))
+    with mp_ctxt.Pool(processes=est_cpu_count, maxtasksperchild=MAX_TASKS_PER_CHILD) as pool:
+        multiple_results = []
+        results = []
+        for s3_bucket, s3_key, local_object_path in bucket_key_file_tuples:
+            multiple_results.append(pool.apply_async(get_s3_key,
+                                                     (s3_bucket, s3_key, local_object_path),
+                                                     callback=results.extend))
 
-    pool.close()
-    pool.join()
+        pool.close()
+        pool.join()
     return results
 
 
