@@ -28,13 +28,14 @@ from __future__ import print_function
 import sys
 import collections
 import os
+import argparse
 
 from luigi import build, worker
 
 import disdat.common as common  # config, especially logging, before luigi ever loads
 import disdat.fs as fs
+from disdat.path_cache import PathCache
 import disdat.driver as driver
-from disdat.pipe import ExternalDepTask
 from disdat import logger as _logger
 
 
@@ -106,7 +107,7 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force, 
         apply.reference_count -= 1
         if not apply.reference_count:
             fs.DisdatFS().clear_pipe_version()
-            fs.DisdatFS().clear_path_cache()
+            PathCache.clear_path_cache()
 
     # Re-execute logic -- make copy of task DAG
     # Creates a cache of {pipe:path_cache_entry} in the pipesFS object.
@@ -138,16 +139,11 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force, 
     # TODO: don't replace if it already exists.
     if output_bundle_uuid is not None:
         users_root_task = reexecute_dag.deps()[0]
-        pce = pfs.get_path_cache(users_root_task)
+        pce = PathCache.get_path_cache(users_root_task)
         if pce.rerun: # if we have to re-run then replace it with our UUID
-            # TODO: this is the same code as new_output_hframe, FIX!!!
-            dir, uuid, _ = data_context.make_managed_path(output_bundle_uuid)
-            fs.DisdatFS.put_path_cache(users_root_task,
-                                       uuid,
-                                       dir,
-                                       pce.rerun,
-                                       pce.is_left_edge_task,
-                                       overwrite=True)
+            pce.bundle.abandon() # clean up the opened but not closed bundle
+            del PathCache.path_cache()[users_root_task.processing_id()]  # remove the prior entry
+            new_output_bundle(users_root_task, data_context, force_uuid=output_bundle_uuid)
 
     success = build([reexecute_dag], local_scheduler=not central_scheduler, workers=workers)
 
@@ -188,21 +184,6 @@ def topo_sort_tasks(root_task):
     return stack
 
 
-def is_left_edge_task(task):
-    """
-    Determine if task is on the left edge of the dag (first task)
-    Args:
-        task:
-    Returns: True or False
-    """
-    deps = task.deps()
-
-    if len(deps) > 0:
-        return False
-    else:
-        return True
-    
-
 def resolve_workflow_bundles(root_task, data_context):
     """
     Given a task graph rooted at root task, we need to determine whether 
@@ -224,9 +205,6 @@ def resolve_workflow_bundles(root_task, data_context):
         bool: is_work -- True if there is anything to re-run, False if no work to be done (only driver wrapper task)
 
     """
-
-    pfs = fs.DisdatFS()
-
     stack = topo_sort_tasks(root_task)
 
     num_regen = 0
@@ -235,11 +213,10 @@ def resolve_workflow_bundles(root_task, data_context):
     # For each task in the sort order, figure out if we need a new bundle (re-run it)
     while len(stack) > 0:
         p = stack.pop()
-        # print "WORKING {}".format(luigi.task.task_id_str(p.task_family, p.to_str_params(only_significant=True)))
         if p.__class__.__name__ is 'DriverTask':
             # DriverTask is a WrapperTask, it produces no bundles.
             continue
-        if resolve_bundle(pfs, p, is_left_edge_task(p), data_context):
+        if resolve_bundle(p, data_context):
             num_reuse += 1
         else:
             num_regen += 1
@@ -285,18 +262,20 @@ def different_code_versions(code_version, lineage_obj):
     return False
 
     
-def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
+def resolve_bundle(pipe, data_context):
     """
     Args:
-        pfs: pipe fs object
         pipe: the pipe to investigate
-        is_left_edge_task: True if this task starts the DAG.
         data_context: the data context object from which we should resolve bundles.
 
     Returns:
         bool: True if bundle found (not re-running).  False if bundle not found or being regenerated
 
     """
+
+    # TODO: Find a better solution to this import loop
+    from disdat.pipe import ExternalDepTask  # pipe.py->api.py->apply.py->pipe.ExternalDepTask fails b/c pipe importing
+    import disdat.api as api  # 3.7 allows us to put this import at the top, but not 3.6.8
 
     # These are constants
     verbose = False
@@ -313,7 +292,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         # If it is external, we don't recompute in any case.
         _logger.debug("resolve_bundle: pipe.mark_force forcing a new output bundle.")
         if verbose: print("resolve_bundle: pipe.mark_force forcing a new output bundle.\n")
-        pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
+        new_output_bundle(pipe, data_context)
         return regen_bundle
 
     if pipe.force and not isinstance(pipe, ExternalDepTask):
@@ -321,7 +300,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         # If it is external, do not recompute in any case
         _logger.debug("resolve_bundle: --force forcing a new output bundle.")
         if verbose: print("resolve_bundle: --force forcing a new output bundle.\n")
-        pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
+        new_output_bundle(pipe, data_context)
         return regen_bundle
 
     if isinstance(pipe, ExternalDepTask):
@@ -330,14 +309,20 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         # within the user's requires, add_external_dependency(), or when Luigi can't find the task (current approach)
         assert worker._is_external(pipe)
         if verbose: print("resolve_bundle: found ExternalDepTask re-using bundle with UUID[{}].\n".format(pipe.uuid))
-        pfs.reuse_hframe(pipe, pipe.uuid, is_left_edge_task, data_context=data_context)
+        b = api.get(data_context.get_local_name(), None, uuid=pipe.uuid)  # TODO:cache b in ext dep object, no 2x lookup
+        if b is None:
+            reuse_bundle(pipe, b, pipe.uuid, data_context)  # Ensure that the PCE results in a file that cannot be found
+        else:
+            reuse_bundle(pipe, b, b.uuid, data_context)
         return use_bundle
 
-    bndls = pfs.get_hframe_by_proc(pipe.processing_id(), getall=True, data_context=data_context)
+    bndls = api.search(data_context.get_local_name(),
+                       processing_name=pipe.processing_id())
+
     if bndls is None or len(bndls) <= 0:
         if verbose: print("resolve_bundle: No bundle with proc_name {}, getting new output bundle.\n".format(pipe.processing_id()))
         # no bundle, force recompute
-        pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
+        new_output_bundle(pipe, data_context)
         return regen_bundle
 
     bndl = bndls[0]  # our best guess is the most recent bundle with the same processing_id()
@@ -346,7 +331,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
     lng = bndl.get_lineage()
     if lng is None:
         if verbose: print("resolve_bundle: No lineage present, getting new output bundle.\n")
-        pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
+        new_output_bundle(pipe, data_context)
         return regen_bundle
 
     # 3.) Lineage record exists -- if new code, re-run
@@ -355,7 +340,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
 
     if different_code_versions(current_version, lng):
         if verbose: print("resolve_bundle: New code version, getting new output bundle.\n")
-        pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
+        new_output_bundle(pipe, data_context)
         return regen_bundle
 
     # 3.5.) Have we changed the output human bundle name?  If so, re-run task.
@@ -372,7 +357,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
     if not found:
         if verbose: print("resolve_bundle: New human name {} (prior {}), getting new output bundle.\n".format(
             current_human_name, bndl.get_human_name()))
-        pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
+        new_output_bundle(pipe, data_context)
         return regen_bundle
 
     # 4.) Check the inputs -- assumes we have processed upstream tasks already
@@ -398,7 +383,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         locally, but remotely as well.   
         
         """
-        pce = pfs.get_path_cache(task)
+        pce = PathCache.get_path_cache(task)
 
         LUIGI_RERUN = False
 
@@ -416,7 +401,7 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
         else:
             if pce.rerun:
                 if verbose: print("Resolve_bundle: an upstream task is in the pce and is being re-run, so we need to reun. getting new output bundle.\n")
-                pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
+                new_output_bundle(pipe, data_context)
                 return regen_bundle
 
             # Upstream Task
@@ -427,8 +412,9 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
                 upstream_dep_uuid = task.uuid
                 upstream_dep_processing_name = task.processing_name
             else:
-                local_bundle = pfs.get_hframe_by_proc(task.processing_id(), data_context=data_context)
-                assert(local_bundle is not None)
+                found = api.search(data_context.get_local_name(), processing_name=task.processing_id())
+                assert len(found) > 0
+                local_bundle = found[0]  # the most recent with this processing_name
                 upstream_dep_uuid = local_bundle.pb.uuid
                 upstream_dep_processing_name = local_bundle.pb.processing_name
                 assert(upstream_dep_processing_name == task.processing_id())
@@ -441,18 +427,77 @@ def resolve_bundle(pfs, pipe, is_left_edge_task, data_context):
             XXX TODO: Add date to the depends_on pb data structure to enforce 2 XXX
             """
             for tup in lng.pb.depends_on:
-                if tup.hframe_name == upstream_dep_processing_name and tup.hframe_uuid != upstream_dep_uuid:
+                if tup.hframe_proc_name == upstream_dep_processing_name and tup.hframe_uuid != upstream_dep_uuid:
                     if verbose: print("Resolve_bundle: prior input bundle {} uuid {} has new uuid {}\n".format(
                         task.processing_id(),
                         tup.hframe_uuid,
                         upstream_dep_uuid))
-                    pfs.new_output_hframe(pipe, is_left_edge_task, data_context=data_context)
+                    new_output_bundle(pipe, data_context)
                     return regen_bundle
 
     # 5.) Woot!  Reuse the found bundle.
     if verbose: print("resolve_bundle: reusing bundle\n")
-    pfs.reuse_hframe(pipe, bndl.pb.uuid, is_left_edge_task, data_context=data_context)
+    reuse_bundle(pipe, bndl, bndl.uuid, data_context)
     return use_bundle
+
+
+def reuse_bundle(pipe, bundle, uuid, data_context):
+    """
+    Re-use this bundle, everything stays the same, just put in the cache
+
+    Args:
+        pipe (`pipe.PipeTask`): The pipe task that should not be re-run.
+        bundle (`disdat.api.bundle`): The found bundle to re-use.
+        uuid (str): The bundle's uuid
+        data_context: The context containing this bundle with UUID hfr_uuid.
+
+    Returns:
+        None
+    """
+    pce = PathCache.get_path_cache(pipe)
+    if pce is None:
+        _logger.debug("reuse_bundle: Adding a new (unseen) task to the path cache.")
+    else:
+        _logger.debug("reuse_bundle: Found a task in our dag already in the path cache: reusing!")
+        return
+
+    dir = data_context.implicit_hframe_path(uuid)
+
+    PathCache.put_path_cache(pipe, bundle, uuid, dir, False)
+
+
+def new_output_bundle(pipe, data_context, force_uuid=None):
+    """
+    This proposes a new output bundle
+    1.) Create a new UUID
+    2.) Create the directory in the context
+    3.) Add this to the path cache
+
+    Note: We don't add to context's db yet.  The job or pipe hasn't run yet.  So it
+    hasn't made all of its outputs.  If it fails, by definition it won't right out the
+    hframe to the context's directory.   On rebuild / restart we will delete the directory.
+    However, the path_cache will hold on to this directory in memory.
+
+    Args:
+        pipe (`disdat.pipe.PipeTask`):  The task generating this output
+        data_context (`disdat.data_context.DataContext`): Place output in this context
+        force_uuid (str): Override uuid chosen by Disdat Bundle API
+
+    Returns:
+        None
+    """
+    import disdat.api as api  # 3.7 allows us to put this import at the top, but not 3.6.8
+    pce = PathCache.get_path_cache(pipe)
+
+    if pce is None:
+        _logger.debug("new_output_bundle: Adding a new (unseen) task to the path cache.")
+    else:
+        _logger.debug("new_output_bundle: Found a task in our dag already in the path cache: reusing!")
+        return
+
+    b = api.Bundle(data_context).open(force_uuid=force_uuid)
+
+    PathCache.put_path_cache(pipe, b, b.uuid, b.local_dir, True)
 
 
 def cli_apply(args):
@@ -493,3 +538,32 @@ def cli_apply(args):
 
     # If we didn't successfully run any task, sys.exit with non-zero code
     common.apply_handle_result(result)
+
+
+def add_arg_parser(subparsers):
+    """Initialize a command line set of subparsers with file system commands.
+
+    Args:
+        subparsers: A collection of subparsers as defined by `argsparse`.
+    """
+
+    apply_p = subparsers.add_parser('apply', description="Apply a transform to an input bundle to produce an output bundle.")
+    apply_p.add_argument('-cs', '--central-scheduler', action='store_true', default=False, help="Use a central Luigi scheduler (defaults to local scheduler)")
+    apply_p.add_argument('-w', '--workers', type=int, default=1, help="Number of Luigi workers on this node")
+    apply_p.add_argument('-it', '--input-tag', nargs=1, type=str, action='append',
+                         help="Input bundle tags: '-it authoritative:True -it version:0.7.1'")
+    apply_p.add_argument('-ot', '--output-tag', nargs=1, type=str, action='append',
+                         help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'")
+    apply_p.add_argument('-o', '--output-bundle', type=str, default='-',
+                         help="Name output bundle: '-o my.output.bundle'.  Default name is '<TaskName>_<param_hash>'")
+    apply_p.add_argument('-f', '--force', action='store_true', help="Force re-computation of only this task.")
+    apply_p.add_argument('--force-all', action='store_true', help="Force re-computation of ALL upstream tasks.")
+    apply_p.add_argument('--incremental-push', action='store_true', help="Commit and push each task's bundle as it is produced to the remote.")
+    apply_p.add_argument('--incremental-pull', action='store_true', help="Localize bundles as they are needed by downstream tasks from the remote.")
+    apply_p.add_argument('pipe_cls', type=common.load_class, help="User-defined transform, e.g., 'module.PipeClass'")
+    apply_p.add_argument('params', type=str,  nargs=argparse.REMAINDER,
+                         help="Optional set of parameters for this pipe '--parameter value'")
+    apply_p.set_defaults(func=lambda args: cli_apply(args))
+
+
+

@@ -8,14 +8,16 @@ Entry point for pipelines run within Docker images.
 """
 from __future__ import print_function
 
+import logging
+import os
+import sys
+
 import argparse
 import subprocess
 import disdat.common
 import disdat.fs
 import disdat.api
-import logging
-import os
-import sys
+from disdat import log
 
 import boto3
 from botocore.exceptions import ClientError
@@ -90,7 +92,7 @@ def _remote(context_arg, remote_url):
         return False
 
     try:
-        disdat.api.remote(local_context, remote_context, remote_url, force=True)
+        disdat.api.remote(local_context, remote_context, remote_url)
     except Exception:
         return False
     return True
@@ -163,16 +165,16 @@ def run_disdat_container(args):
         None
 
     """
-
     print("Entrypoint running with args: {}".format(args))
 
-    # By default containerized execution ALWAYS localize's bundles on demand
-    incremental_pull = True
-    print ("Entrypoint running with incremental_pull=={}".format(incremental_pull))
+    if args.remote is not None:
+        response = boto3.client('sts').get_caller_identity()
+        _logger.info("boto3 caller identity {}".format(response))
+        incremental_pull = True   # running with a remote
+    else:
+        incremental_pull = False  # running without a remote
 
-    client = boto3.client('sts')
-    response = client.get_caller_identity()
-    _logger.info("boto3 caller identity {}".format(response))
+    print ("Entrypoint running with incremental_pull=={}".format(incremental_pull))
 
     # Check to make sure that we have initialized the Disdat environment
     if not os.path.exists(os.path.join(os.environ['HOME'], '.config', 'disdat')):
@@ -188,13 +190,6 @@ def run_disdat_container(args):
     try:
         if not args.no_pull:
             disdat.api.pull(args.branch, localize=not incremental_pull)
-        else:
-            fetch_list = []
-            if args.fetch is not None:
-                fetch_list = ['{}'.format(kv[0]) for kv in args.fetch]
-            if len(fetch_list) > 0:
-                for b in fetch_list:
-                    disdat.api.pull(args.branch, bundle_name=b)
     except Exception as e:
         _logger.error("Failed to pull and localize all bundles from context {} due to {}".format(args.branch, e))
         sys.exit(os.EX_IOERR)
@@ -343,11 +338,6 @@ def main(input_args):
         help="Output bundle tags: '-ot authoritative:True -ot version:0.7.1'")
 
     pipeline_parser.add_argument(
-        '-f', '--fetch',
-        nargs=1, type=str, action='append',
-        help="Fetch a bundle before execution: '-f some.input.bundle'")
-
-    pipeline_parser.add_argument(
         '--output-bundle-uuid',
         default=None,
         type=str,
@@ -390,8 +380,9 @@ def main(input_args):
 
     args = parser.parse_args(input_args)
 
-    logging.basicConfig(level=args.debug_level)
-    _logger.setLevel(args.debug_level)
+    log_level = logging.INFO
+
+    log.enable(level=log_level)  # TODO: Add configurable verbosity
 
     run_disdat_container(args)
 

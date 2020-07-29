@@ -94,7 +94,7 @@ def test_add_with_treat_as_bundle():
     assert 'Contents' not in objects, 'Bucket should be empty'
 
     # Bind remote context
-    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL, force=True)
+    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
 
     # Try to run the pipeline - should fail
     try:

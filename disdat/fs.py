@@ -30,7 +30,6 @@ from datetime import datetime
 from enum import Enum
 import shutil
 import collections
-from multiprocessing import Pool, cpu_count
 import subprocess
 import six
 
@@ -43,7 +42,6 @@ from disdat.data_context import DataContext
 from disdat.common import DisdatConfig, CatNoBundleError
 from disdat import logger as _logger
 
-PipeCacheEntry = collections.namedtuple('PipeCacheEntry', 'instance uuid path rerun is_left_edge_task')
 CodeVersion = collections.namedtuple('CodeVersion', 'semver hash tstamp branch url dirty')
 
 CONTEXTS = ['DEFAULT']
@@ -135,20 +133,13 @@ def determine_pipe_version(pipe_root):
 class DisdatFS(object):
     """
     HyperFrame (bundle) access layer (singleton)
-    
-    We have one class attribute that keeps track of allocated bundle directories. 
-    This is filled at the time we try to run apply.
 
-    Note: The path cache requires that everyone import "disdat.fs" and not "import fs".   Otherwise we will put entries
-    in a class object whose name is '<class 'fs.DisdatFS'>' but search in an instance of <class 'disdat.fs.DisdatFS'>.
-    The driver uses the fs.DisdatFS class object, but when you run from a pipe defined outside the project, then the
-    system finds the class object with the package name appended.   And that class object doesn't have a path_cache
-    with anything in it.
+    We have one class attribute that keeps track of allocated bundle directories.
+    This is filled at the time we try to run apply.
 
     """
     __metaclass__ = common.SingletonType
 
-    task_path_cache = {}  ## [<pipe/luigi task id>] -> PipeCacheEntry(instance, directory, re-run)
     current_pipe_version = None
 
     class JsonConfig(object):
@@ -197,96 +188,6 @@ class DisdatFS(object):
     def clear_pipe_version():
         DisdatFS.current_pipe_version = None
 
-    @staticmethod
-    def clear_path_cache():
-        """
-        If you grab the singleton instance, and you try to grab the task_path_cache, you will end up reading
-        the class variable.  But if you try to set the class variable, you will make a copy and set it instead.
-        So to really clear it, make a static method.
-
-        Returns:
-            None
-        """
-        DisdatFS.task_path_cache.clear()
-
-    @staticmethod
-    def get_path_cache(pipe_instance):
-        """
-        Given a pipe process name, return the resolved path.
-
-        Note: The path cache has to use the pipe.pipe_id(), which is a string
-        that takes into account enough of the configuration of the executed pipe that it is
-        unique.  That is, it cannot use the pipeline_id(), as that typically is just the human-readable bundle name
-        that is the output of the pipeline.
-
-        Args:
-            pipe_instance:
-
-        Returns:
-            (instance,path,rerun) as PipeCacheEntry
-
-        """
-
-        pipe_name = pipe_instance.processing_id()
-
-        return DisdatFS.get_path_cache_by_name(pipe_name)
-
-    @staticmethod
-    def get_path_cache_by_name(pipe_name):
-        """
-        Given a pipe name, return the resolved path.
-        :return:  (instance,path,rerun) as PipeCacheEntry
-        """
-
-        #print "SEARCH PCECLZ {} PIPE {}".format(DisdatFS, pipe_name)
-
-        if pipe_name in DisdatFS.task_path_cache:
-            rval = DisdatFS.task_path_cache[pipe_name]
-        else:
-            rval = None
-
-        return rval
-
-    @staticmethod
-    def path_cache():
-        """       
-        :return: cache dictionary
-        """        
-        return DisdatFS.task_path_cache
-
-    @staticmethod
-    def put_path_cache(pipe_instance, uuid, path, rerun, is_left_edge_task, overwrite=False):
-        """  The path cache is used to associate a pipe instance with its output path and whether
-        we have decided to re-run this pipe.   If rerun is True, then there should be no
-        ouput at this path.  AND it should eventually be added as a new version of this bundle.
-
-        Args:
-            pipe_instance:     instance of a pipe
-            uuid:              specific uuid of the output path
-            path:              where to write the bundle
-            rerun:             whether or not we are re-running or re-using
-            is_left_edge_task: is this at the top of the DAG?
-            overwrite:         overwrite existing entry (if exists)
-
-        Returns:
-            pce or raise KeyError
-
-        """
-        pipe_name = pipe_instance.processing_id()
-        pce = PipeCacheEntry(pipe_instance, uuid, path, rerun, is_left_edge_task)
-        if pipe_name not in DisdatFS.task_path_cache:
-            DisdatFS.task_path_cache[pipe_name] = pce
-        else:
-            if pce == DisdatFS.task_path_cache[pipe_name]: # The tuples are identical
-                _logger.error("path_cache dup key: pipe {} already bound to same PCE {} ".format(pipe_name, pce))
-            else:
-                if overwrite:
-                    DisdatFS.task_path_cache[pipe_name] = pce
-                else:
-                    raise KeyError("path_cache dup key: pipe {} bound to pce {} but trying to re-assign to {}".format(
-                        pipe_name, DisdatFS.task_path_cache[pipe_name], pce))
-        return pce
-
     def __init__(self):
         """ Create an FS object.
         1.) Load our state from the meta_dir -- which context we are working in
@@ -311,7 +212,10 @@ class DisdatFS(object):
     @property
     def curr_context(self):
         if self._curr_context is None:
-            active_context_name = self.load()
+            try:
+                active_context_name = self.load()
+            except RuntimeError:
+                return None
             try:
                 self._curr_context = self._all_contexts[active_context_name]
             except KeyError:
@@ -334,7 +238,7 @@ class DisdatFS(object):
 
         if not os.path.isfile(meta_file):
             _logger.debug("No disdat {} meta fs data file found.".format(meta_file))
-            raise IOError("No disdat {} meta fs data file found.".format(meta_file))
+            raise RuntimeError("No current local context, please change context with 'dsdt switch'")
         else:
             with open(meta_file, 'r') as json_file:
                 state_dict = json.loads(json_file.readline())
@@ -391,71 +295,64 @@ class DisdatFS(object):
         """
         return self.curr_context and self.curr_context.is_valid()
 
-    def reuse_hframe(self, pipe, hfr_uuid, is_left_edge_task, data_context=None):
+    def rmr(self, human_name=None, uuid=None, tags=None, dryrun=False, data_context=None):
         """
-        Re-use this bundle, everything stays the same, just put in the cache
-        Note: Currently doesn't use this FS instance, but to be consistent with
-        new_output_bundle below.
+        Remove bundle from remote.  If human_name provided, remove the latest.
+        This call uses the local index (sqlite db) to first find the uuid's and then
+        issue the remove.  If the uuid is provided, rmr will remove from the remote even
+        if it doesn't exist locally.
+
+        Default: remove latest
+        rm_old_only: remove everything except most recent
+        rm_all: remove everything
 
         Args:
-            pipe (`pipe.PipeTask`): The pipe task that should not be re-run.
-            hfr_uuid (str): The UUID of the hyperframe to re-use.
-            is_left_edge_task (bool): Is this at the top of the DAG.
-            data_context: The context containing this bundle with UUID hfr_uuid.
+            human_name:  The human-given name for this hyperframe / bundle
+            uuid (str): Remove the particular bundle
+            tags (:dict):   A dict of (key,value) to find bundles
+            dryrun (bool): Do not remove any bundles, only print out what would be removed
+            data_context (`disdat.data_context.DataContext`): Context for particular removal
 
         Returns:
-            None
+            results (list:str):  List of strings of removed bundles
         """
+        return_strings = []
 
-        pce = self.get_path_cache(pipe)
-        if pce is None:
-            _logger.debug("reuse_hframe: Adding a new (unseen) task to the path cache.")
-        else:
-            _logger.debug("reuse_hframe: Found a task in our dag already in the path cache: reusing!")
-            return
-
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            return return_strings
 
-        dir = data_context.implicit_hframe_path(hfr_uuid)
-        DisdatFS.put_path_cache(pipe, hfr_uuid, dir, False, is_left_edge_task)
+        return_strings.append("Disdat Context: {}".format(data_context.context))
 
-    def new_output_hframe(self, pipe, is_left_edge_task, force_uuid=None, data_context=None):
-        """
-        This proposes a new output hframe.
-        1.) Create a new UUID
-        2.) Create the directory in the context
-        3.) Add this to the path cache
+        uuids = self.ls(human_name,
+                        False, False, False, False, False,
+                        uuid=uuid,
+                        tags=tags,
+                        print_uuid_only=True,
+                        data_context=data_context)
 
-        Note: We don't add to context's db yet.  The job or pipe hasn't run yet.  So it
-        hasn't made all of its outputs.  If it fails, by definition it won't right out the
-        hframe to the context's directory.   On rebuild / restart we will delete the directory.
-        However, the path_cache will hold on to this directory in memory.
+        local_uuids_found = len(uuids)
 
-        Args:
-            pipe:
-            is_left_edge_task:
-            force_uuid:
-            data_context:
+        # if a specific uuid, it may not be found locally.
+        if uuid is not None:
+            uuids = [uuid,]
 
-        Returns:
+        if dryrun:
+            if len(uuids) == 0:
+                return_strings.append("Remove remote found no bundles to remove")
+            for id in uuids:
+                return_strings.append("Remove remote dryrun uuid {}".format(id))
+            return return_strings
 
-        """
-
-        pce = self.get_path_cache(pipe)
-
-        if pce is None:
-            _logger.debug("new_output_hframe: Adding a new (unseen) task to the path cache.")
-        else:
-            _logger.debug("new_output_hframe: Found a task in our dag already in the path cache: reusing!")
-            return
-
-        if data_context is None:
-            data_context = self.curr_context
-
-        dir, uuid, _ = data_context.make_managed_path(uuid=force_uuid)
-
-        DisdatFS.put_path_cache(pipe, uuid, dir, True, is_left_edge_task)
+        try:
+            s3_urls = [os.path.join(data_context.get_remote_object_dir(), id) for id in uuids]
+            return_strings.append("Found {} local bundles to remove.".format(local_uuids_found))
+            num_objects_deleted = aws_s3.delete_s3_dir_many(s3_urls)
+            return_strings.append("Removed {} remote bundles from S3.".format(num_objects_deleted))
+        except Exception as e:
+            return_strings.append("Remote remote ERROR: {} ".format(e))
+            #_logger.error(e)
+        return return_strings
 
     def rm(self, human_name=None, rm_all=False, rm_old_only=False, uuid=None, tags=None, force=False, data_context=None):
         """
@@ -479,8 +376,9 @@ class DisdatFS(object):
         """
         return_strings = []
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            return return_strings
 
         return_strings.append("Disdat Context {}".format(data_context.get_remote_name()))
         return_strings.append("On local branch {}".format(data_context.get_local_name()))
@@ -516,8 +414,9 @@ class DisdatFS(object):
             None or (`hyperframe.HyperFrameRecord`): None or latest hframe
         """
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            raise Exception("No current context")
 
         found = data_context.get_hframes(human_name=human_name, tags=tags)
 
@@ -542,8 +441,9 @@ class DisdatFS(object):
             `hyperframe.HyperFrameRecord`:
         """
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            raise Exception("No current context")
 
         found = data_context.get_hframes(uuid=uuid, tags=tags)
 
@@ -573,8 +473,9 @@ class DisdatFS(object):
             None or HyperFrameRecord
         """
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            raise Exception("No current context")
 
         found = data_context.get_hframes(processing_name=processing_name)
 
@@ -587,8 +488,27 @@ class DisdatFS(object):
         else:
             return None
 
+    def ensure_data_context(self, data_context):
+        """
+        Check if there's a valid data context,
+        and if not, get default, if still none, print out and return none.
+
+        Args:
+            data_context:
+
+        Returns:
+
+        """
+        if data_context is None:
+            data_context = self.curr_context
+            if data_context is None:
+                print("No current context.  `dsdt switch <othercontext>`")
+                return None
+        return data_context
+
     def ls(self, search_name, print_tags, print_intermediates, print_roots, print_long, print_args,
-           before=None, after=None, uuid=None, maxbydate=False, committed=None, tags=None, data_context=None):
+           before=None, after=None, uuid=None, maxbydate=False, committed=None, tags=None, print_uuid_only=False,
+           data_context=None):
         """
         Enumerate bundles (hyperframes) in this context.
 
@@ -597,6 +517,7 @@ class DisdatFS(object):
             print_tags (bool): Whether to print the bundle tags
             print_intermediates (bool): Show only intermediate bundles
             print_roots (bool): Show only root bundles
+            print_long (bool): Display long header
             print_args (bool): Whether to print the arguments used to produce this bundle
             before (date.datetime): '01-03-19 02:40:37' or date '01-03-19' inclusive range
             after (date.datetime): '01-03-19 02:40:37' or date '01-03-19' inclusive range
@@ -604,14 +525,18 @@ class DisdatFS(object):
             maxbydate (bool): return the latest by date
             committed (bool): If True, just committed, if False, just uncommitted, if None then ignore.
             tags: Optional. A dictionary of tags to search for.
+            print_uuid_only (bool):  Return only a list of UUIDs (internal use)
             data_context (`disdat.data_context.DataContext`): Optional data context to operate in
 
         Returns:
 
         """
 
+        output_strings = []
+
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            return output_strings
 
         # Print roots if
         # not print_intermediates and print_roots: just print roots
@@ -624,8 +549,6 @@ class DisdatFS(object):
                 tags.update({'root_task': True})
             else:
                 tags = {'root_task': True}
-
-        output_strings = []
 
         if print_long:
             output_strings.append(DisdatFS._pretty_print_header())
@@ -648,11 +571,14 @@ class DisdatFS(object):
                 if r.get_tag('root_task'):
                     continue
 
-            if print_long:
-                output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags, print_args=print_args))
+            if print_uuid_only:
+                output_strings.append(r.pb.uuid)
             else:
-                if r.pb.human_name not in output_strings:
-                    output_strings.append(r.pb.human_name)
+                if print_long:
+                    output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags, print_args=print_args))
+                else:
+                    if r.pb.human_name not in output_strings:
+                        output_strings.append(r.pb.human_name)
         return output_strings
 
     @staticmethod
@@ -701,8 +627,9 @@ class DisdatFS(object):
             (`DataFrame`) or (`numpy.ndarray`) or scalar type
         """
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            raise CatNoBundleError("No bundle found with name({}) uuid({})".format(human_name,uuid))
 
         if uuid is None:
             hfr = self.get_latest_hframe(human_name, tags=tags, data_context=data_context)
@@ -733,9 +660,8 @@ class DisdatFS(object):
     @staticmethod
     def disdat_uuid():
         """
-        Identical to pythia_uuid()
         """
-        return str(uuid.uuid4())
+        return common.create_uuid()
 
     @staticmethod
     def is_bundle_name(possible_bundle_name):
@@ -759,8 +685,8 @@ class DisdatFS(object):
         :param possible_bundle_name:
         :return: True / False
         """
-        
-        first  = DisdatFS.is_bundle_name(possible_bundle_name)         
+
+        first  = DisdatFS.is_bundle_name(possible_bundle_name)
         second = possible_bundle_name.endswith(".BNDL")
 
         return first and second
@@ -843,7 +769,7 @@ class DisdatFS(object):
                                                                                   context.get_object_dir()))
         return 0
 
-    def delete_branch(self, fq_context_name, remote, force):
+    def delete_context(self, fq_context_name, remote, force):
         """
 
         Delete a branch at <repo>/<context_name> or <context name>
@@ -860,14 +786,14 @@ class DisdatFS(object):
 
         ctxt_dir = os.path.join(DisdatConfig.instance().get_context_dir(), local_context)
 
-        if self._curr_context is not None and (fq_context_name == self.curr_context_name):
-            print("Disdat on context {}, please 'dsdt switch <otherbranch>' before deleting.".format(fq_context_name))
-            return
+        if self.curr_context is not None and (fq_context_name == self.curr_context_name):
+            print("Disdat deleting the current context {}, remember to 'dsdt switch <otherbranch>' afterwords!".format(fq_context_name))
+            os.remove(os.path.join(DisdatConfig.instance().get_meta_dir(), META_FS_FILE))
 
         if local_context in self._all_contexts:
             dc = self._all_contexts[local_context]
             remote_context_url = dc.get_remote_object_dir()
-            dc.delete_branch(force=force)
+            dc.delete_context(force=force)
             del self._all_contexts[local_context]
 
         if os.path.exists(ctxt_dir):
@@ -913,7 +839,7 @@ class DisdatFS(object):
 
         repo, local_context = DisdatFS._parse_fq_context_name(local_context_name)
 
-        if self._curr_context is not None and self.curr_context_name == local_context_name:
+        if self.curr_context is not None and self.curr_context_name == local_context_name:
             assert(local_context in self._all_contexts)
             assert(self.curr_context == self._all_contexts[local_context_name])
             _logger.info("Disdat already within a valid data context_name {}".format(local_context))
@@ -943,8 +869,9 @@ class DisdatFS(object):
 
         """
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            return
 
         _logger.debug('Committing bundle {} in context {}'.format(bundle_name, data_context.get_remote_name()))
 
@@ -1123,8 +1050,9 @@ class DisdatFS(object):
 
         """
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            return None
 
         if data_context.remote_ctxt_url is None:
             print("Push cannot execute.  Local context {} on remote {} not bound.".format(data_context.local_ctxt,
@@ -1199,24 +1127,17 @@ class DisdatFS(object):
         Returns:
 
         """
-        MAX_WAIT = 12 * 60
-
-        pool = Pool(processes=cpu_count())
-
         _logger.info("Fast Pull synchronizing with remote context {}@{}".format(data_context.remote_ctxt,
-                                                                                   data_context.remote_ctxt_url))
+                                                                                data_context.remote_ctxt_url))
 
         remote_s3_object_dir = data_context.get_remote_object_dir()
         s3_bucket, remote_obj_dir = aws_s3.split_s3_url(remote_s3_object_dir)
-        all_keys = aws_s3.ls_s3_url_objects(remote_s3_object_dir,
-                                               is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
-
+        all_keys = aws_s3.ls_s3_url_keys(remote_s3_object_dir,
+                                         is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
         if not localize:
             all_keys = [k for k in all_keys if 'frame.pb' in k]
-
         fetch_count = 0
-
-        multiple_results = []
+        fetch_tuples = []
         for s3_key in all_keys:
             obj_basename = os.path.basename(s3_key)
             obj_suffix = s3_key.replace(remote_obj_dir,'')
@@ -1225,18 +1146,10 @@ class DisdatFS(object):
             local_object_path = os.path.join(local_uuid_dir, obj_basename)
             if not os.path.exists(local_object_path):
                 fetch_count += 1
-                multiple_results.append(pool.apply_async(aws_s3.get_s3_key,
-                                                         (s3_bucket, s3_key, local_object_path)))
-
-        pool.close()
-
+                fetch_tuples.append((s3_bucket, s3_key, local_object_path))
         _logger.info("Fast pull fetching {} objects...".format(fetch_count))
-
-        results = [res.get(timeout=MAX_WAIT) for res in multiple_results]
-
-        pool.join()
-
-        _logger.info("Fast pull complete -- process pool closed and joined.")
+        results = aws_s3.get_s3_key_many(fetch_tuples)
+        _logger.info("Fast pull completed {} transfers -- process pool closed and joined.".format(len(results)))
 
     def pull(self, human_name=None, uuid=None, localize=False, data_context=None):
         """
@@ -1259,8 +1172,9 @@ class DisdatFS(object):
             UserWarning: If we are not in a valid context.
         """
 
+        data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            data_context = self.curr_context
+            return
 
         if data_context.remote_ctxt_url is None:
             print("Pull cannot execute.  Local context {} on remote {} not bound.".format(data_context.local_ctxt, data_context.remote_ctxt))
@@ -1268,7 +1182,6 @@ class DisdatFS(object):
 
         if human_name is None and uuid is None:
             # NOTE: This is fast and loose.  Another command might be editing the db.  Unit test.
-            # NOTE: If we fail, we could have a partial DB.  Need to surface the rebuild command.
             self.fast_pull(data_context, localize)
             data_context.rebuild_db()
             return
@@ -1282,13 +1195,19 @@ class DisdatFS(object):
                 return
             # else fall through to see if we can pull from remote context
 
-        possible_hframe_objects = aws_s3.ls_s3_url_objects(data_context.get_remote_object_dir(),
-                                                           is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
+        # If uuid is supplied, just read objects at that key, not all the objects in the context
+        if uuid is not None:
+            object_directory = os.path.join(data_context.get_remote_object_dir(), uuid)
+        else:
+            object_directory = data_context.get_remote_object_dir()
 
-        hframe_objects = [obj for obj in possible_hframe_objects if '_hframe.pb' in obj.key]
+        possible_hframe_objects = aws_s3.ls_s3_url_keys(object_directory,
+                                                        is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
 
-        for s3_hfr_obj in hframe_objects:
-            hfr_basename = os.path.basename(s3_hfr_obj.key)
+        hframe_keys = [obj for obj in possible_hframe_objects if '_hframe.pb' in obj]
+
+        for s3_hfr_key in hframe_keys:
+            hfr_basename = os.path.basename(s3_hfr_key)
             # Note that this works because the UUID is prepended to the <uuid>_hframe.pb
             s3_uuid = hfr_basename.split('_')[0]
 
@@ -1303,22 +1222,18 @@ class DisdatFS(object):
                 if not localize:
                     print("Found HyperFrame UUID {} present in local context, skipping . . .".format(s3_uuid))
                 else:
-                    # Are we trying to localize a particular HyperFrame?  match name and uuid. 
-
-                    obj = s3_hfr_obj.Object().get()
-                    hfr_test = hyperframe.HyperFrameRecord.from_str_bytes(obj['Body'].read())
                     if human_name is not None:
-                        if human_name != hfr_test.pb.human_name:
+                        if human_name != local_hfr.pb.human_name:
                             continue
                         else:
-                            print("Found remote bundle with human name {}, uuid {} localizing ...".format(hfr_test.pb.human_name,
-                                                                                                          hfr_test.pb.uuid))
-
-                    # grab files for this hyperframe -- read the local HFR frames
+                            print("Found remote bundle with human name {}, uuid {} localizing ...".format(local_hfr.pb.human_name,
+                                                                                                          local_hfr.pb.uuid))
                     DisdatFS._localize_hfr(local_hfr, s3_uuid, data_context)
-
             else:
-                obj = s3_hfr_obj.Object().get()
+                s3_bucket, _ = aws_s3.split_s3_url(data_context.remote_ctxt_url)
+                found_objects = aws_s3.s3_list_objects_at_prefix(s3_bucket, s3_hfr_key)
+                assert len(found_objects) == 1
+                obj = found_objects[0].Object().get()
                 hfr_test = hyperframe.HyperFrameRecord.from_str_bytes(obj['Body'].read())
                 if human_name is not None:
                     if human_name != hfr_test.pb.human_name:
@@ -1345,7 +1260,7 @@ class DisdatFS(object):
                 frame_objects = [obj for obj in possible_frame_objects if '_frame.pb' in obj.key]
                 for s3_fr_obj in frame_objects:
                     fr_basename = os.path.basename(s3_fr_obj.key)
-                    local_fr_path = os.path.join(local_uuid_dir,fr_basename)
+                    local_fr_path = os.path.join(local_uuid_dir, fr_basename)
                     s3_fr_obj.Object().download_file(local_fr_path)
 
                 data_context.write_hframe_db_only(hfr_test)
@@ -1354,14 +1269,13 @@ class DisdatFS(object):
                     DisdatFS._localize_hfr(self.get_hframe_by_uuid(s3_uuid, data_context=data_context),
                                            s3_uuid, data_context)
 
-    def remote_add(self, remote_context, s3_url, force, ):
+    def remote_add(self, remote_context, s3_url):
         """
-        Bind the context name to this s3path.   For all branches with context name, set remote to s3path.
+        Bind the context name to this s3 url.
 
         Args:
             remote_context (str):  the name of the remote context
             s3_url (str):   the s3 path to bind to this remote context
-            force (bool):
 
         Returns:
             None
@@ -1371,12 +1285,12 @@ class DisdatFS(object):
 
         assert ctxt_obj is not None, "Disdat must be in a context to use 'remote'"
 
-        ctxt_obj.bind_remote_ctxt(remote_context, s3_url, force=force)
+        ctxt_obj.bind_remote_ctxt(remote_context, s3_url)
 
 
 def _branch(fs, args):
     if args.delete:
-        fs.delete_branch(args.context, args.remote, args.force)
+        fs.delete_context(args.context, args.remote, args.force)
     else:
         fs.branch(args.context)
 
@@ -1386,7 +1300,7 @@ def _commit(fs, args):
 
 
 def _remote(fs, args):
-    fs.remote_add(args.context, args.s3_url, args.force)
+    fs.remote_add(args.context, args.s3_url)
 
 
 def _push(fs, args):
@@ -1413,6 +1327,11 @@ def _pull(fs, args):
 
 def _rm(fs, args):
     for f in fs.rm(args.bundle, rm_all=args.all, rm_old_only=args.old, tags=common.parse_args_tags(args.tag), uuid=args.uuid, force=args.force):
+        print(f)
+
+
+def _rmr(fs, args):
+    for f in fs.rmr(args.bundle, tags=common.parse_args_tags(args.tag), uuid=args.uuid, dryrun=args.dryrun):
         print(f)
 
 
@@ -1498,7 +1417,7 @@ def _cat(fs, args):
         print("Disdat cat found no bundle with name {} or uuid {}".format(args.bundle, args.uuid))
 
 
-def init_fs_cl(subparsers):
+def add_arg_parser(subparsers):
     """Initialize a command line set of subparsers with file system commands.
 
     Args:
@@ -1537,7 +1456,7 @@ def init_fs_cl(subparsers):
 
     # rm
     rm_p = subparsers.add_parser('rm')
-    rm_p.add_argument('bundle', nargs='?', type=str, default=None, help='The destination bundle in the current context')
+    rm_p.add_argument('bundle', nargs='?', type=str, default=None, help='The bundle in the current context')
     rm_p.add_argument('-f', '--force', action='store_true', default=False, help='Force remove of a committed bundle')
     rm_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to remove')
     rm_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
@@ -1547,6 +1466,15 @@ def init_fs_cl(subparsers):
     rm_p.add_argument('--old', action='store_true', default=False,
                       help='Remove everything except the most recent bundle.')
     rm_p.set_defaults(func=lambda args: _rm(fs, args))
+
+    # rmr remove from remote
+    rmr_p = subparsers.add_parser('rmr')
+    rmr_p.add_argument('bundle', nargs='?', type=str, default=None, help='The bundle in the current context')
+    rmr_p.add_argument('--dryrun', action='store_true', default=False, help='Do not delete found bundles')
+    rmr_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to remove')
+    rmr_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
+                       help="Having a specific tag: 'dsdt rm -t committed:True -t version:0.7.1'")
+    rmr_p.set_defaults(func=lambda args: _rmr(fs, args))
 
     # ls
     ls_p = subparsers.add_parser('ls')
@@ -1589,8 +1517,6 @@ def init_fs_cl(subparsers):
     remote_p = subparsers.add_parser('remote')
     remote_p.add_argument('context', type=str, help='Name of the remote context')
     remote_p.add_argument('s3_url', type=str, help="Remote context site, i.e, 's3://<bucket>/dsdt/'")
-    remote_p.add_argument('-f', '--force', action='store_true',
-                          help="Force re-binding of remote. Executes 'dsdt pull --localize' to resolve files, which might take awhile.")
     remote_p.set_defaults(func=lambda args: _remote(fs, args))
 
     # push <name> --uuid <uuid>

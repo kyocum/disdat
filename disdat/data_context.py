@@ -110,7 +110,7 @@ class DataContext(object):
         else:
             os.makedirs(local_ctxt_dir)
 
-    def delete_branch(self, force=False):
+    def delete_context(self, force=False):
         """
         Any checks on the local context before we delete all the objects in here?
 
@@ -123,21 +123,18 @@ class DataContext(object):
 
         self.local_engine.dispose()
 
-    def bind_remote_ctxt(self, remote_context, s3_url, force=False):
+    def bind_remote_ctxt(self, remote_context, s3_url):
         """
         A local branch can be bound to a remote shared FS where you can push/pull hyperframes.
-        If the remote_context directory does not exist, a push will create it.  Note that pull is lazy.
-        Thus we might have local bundles that refer to files in s3 in another context.   The user may
-        pull these as normal -- the files will be pulled from the prior remote context.
+        If the remote_context directory does not exist, a push will create it.
 
-        TODO: If the user has non-localized bundles after forcing a rebind, then Disdat will localize
-        those links to the new location.  And then won't find them.  Automating this means either keeping
-        track of the prior bound locations or asking the user when the push fails for the prior s3 path.
+        Note that pull is lazy.  If the user rebinds to a new remote context then Disdat will not
+        be able to localize bundles from the prior context.
 
         Args:
             remote_context (str): remote context name
             s3_url (str):  remote context url -- this points to the root of all disdat data -- does not include context dir
-            force (bool): whether to force rebinding if a remote_context is already bound
+
         Returns:
             None
 
@@ -149,33 +146,16 @@ class DataContext(object):
             print("Context already bound to remote at {}".format(s3_url))
             return
 
-        if self.remote_ctxt != remote_context:
-            if not force:
-                _logger.error("Unable to bind because branch {} ".format(self.local_ctxt) +
-                              "is not on remote context {} (it is on remote context {}). Use '--force'".format(remote_context,
-                                                                                                               self.remote_ctxt))
-                return
-            else:
-                self.remote_ctxt = remote_context
-
         if not aws_s3.s3_path_exists(s3_url):
             _logger.error("Unable to bind context {} because URL {} does not exist.".format(remote_context, s3_url))
             raise RuntimeError
 
-        if self.remote_ctxt_url is None:
-            _logger.debug("Binding local branch {} context {} to URL {}".format(self.local_ctxt, self.remote_ctxt, s3_url))
-        else:
-            if not force:
-                print("You are re-binding this branch to a different remote context.  You might have un-localized")
-                print("files in pulled bundles.  First, issue 'dsdt pull --localize' to make data local. ")
-                print(" Then run: `dsdt remote --force {}' to force re-binding the remote.".format(s3_url))
-                return
+        if self.remote_ctxt_url is not None:
+            print("You are re-binding this local context to a new remote context.")
+            print("There may be un-localized bundles.")
 
-            _logger.debug("Un-binding local branch {} context {} current URL {}".format(self.local_ctxt,
-                                                                                        self.remote_ctxt,
-                                                                                        self.remote_ctxt_url))
-            _logger.debug("Re-binding to URL {}".format(s3_url))
-
+        _logger.debug("Binding local branch {} context {} to URL {}".format(self.local_ctxt, self.remote_ctxt, s3_url))
+        self.remote_ctxt = remote_context
         self.remote_ctxt_url = os.path.join(s3_url, common.DISDAT_CONTEXT_DIR)
         self.save()
 
@@ -303,6 +283,11 @@ class DataContext(object):
 
     def get_local_name(self):
         return self.local_ctxt
+
+    @property
+    def context(self):
+        """ Return fully qualified context string """
+        return f"local [{self.local_ctxt}] remote [{self.remote_ctxt}@{self.remote_ctxt_url}/{self.remote_ctxt}]"
 
     def init_remote_db(self):
         """
@@ -476,7 +461,14 @@ class DataContext(object):
                     rcd = hyperframe.r_pb_fs(f, rcd_type)
                     store[rcd.pb.uuid] = rcd
 
-        for hfr in hframes.values():
+        hframe_count = len(hframes.values())
+        ten_percent = max(1, int(hframe_count / 10))
+        perc = 0
+        for i, hfr in enumerate(hframes.values()):
+            if i % ten_percent == 0:
+                print("Disdat DB rebuild: written {} ({} percent) to db".format(i, perc))
+                perc += 10
+
             if DataContext._validate_hframe(hfr, frames, auths):
                 # looks like a good hyperframe
                 # see if it exists, if it does do not write hframe and assume frames are also present
@@ -631,8 +623,9 @@ class DataContext(object):
         except (IOError, os.error) as why:
             _logger.error("Removal of hyperframe directory {} failed with error {}.".format(self.implicit_hframe_path(hfr_uuid), why))
 
-            # Must clean up db if directory removal failed, only delete same record if state marked for removal
+            # Must clean up db if directory removal failed
             hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid, state=hyperframe.RecordState.deleted)
+            hyperframe.delete_fr_db(self.local_engine, hfr_uuid)
 
             return False
 
@@ -942,7 +935,7 @@ class DataContext(object):
 
         return found.sort(key=lambda hfr: hfr.pb.processing_name)
 
-    def convert_scalar2frame(self, hfid, name, scalar, managed_path):
+    def convert_scalar2frame(self, hfid, name, scalar):
         """
         Convert a scalar into a frame.  First, place inside an ndarray,
         and then hand off to serieslike2frame()
@@ -951,7 +944,6 @@ class DataContext(object):
             hfid:
             name:
             scalar:
-            managed_path:
 
         Returns:
             ndarray wrapping scalar
@@ -960,9 +952,9 @@ class DataContext(object):
         assert (not (isinstance(scalar, list) or isinstance(scalar, tuple) or
                      isinstance(scalar,dict) or isinstance(scalar, np.ndarray)) )
         series_like = np.reshape(np.array(scalar), (1))
-        return self.convert_serieslike2frame(hfid, name, series_like, managed_path)
+        return self.convert_serieslike2frame(hfid, name, series_like)
 
-    def convert_serieslike2frame(self, hfid, name, series_like, managed_path):
+    def convert_serieslike2frame(self, hfid, name, series_like):
         """
         Convert series-like to a frame.
         If the frame has file paths, we will copy in if the managed path is set.
@@ -975,7 +967,6 @@ class DataContext(object):
             hfid:
             name:
             series_like: a list-like
-            managed_path: for copy_in
 
         Returns:
             (`hyperframe.FrameRecord`)
@@ -994,14 +985,48 @@ class DataContext(object):
             series_like = local_files_series
 
         if hyperframe.FrameRecord.is_link_series(series_like):
-            assert managed_path is not None
-            series_like = [self.copy_in_files(x, managed_path, localize=False) for x in series_like]
-            frame = hyperframe.FrameRecord.make_link_frame(hfid, name, series_like, managed_path)
+            """ 
+            If src is s3 file
+              If s3 file not managed
+                if have remote: 
+                  copy in to remote
+                else:
+                  copy in to local
+              if s3 file managed:
+                if have remote:
+                  do nothing
+                else:
+                  error
+            if src is local:
+              If file not managed
+                copy in to local
+              if file managed:
+                do nothing
+            """
+            local_managed_path = os.path.join(self.get_object_dir(), hfid)
+            remote_object_dir = self.get_remote_object_dir()
+            if remote_object_dir is not None:
+                remote_managed_path = os.path.join(remote_object_dir, hfid)
+            else:
+                remote_managed_path = None
+
+            copied_in_series_like = []
+            for src in series_like:
+                if isinstance(src, S3Target) or isinstance(src, luigi.LocalTarget):
+                    src = src.path
+                if urllib.parse.urlparse(src).scheme == 's3':
+                    if remote_managed_path is not None:
+                        copied_in_series_like.append(self.copy_in_files(src, remote_managed_path, localize=False))
+                        continue
+                copied_in_series_like.append(self.copy_in_files(src, local_managed_path, localize=False))
+
+            frame = hyperframe.FrameRecord.make_link_frame(hfid, name, copied_in_series_like,
+                                                           local_managed_path, remote_managed_path)
         else:
             frame = hyperframe.FrameRecord.from_serieslike(hfid, name, series_like)
         return frame
 
-    def convert_df2frames(self, hfid, df, managed_path):
+    def convert_df2frames(self, hfid, df):
         """
         Given a Pandas dataframe, convert this into a set of frames.
 
@@ -1014,7 +1039,6 @@ class DataContext(object):
         Args:
             hfid: hyperframe uuid
             df: dataframe of input data
-            managed_path: Optional path when the df contains file pointers.
 
         Returns:
             (list:`hyperframe.FrameRecord`)
@@ -1025,7 +1049,7 @@ class DataContext(object):
             if 'Unnamed:' in c:
                 # ignore columsn without names, like default index columns
                 continue
-            frames.append(self.convert_serieslike2frame(hfid, c, df[c], managed_path))
+            frames.append(self.convert_serieslike2frame(hfid, c, df[c]))
         return frames
 
     @staticmethod
@@ -1112,14 +1136,9 @@ class DataContext(object):
 
             if self.remote_ctxt_url:
                 """ If there is a remote and we see a source S3 path
-                If the destination is local, this is a pull (someone wants to localize)
-                If the destination is remote, this is a push (someone wants to push files up).
-                In the second case, if the s3 file is already managed, there is no reason to re-push the data. 
-                Either they pulled but did not localize, or created a managed s3 path. 
-                We assume to get the managed path, the user must have set incremental_push to True.   
-                    
-                If the user adds un-managed S3 paths, then we assume they meant to copy it in locally. 
-                If they don't want that, they should make managed paths.  
+                If it is an external S3 path, then copy it to the dst_dir (local or s3)
+                If it is a managed s3 path and localizing, then copy it to the dst_dir (should be local)
+                If it is a managed s3 path and not localizing, do nothing. 
                 """
                 uuid = os.path.basename(dst_dir.rstrip('/'))
                 managed_path_s3 = os.path.join(self.get_remote_object_dir(), uuid)
@@ -1368,7 +1387,10 @@ class DataContext(object):
                     row.append((fr.pb.name, fr.to_ndarray()))
         if common.DEFAULT_FRAME_NAME in frames[0].pb.name:
             # Drop the names and return a list of unkeyed values.
-            return tuple([r[1] for r in row])
+            tuple_of_lists = tuple([r[1] for r in row])
+            if len(tuple_of_lists) == 1:
+                return tuple(tuple_of_lists[0])
+            return tuple_of_lists
         else:
             d = { t[0]: (t[1] if isinstance(t[1], (tuple, list, np.ndarray)) else [t[1]]) for t in row }
             return d

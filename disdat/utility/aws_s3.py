@@ -26,7 +26,7 @@ import os
 import pkg_resources
 from getpass import getuser
 import six
-from multiprocessing import Pool, cpu_count
+from multiprocessing import get_context
 
 from botocore.exceptions import ClientError
 import boto3 as b3
@@ -35,6 +35,10 @@ from six.moves import urllib
 from disdat import logger as _logger
 
 S3_LS_USE_MP_THRESH = 4000  # the threshold after which we should use MP to look up bundles on s3
+
+MP_CONTEXT_TYPE = 'forkserver'  # Use for published version
+#MP_CONTEXT_TYPE = 'fork'       # Use for testing
+MAX_TASKS_PER_CHILD = 100       # Force the pool to kill workers when they've done 100 tasks.
 
 
 def batch_get_job_definition_name(pipeline_image_name):
@@ -309,7 +313,7 @@ def s3_list_objects_at_prefix(bucket, prefix):
     try:
         s3_b = s3.Bucket(bucket)
         for i in s3_b.objects.filter(Prefix=prefix, MaxKeys=1024):
-            result.append(i.key)
+            result.append(i)
     except Exception as e:
         _logger.error("s3_list_objects_starting_hex: failed with exception {}".format(e))
         raise
@@ -332,6 +336,9 @@ def s3_list_objects_at_prefix_v2(bucket, prefix):
     """
     result = []
     client = b3.client('s3')
+
+    #print(f"s3_list_objects_at_prefix_v2 the b3[{b3}] and client[{b3.client} and resource[{b3.resource}]")
+
     try:
         paginator = client.get_paginator('list_objects_v2')
         page_iterator = paginator.paginate(Bucket=bucket, Prefix=prefix)
@@ -345,9 +352,9 @@ def s3_list_objects_at_prefix_v2(bucket, prefix):
     return result
 
 
-def ls_s3_url_objects(s3_url, is_object_directory=False):
+def ls_s3_url_keys(s3_url, is_object_directory=False):
     """
-    List all objects at this s3_url.  If `is_object_directory` is True, then
+    List all keys at this s3_url.  If `is_object_directory` is True, then
     treat this `s3_url` as a Disdat object directory, consisting of uuids that start
     with one of 16 ascii characters.  This allows the ls operation to run in parallel.
 
@@ -367,25 +374,57 @@ def ls_s3_url_objects(s3_url, is_object_directory=False):
 
     hexes = '0123456789abcdef'
 
-    MAX_WAIT = 12 * 60
     multiple_results = []
-    pool = Pool(processes=cpu_count()) # I/O bound, so let it use at least cpu_count()
+
+    # MacOS X fails when we multi-process using fork and boto sessions.
+    # One fix is to set export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+    mp_ctxt = get_context(MP_CONTEXT_TYPE)
+
+    est_cpu_count = mp_ctxt.cpu_count()
+    print("ls_s3_url_keys using MP with cpu_count {}".format(est_cpu_count))
+    pool = mp_ctxt.Pool(processes=est_cpu_count, maxtasksperchild=MAX_TASKS_PER_CHILD)
 
     prefixes = ['']
     if is_object_directory:
         prefixes = [f'{c}{d}' for c in hexes for d in hexes]
 
+    results = []
+
     if is_object_directory:
         for i, prefix in enumerate(prefixes):
             prefix = os.path.join(s3_path, prefix)
-            multiple_results.append(pool.apply_async(s3_list_objects_at_prefix_v2, (bucket, prefix)))
+            multiple_results.append(pool.apply_async(s3_list_objects_at_prefix_v2,
+                                                     (bucket, prefix),
+                                                     callback=results.extend))
         pool.close()
-        results = [item for res in multiple_results for item in res.get(timeout=MAX_WAIT)]
         pool.join()
     else:
         results = s3_list_objects_at_prefix_v2(bucket, s3_path)
 
     return results
+
+
+def ls_s3_url_objects(s3_url):
+    """
+    List all objects under this s3_url.
+
+    Note: If you want to get a specific boto s3 object for a key, use s3_list_objects_at_prefix directly.
+
+    Note: the objects returned from this call cannot be subsequently passed into python multiprocessing
+    because they cannot be serialized by default.
+
+    Args:
+        s3_url(str): The bucket and key of the "directory" under which to search
+
+    Returns:
+        list (str): list of s3 objects under the bucket in the s3_path
+    """
+    if s3_url[-1] is not '/':
+        s3_url += '/'
+
+    bucket, s3_path = split_s3_url(s3_url)
+
+    return s3_list_objects_at_prefix(bucket, s3_path)
 
 
 def ls_s3_url(s3_url):
@@ -402,8 +441,6 @@ def ls_s3_url(s3_url):
     result = []
     client = b3.client('s3')
     paginator = client.get_paginator('list_objects_v2')
-    # use delimiter to groupby, which means, list things only at this level.
-    #page_iterator = paginator.paginate(Bucket=bucket, Delimiter='/', Prefix=s3_path)
     page_iterator = paginator.paginate(Bucket=bucket,Prefix=s3_path)
     for page in page_iterator:
         result += page['Contents']
@@ -422,31 +459,52 @@ def ls_s3_url_paths(s3_url):
     return [os.path.join('s3://', r['Key']) for r in ls_s3_url(s3_url)]
 
 
+def delete_s3_dir_many(s3_urls):
+    """
+
+    Args:
+        s3_urls(list(str)): list of s3_urls we will remove
+
+    Returns:
+        number objects deleted (int)
+
+    """
+    mp_ctxt = get_context(MP_CONTEXT_TYPE)  # Using forkserver here causes moto / pytest failures
+    pool = mp_ctxt.Pool(processes=mp_ctxt.cpu_count(), maxtasksperchild=MAX_TASKS_PER_CHILD)
+    multiple_results = []
+    results = []
+    for s3_url in s3_urls:
+        multiple_results.append(pool.apply_async(delete_s3_dir, (s3_url,), callback=results.extend))
+
+    pool.close()
+    pool.join()
+    return sum([1 if r > 0 else 0 for r in results])
+
+
 def delete_s3_dir(s3_url):
+    """
+
+    Args:
+        s3_url:
+
+    Returns:
+        number deleted (int)
+
+    """
     s3 = b3.resource('s3')
     bucket, s3_path = split_s3_url(s3_url)
+
     bucket = s3.Bucket(bucket)
     objects_to_delete = []
     for obj in bucket.objects.filter(Prefix=s3_path):
         objects_to_delete.append({'Key': obj.key})
-    bucket.delete_objects(
-        Delete={
-            'Objects': objects_to_delete
-        }
-    )
-
-
-def delete_s3_file(s3_url):
-    s3 = b3.resource('s3')
-    bucket, s3_path = split_s3_url(s3_url)
-    response = s3.Object(bucket, s3_path).delete()
-    # print response
-    # if response['DeleteMarker']:
-    #    return True
-    # else:
-    #    return False
-    # TODO: we're getting a different response than the docs say.
-    return True
+    if len(objects_to_delete) > 0:
+        bucket.delete_objects(
+            Delete={
+                'Objects': objects_to_delete
+            }
+        )
+    return len(objects_to_delete)
 
 
 def cp_s3_file(s3_src_path, s3_root):
@@ -472,6 +530,23 @@ def cp_s3_file(s3_src_path, s3_root):
     return os.path.join("s3://", bucket, output_path)
 
 
+def cp_local_to_s3_file(local_file, s3_file):
+    """
+    Put fqp local file to fqp s3_file
+
+    Args:
+        local_file (str): Fully qualified path to local file
+        s3_file (str): Fully qualified path to file on s3
+
+    Returns:
+        s3_file
+    """
+    s3 = b3.resource('s3')
+    bucket, s3_path = split_s3_url(s3_file)
+    s3.Object(bucket, s3_path).upload_file(local_file, ExtraArgs={"ServerSideEncryption": "AES256"})
+    return s3_file
+
+
 def put_s3_file(local_path, s3_root):
     """
     Put local file to location at s3_root.
@@ -485,6 +560,8 @@ def put_s3_file(local_path, s3_root):
     """
     s3 = b3.resource('s3')
     bucket, s3_path = split_s3_url(s3_root)
+    if s3_path is None:
+        s3_path = ''
     filename = os.path.basename(local_path)
     s3.Object(bucket, os.path.join(s3_path, filename)).upload_file(local_path, ExtraArgs={"ServerSideEncryption": "AES256"})
     return filename
@@ -506,12 +583,7 @@ def get_s3_key(bucket, key, filename=None):
     Returns:
 
     """
-    import multiprocessing
-
-    # print ("PID({}) START bkt[] key[{}] file[{}]".format(multiprocessing.current_process(), bucket, key,filename))
-
     dl_retry = 3
-
     s3 = b3.resource('s3')
 
     if filename is None:
@@ -539,6 +611,36 @@ def get_s3_key(bucket, key, filename=None):
     #print "PID({}) STOP bkt[] key[{}] file[{}]".format(multiprocessing.current_process(),key,filename)
 
     return filename
+
+
+def get_s3_key_many(bucket_key_file_tuples):
+    """ Retrieve many s3 keys in parallel and copy to the filename
+
+    This was done primarily because when testing from an external module, moto
+    fails to stub out calls to aws clients/resources if the multiprocessing occurs
+    outside of the module doing the s3 calls.
+
+    Args:
+        bucket_key_file_tuples (tuple): (bucket:str, key:str, filename=None)
+
+    Returns:
+        filenames (list): list of filenames
+
+    """
+    mp_ctxt = get_context(MP_CONTEXT_TYPE)  # Using forkserver here causes moto / pytest failures
+    est_cpu_count = mp_ctxt.cpu_count()
+    print("get_s3_key_many using MP with cpu_count {}".format(est_cpu_count))
+    pool = mp_ctxt.Pool(processes=est_cpu_count, maxtasksperchild=MAX_TASKS_PER_CHILD)
+    multiple_results = []
+    results = []
+    for s3_bucket, s3_key, local_object_path in bucket_key_file_tuples:
+        multiple_results.append(pool.apply_async(get_s3_key,
+                                                 (s3_bucket, s3_key, local_object_path),
+                                                 callback=results.extend))
+
+    pool.close()
+    pool.join()
+    return results
 
 
 def get_s3_file(s3_url, filename=None):

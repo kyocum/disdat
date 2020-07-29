@@ -97,15 +97,15 @@ setup(
     # If <= means higher versions broke something.
 
     install_requires=[
-        'luigi==2.8.11',
-        'boto3==1.11.9',
-        'termcolor==1.1.0',
-        'docker==4.1.0',
-        'pandas==0.25.3',
-        'numpy==1.18.1',
-        'sqlalchemy==1.3.13',
-        'protobuf==3.11.2',
-        'six==1.13.0',
+        'luigi>=2.8.11,<3.0',
+        'boto3>=1.13.10,<2.0',
+        'termcolor>=1.1.0,<2.0',
+        'docker>=4.1.0,<4.4.0',
+        'pandas>=0.25.3,<=1.2.0',
+        'numpy>=1.18.1,<1.19',
+        'sqlalchemy>=1.3.13,<1.4',
+        'protobuf>=3.11.2,<4.0',
+        'six>=1.13.0,<=1.15',
         'docutils<0.16,>=0.10'
     ],
 

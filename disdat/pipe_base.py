@@ -11,11 +11,7 @@ from __future__ import print_function
 
 from abc import ABCMeta, abstractmethod
 import os
-import sys
 import shutil
-import getpass
-import subprocess
-import inspect
 import collections
 
 import luigi
@@ -28,8 +24,9 @@ import pandas as pd
 import disdat.common as common
 from disdat.fs import DisdatFS
 from disdat.data_context import DataContext
-from disdat.hyperframe import LineageRecord, HyperFrameRecord, FrameRecord
+from disdat.hyperframe import HyperFrameRecord, FrameRecord
 import disdat.hyperframe_pb2 as hyperframe_pb2
+from disdat.path_cache import PathCache
 from disdat import logger as _logger
 
 
@@ -111,7 +108,7 @@ class PipeBase(object):
             [ luigi output for meta file, luigi output for lineage file ]
 
         """
-        pce = DisdatFS.get_path_cache(pipe_task)
+        pce = PathCache.get_path_cache(pipe_task)
 
         if pce is None:
             # This can happen when the pipe has been created with non-deterministic parameters
@@ -122,66 +119,6 @@ class PipeBase(object):
         hframe = {PipeBase.HFRAME: luigi.LocalTarget(os.path.join(pce.path, HyperFrameRecord.make_filename(pce.uuid)))}
 
         return hframe
-
-    @staticmethod
-    def make_hframe(output_frames, output_bundle_uuid, depends_on,
-                    human_name, processing_name, class_to_version,
-                    start_ts=0, stop_ts=0, tags=None, presentation=hyperframe_pb2.DEFAULT):
-        """
-        Create HyperFrameRecord or HFR
-        HFR contains a LineageRecord
-        HFR contains UUIDs of FrameRecords or FRs
-        FR contains data or LinkRecords
-
-        Use the pipe_task to look in the path cache for the output directory
-        Use the pipe_task outputs to find the named file for the final HF proto buf file.
-        Write out all Frames, and at the very last moment, write out the HF proto buff.
-
-        Args:
-            output_frames (:list:`FrameRecord`):  List of frames to be placed in bundle / hframe
-            output_bundle_uuid:
-            depends_on (:list:tuple):  must be the processing_name, uuid of the upstream pipes / base bundles
-            human_name:
-            processing_name:
-            class_to_version: A python class whose file is under git control
-            start_ts (float): timestamp of task start time
-            stop_ts (float): timestamp of task stop time
-            tags:
-            presentation (enum):  how to present this hframe when we use it as input to a function -- default None
-
-            That default means it will be a HF, but it wasn't a "presentable" hyperframe.
-
-        Returns:
-            `HyperFrameRecord`
-        """
-
-        # Grab code version and path cache entry -- only called if we ran
-        code_method = class_to_version.__module__
-        pipeline_path = os.path.dirname(sys.modules[code_method].__file__)
-        cv = DisdatFS().get_pipe_version(pipeline_path)
-
-        lr = LineageRecord(hframe_name=processing_name,
-                           hframe_uuid=output_bundle_uuid,
-                           code_repo=cv.url,
-                           code_name='unknown',
-                           code_semver=cv.semver,
-                           code_hash=cv.hash,
-                           code_branch=cv.branch,
-                           code_method=code_method,
-                           depends_on=depends_on,
-                           start_ts=start_ts,
-                           stop_ts=stop_ts)
-
-        hfr = HyperFrameRecord(owner=getpass.getuser(),
-                               human_name=human_name,
-                               processing_name=processing_name,
-                               uuid=output_bundle_uuid,
-                               frames=output_frames,
-                               lin_obj=lr,
-                               tags=tags,
-                               presentation=presentation)
-
-        return hfr
 
     @staticmethod
     def _interpret_scheme(full_path):
@@ -230,7 +167,7 @@ class PipeBase(object):
         return luigi_outputs
 
     @staticmethod
-    def rm_bundle_dir(output_path, uuid, db_targets):
+    def rm_bundle_dir(output_path, uuid):
         """
         We created a directory (managed path) to hold the bundle and any files.   The files have been
         copied in.   Removing the directory removes any created files.  If the user has told us about
@@ -250,14 +187,10 @@ class PipeBase(object):
             None
         """
         try:
-            shutil.rmtree(output_path)
-
-            # if people create s3 files, s3 file targets, inside of an s3 context,
-            # then we will have to clean those up as well.
-
-            for t in db_targets:
-                t.rm()
-
+            shutil.rmtree(output_path, ignore_errors=True)
+            os.rmdir(output_path)
+            # TODO: if people create s3 files, s3 file targets, inside of an s3 context,
+            # TODO: then we will have to clean those up as well.
         except IOError as why:
             _logger.error("Removal of hyperframe directory {} failed with error {}. Continuing removal...".format(
                 uuid, why))
@@ -310,12 +243,10 @@ class PipeBase(object):
 
         frames = []
 
-        managed_path = os.path.join(data_context.get_object_dir(), hfid)
-
         if val is None:
             """ None's stored as json.dumps([None]) or '[null]' """
             presentation = hyperframe_pb2.JSON
-            frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
+            frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
 
         elif isinstance(val, HyperFrameRecord):
             presentation = hyperframe_pb2.HF
@@ -325,12 +256,12 @@ class PipeBase(object):
             presentation = hyperframe_pb2.TENSOR
             if isinstance(val, list):
                 val = np.array(val)
-            frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
+            frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
 
         elif isinstance(val, tuple):
             presentation = hyperframe_pb2.ROW
-            for i, _ in enumerate(val):
-                frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':{}'.format(i), val, managed_path))
+            val = np.array(val)
+            frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
 
         elif isinstance(val, dict):
             presentation = hyperframe_pb2.ROW
@@ -338,21 +269,18 @@ class PipeBase(object):
                 if not isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, collections.Sequence)):
                     # assuming this is a scalar
                     assert isinstance(v, possible_scalar_types), 'Disdat requires dictionary values to be one of {} not {}'.format(possible_scalar_types, type(v))
-                    frames.append(data_context.convert_scalar2frame(hfid, k, v, managed_path))
+                    frames.append(data_context.convert_scalar2frame(hfid, k, v))
                 else:
                     assert isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, collections.Sequence))
-                    frames.append(data_context.convert_serieslike2frame(hfid, k, v, managed_path))
+                    frames.append(data_context.convert_serieslike2frame(hfid, k, v))
 
         elif isinstance(val, pd.DataFrame):
             presentation = hyperframe_pb2.DF
-            frames.extend(data_context.convert_df2frames(hfid, val, managed_path))
+            frames.extend(data_context.convert_df2frames(hfid, val))
 
         else:
             presentation = hyperframe_pb2.SCALAR
-            frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val, managed_path))
-
-
-
+            frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
 
         return presentation, frames
 

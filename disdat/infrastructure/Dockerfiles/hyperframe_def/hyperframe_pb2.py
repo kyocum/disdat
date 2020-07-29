@@ -20,7 +20,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   name='hyperframe.proto',
   package='bundle',
   syntax='proto3',
-  serialized_pb=_b('\n\x10hyperframe.proto\x12\x06\x62undle\"#\n\x0bStringTuple\x12\t\n\x01k\x18\x01 \x01(\t\x12\t\n\x01v\x18\x02 \x01(\t\"\xfa\x01\n\nHyperFrame\x12\r\n\x05owner\x18\x01 \x01(\t\x12\x12\n\nhuman_name\x18\x02 \x01(\t\x12\x17\n\x0fprocessing_name\x18\x03 \x01(\t\x12\x0c\n\x04uuid\x18\x04 \x01(\t\x12#\n\x06\x66rames\x18\x05 \x03(\x0b\x32\x13.bundle.StringTuple\x12 \n\x07lineage\x18\x06 \x01(\x0b\x32\x0f.bundle.Lineage\x12!\n\x04tags\x18\x07 \x03(\x0b\x32\x13.bundle.StringTuple\x12*\n\x0cpresentation\x18\x08 \x01(\x0e\x32\x14.bundle.Presentation\x12\x0c\n\x04hash\x18\t \x01(\t\"\xe3\x01\n\x05\x46rame\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0c\n\x04uuid\x18\x02 \x01(\t\x12\x1a\n\x04type\x18\x03 \x01(\x0e\x32\x0c.bundle.Type\x12\r\n\x05shape\x18\x04 \x03(\r\x12$\n\tbyteorder\x18\x05 \x01(\x0e\x32\x11.bundle.ByteOrder\x12#\n\x07hframes\x18\x06 \x03(\x0b\x32\x12.bundle.HyperFrame\x12\x1b\n\x05links\x18\x07 \x03(\x0b\x32\x0c.bundle.Link\x12\x0f\n\x07strings\x18\x08 \x03(\t\x12\x0c\n\x04\x64\x61ta\x18\t \x01(\x0c\x12\x0c\n\x04hash\x18\n \x01(\t\"\xfc\x02\n\x07Lineage\x12\x13\n\x0bhframe_name\x18\x01 \x01(\t\x12\x13\n\x0bhframe_uuid\x18\x02 \x01(\t\x12\x11\n\tcode_repo\x18\x03 \x01(\t\x12\x11\n\tcode_name\x18\x04 \x01(\t\x12\x13\n\x0b\x63ode_semver\x18\x05 \x01(\t\x12\x11\n\tcode_hash\x18\x06 \x01(\t\x12\x13\n\x0b\x63ode_branch\x18\x07 \x01(\t\x12\x14\n\x0c\x64\x61ta_context\x18\x08 \x01(\t\x12\x13\n\x0b\x64\x61ta_branch\x18\t \x01(\t\x12\x15\n\rcreation_date\x18\n \x01(\x01\x12.\n\ndepends_on\x18\x0b \x03(\x0b\x32\x1a.bundle.Lineage.Dependency\x12\x12\n\nstart_time\x18\x0c \x01(\x01\x12\x11\n\tstop_time\x18\r \x01(\x01\x12\x13\n\x0b\x63ode_method\x18\x0e \x01(\t\x1a\x36\n\nDependency\x12\x13\n\x0bhframe_name\x18\x01 \x01(\t\x12\x13\n\x0bhframe_uuid\x18\x02 \x01(\t\"\x8d\x01\n\x08LinkAuth\x12\x0f\n\x07profile\x18\x01 \x01(\t\x12\x0c\n\x04uuid\x18\x02 \x01(\t\x12%\n\x07s3_auth\x18\x03 \x01(\x0b\x32\x12.bundle.S3LinkAuthH\x00\x12%\n\x07\x64\x62_auth\x18\x04 \x01(\x0b\x32\x12.bundle.DBLinkAuthH\x00\x12\x0c\n\x04hash\x18\x05 \x01(\tB\x06\n\x04\x61uth\"a\n\nS3LinkAuth\x12\x19\n\x11\x61ws_access_key_id\x18\x01 \x01(\t\x12\x1d\n\x15\x61ws_secret_access_key\x18\x02 \x01(\t\x12\x19\n\x11\x61ws_session_token\x18\x03 \x01(\t\"\x90\x01\n\nDBLinkAuth\x12\x0e\n\x06\x64river\x18\x01 \x01(\t\x12\x13\n\x0b\x64\x65scription\x18\x02 \x01(\t\x12\x10\n\x08\x64\x61tabase\x18\x03 \x01(\t\x12\x12\n\nservername\x18\x04 \x01(\t\x12\x0b\n\x03uid\x18\x05 \x01(\t\x12\x0b\n\x03pwd\x18\x06 \x01(\t\x12\x0c\n\x04port\x18\x07 \x01(\t\x12\x0f\n\x07sslmode\x18\x08 \x01(\t\"\xc1\x01\n\x04Link\x12\x0c\n\x04uuid\x18\x01 \x01(\t\x12\x12\n\nframe_uuid\x18\x02 \x01(\t\x12\x15\n\rlinkauth_uuid\x18\x03 \x01(\t\x12\x0c\n\x04hash\x18\x04 \x01(\t\x12\"\n\x05local\x18\x05 \x01(\x0b\x32\x11.bundle.LocalLinkH\x00\x12\x1c\n\x02s3\x18\x06 \x01(\x0b\x32\x0e.bundle.S3LinkH\x00\x12(\n\x08\x64\x61tabase\x18\x07 \x01(\x0b\x32\x14.bundle.DatabaseLinkH\x00\x42\x06\n\x04link\"\x19\n\tLocalLink\x12\x0c\n\x04path\x18\x01 \x01(\t\"\x15\n\x06S3Link\x12\x0b\n\x03url\x18\x01 \x01(\t\"\x8c\x01\n\x0c\x44\x61tabaseLink\x12\x0b\n\x03url\x18\x01 \x01(\t\x12\x10\n\x08\x64\x61tabase\x18\x02 \x01(\t\x12\x12\n\nservername\x18\x03 \x01(\t\x12\x0e\n\x06schema\x18\x04 \x01(\t\x12\r\n\x05table\x18\x05 \x01(\t\x12\x0f\n\x07\x63olumns\x18\x06 \x03(\t\x12\x0b\n\x03\x64sn\x18\x07 \x01(\t\x12\x0c\n\x04port\x18\x08 \x01(\x05*V\n\x0cPresentation\x12\x06\n\x02HF\x10\x00\x12\x06\n\x02\x44\x46\x10\x01\x12\n\n\x06SCALAR\x10\x03\x12\n\n\x06TENSOR\x10\x04\x12\x07\n\x03ROW\x10\x05\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x06\x12\x08\n\x04JSON\x10\x07*(\n\tByteOrder\x12\x07\n\x03\x42IG\x10\x00\x12\n\n\x06LITTLE\x10\x01\x12\x06\n\x02NA\x10\x02*\xe8\x01\n\x04Type\x12\x08\n\x04NONE\x10\x00\x12\x08\n\x04LINK\x10\x01\x12\x0b\n\x07\x46LOAT16\x10\x02\x12\x0b\n\x07\x46LOAT32\x10\x03\x12\x0b\n\x07\x46LOAT64\x10\x04\x12\t\n\x05UINT8\x10\x05\x12\n\n\x06UINT16\x10\x06\x12\n\n\x06UINT32\x10\x07\x12\n\n\x06UINT64\x10\x08\x12\x08\n\x04INT8\x10\t\x12\t\n\x05INT16\x10\n\x12\t\n\x05INT32\x10\x0b\x12\t\n\x05INT64\x10\x0c\x12\n\n\x06STRING\x10\r\x12\x08\n\x04\x42OOL\x10\x0e\x12\r\n\tCOMPLEX64\x10\x0f\x12\x0e\n\nCOMPLEX128\x10\x10\x12\n\n\x06HFRAME\x10\x11\x12\n\n\x06OBJECT\x10\x12\x62\x06proto3')
+  serialized_pb=_b('\n\x10hyperframe.proto\x12\x06\x62undle\"#\n\x0bStringTuple\x12\t\n\x01k\x18\x01 \x01(\t\x12\t\n\x01v\x18\x02 \x01(\t\"\xfa\x01\n\nHyperFrame\x12\r\n\x05owner\x18\x01 \x01(\t\x12\x12\n\nhuman_name\x18\x02 \x01(\t\x12\x17\n\x0fprocessing_name\x18\x03 \x01(\t\x12\x0c\n\x04uuid\x18\x04 \x01(\t\x12#\n\x06\x66rames\x18\x05 \x03(\x0b\x32\x13.bundle.StringTuple\x12 \n\x07lineage\x18\x06 \x01(\x0b\x32\x0f.bundle.Lineage\x12!\n\x04tags\x18\x07 \x03(\x0b\x32\x13.bundle.StringTuple\x12*\n\x0cpresentation\x18\x08 \x01(\x0e\x32\x14.bundle.Presentation\x12\x0c\n\x04hash\x18\t \x01(\t\"\xe3\x01\n\x05\x46rame\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0c\n\x04uuid\x18\x02 \x01(\t\x12\x1a\n\x04type\x18\x03 \x01(\x0e\x32\x0c.bundle.Type\x12\r\n\x05shape\x18\x04 \x03(\r\x12$\n\tbyteorder\x18\x05 \x01(\x0e\x32\x11.bundle.ByteOrder\x12#\n\x07hframes\x18\x06 \x03(\x0b\x32\x12.bundle.HyperFrame\x12\x1b\n\x05links\x18\x07 \x03(\x0b\x32\x0c.bundle.Link\x12\x0f\n\x07strings\x18\x08 \x03(\t\x12\x0c\n\x04\x64\x61ta\x18\t \x01(\x0c\x12\x0c\n\x04hash\x18\n \x01(\t\"\x98\x03\n\x07Lineage\x12\x18\n\x10hframe_proc_name\x18\x01 \x01(\t\x12\x13\n\x0bhframe_uuid\x18\x02 \x01(\t\x12\x11\n\tcode_repo\x18\x03 \x01(\t\x12\x11\n\tcode_name\x18\x04 \x01(\t\x12\x13\n\x0b\x63ode_semver\x18\x05 \x01(\t\x12\x11\n\tcode_hash\x18\x06 \x01(\t\x12\x13\n\x0b\x63ode_branch\x18\x07 \x01(\t\x12\x14\n\x0c\x64\x61ta_context\x18\x08 \x01(\t\x12\x13\n\x0b\x64\x61ta_branch\x18\t \x01(\t\x12\x15\n\rcreation_date\x18\n \x01(\x01\x12.\n\ndepends_on\x18\x0b \x03(\x0b\x32\x1a.bundle.Lineage.Dependency\x12\x12\n\nstart_time\x18\x0c \x01(\x01\x12\x11\n\tstop_time\x18\r \x01(\x01\x12\x13\n\x0b\x63ode_method\x18\x0e \x01(\t\x1aM\n\nDependency\x12\x18\n\x10hframe_proc_name\x18\x01 \x01(\t\x12\x13\n\x0bhframe_uuid\x18\x02 \x01(\t\x12\x10\n\x08\x61rg_name\x18\x03 \x01(\t\"\x8d\x01\n\x08LinkAuth\x12\x0f\n\x07profile\x18\x01 \x01(\t\x12\x0c\n\x04uuid\x18\x02 \x01(\t\x12%\n\x07s3_auth\x18\x03 \x01(\x0b\x32\x12.bundle.S3LinkAuthH\x00\x12%\n\x07\x64\x62_auth\x18\x04 \x01(\x0b\x32\x12.bundle.DBLinkAuthH\x00\x12\x0c\n\x04hash\x18\x05 \x01(\tB\x06\n\x04\x61uth\"a\n\nS3LinkAuth\x12\x19\n\x11\x61ws_access_key_id\x18\x01 \x01(\t\x12\x1d\n\x15\x61ws_secret_access_key\x18\x02 \x01(\t\x12\x19\n\x11\x61ws_session_token\x18\x03 \x01(\t\"\x90\x01\n\nDBLinkAuth\x12\x0e\n\x06\x64river\x18\x01 \x01(\t\x12\x13\n\x0b\x64\x65scription\x18\x02 \x01(\t\x12\x10\n\x08\x64\x61tabase\x18\x03 \x01(\t\x12\x12\n\nservername\x18\x04 \x01(\t\x12\x0b\n\x03uid\x18\x05 \x01(\t\x12\x0b\n\x03pwd\x18\x06 \x01(\t\x12\x0c\n\x04port\x18\x07 \x01(\t\x12\x0f\n\x07sslmode\x18\x08 \x01(\t\"\xc1\x01\n\x04Link\x12\x0c\n\x04uuid\x18\x01 \x01(\t\x12\x12\n\nframe_uuid\x18\x02 \x01(\t\x12\x15\n\rlinkauth_uuid\x18\x03 \x01(\t\x12\x0c\n\x04hash\x18\x04 \x01(\t\x12\"\n\x05local\x18\x05 \x01(\x0b\x32\x11.bundle.LocalLinkH\x00\x12\x1c\n\x02s3\x18\x06 \x01(\x0b\x32\x0e.bundle.S3LinkH\x00\x12(\n\x08\x64\x61tabase\x18\x07 \x01(\x0b\x32\x14.bundle.DatabaseLinkH\x00\x42\x06\n\x04link\"\x19\n\tLocalLink\x12\x0c\n\x04path\x18\x01 \x01(\t\"\x15\n\x06S3Link\x12\x0b\n\x03url\x18\x01 \x01(\t\"\x8c\x01\n\x0c\x44\x61tabaseLink\x12\x0b\n\x03url\x18\x01 \x01(\t\x12\x10\n\x08\x64\x61tabase\x18\x02 \x01(\t\x12\x12\n\nservername\x18\x03 \x01(\t\x12\x0e\n\x06schema\x18\x04 \x01(\t\x12\r\n\x05table\x18\x05 \x01(\t\x12\x0f\n\x07\x63olumns\x18\x06 \x03(\t\x12\x0b\n\x03\x64sn\x18\x07 \x01(\t\x12\x0c\n\x04port\x18\x08 \x01(\x05*V\n\x0cPresentation\x12\x06\n\x02HF\x10\x00\x12\x06\n\x02\x44\x46\x10\x01\x12\n\n\x06SCALAR\x10\x03\x12\n\n\x06TENSOR\x10\x04\x12\x07\n\x03ROW\x10\x05\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x06\x12\x08\n\x04JSON\x10\x07*(\n\tByteOrder\x12\x07\n\x03\x42IG\x10\x00\x12\n\n\x06LITTLE\x10\x01\x12\x06\n\x02NA\x10\x02*\xe8\x01\n\x04Type\x12\x08\n\x04NONE\x10\x00\x12\x08\n\x04LINK\x10\x01\x12\x0b\n\x07\x46LOAT16\x10\x02\x12\x0b\n\x07\x46LOAT32\x10\x03\x12\x0b\n\x07\x46LOAT64\x10\x04\x12\t\n\x05UINT8\x10\x05\x12\n\n\x06UINT16\x10\x06\x12\n\n\x06UINT32\x10\x07\x12\n\n\x06UINT64\x10\x08\x12\x08\n\x04INT8\x10\t\x12\t\n\x05INT16\x10\n\x12\t\n\x05INT32\x10\x0b\x12\t\n\x05INT64\x10\x0c\x12\n\n\x06STRING\x10\r\x12\x08\n\x04\x42OOL\x10\x0e\x12\r\n\tCOMPLEX64\x10\x0f\x12\x0e\n\nCOMPLEX128\x10\x10\x12\n\n\x06HFRAME\x10\x11\x12\n\n\x06OBJECT\x10\x12\x62\x06proto3')
 )
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
@@ -61,8 +61,8 @@ _PRESENTATION = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   options=None,
-  serialized_start=1710,
-  serialized_end=1796,
+  serialized_start=1738,
+  serialized_end=1824,
 )
 _sym_db.RegisterEnumDescriptor(_PRESENTATION)
 
@@ -88,8 +88,8 @@ _BYTEORDER = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   options=None,
-  serialized_start=1798,
-  serialized_end=1838,
+  serialized_start=1826,
+  serialized_end=1866,
 )
 _sym_db.RegisterEnumDescriptor(_BYTEORDER)
 
@@ -179,8 +179,8 @@ _TYPE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   options=None,
-  serialized_start=1841,
-  serialized_end=2073,
+  serialized_start=1869,
+  serialized_end=2101,
 )
 _sym_db.RegisterEnumDescriptor(_TYPE)
 
@@ -444,7 +444,7 @@ _LINEAGE_DEPENDENCY = _descriptor.Descriptor(
   containing_type=None,
   fields=[
     _descriptor.FieldDescriptor(
-      name='hframe_name', full_name='bundle.Lineage.Dependency.hframe_name', index=0,
+      name='hframe_proc_name', full_name='bundle.Lineage.Dependency.hframe_proc_name', index=0,
       number=1, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
@@ -453,6 +453,13 @@ _LINEAGE_DEPENDENCY = _descriptor.Descriptor(
     _descriptor.FieldDescriptor(
       name='hframe_uuid', full_name='bundle.Lineage.Dependency.hframe_uuid', index=1,
       number=2, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='arg_name', full_name='bundle.Lineage.Dependency.arg_name', index=2,
+      number=3, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
@@ -469,8 +476,8 @@ _LINEAGE_DEPENDENCY = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=875,
-  serialized_end=929,
+  serialized_start=880,
+  serialized_end=957,
 )
 
 _LINEAGE = _descriptor.Descriptor(
@@ -481,7 +488,7 @@ _LINEAGE = _descriptor.Descriptor(
   containing_type=None,
   fields=[
     _descriptor.FieldDescriptor(
-      name='hframe_name', full_name='bundle.Lineage.hframe_name', index=0,
+      name='hframe_proc_name', full_name='bundle.Lineage.hframe_proc_name', index=0,
       number=1, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
@@ -591,7 +598,7 @@ _LINEAGE = _descriptor.Descriptor(
   oneofs=[
   ],
   serialized_start=549,
-  serialized_end=929,
+  serialized_end=957,
 )
 
 
@@ -652,8 +659,8 @@ _LINKAUTH = _descriptor.Descriptor(
       name='auth', full_name='bundle.LinkAuth.auth',
       index=0, containing_type=None, fields=[]),
   ],
-  serialized_start=932,
-  serialized_end=1073,
+  serialized_start=960,
+  serialized_end=1101,
 )
 
 
@@ -697,8 +704,8 @@ _S3LINKAUTH = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1075,
-  serialized_end=1172,
+  serialized_start=1103,
+  serialized_end=1200,
 )
 
 
@@ -777,8 +784,8 @@ _DBLINKAUTH = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1175,
-  serialized_end=1319,
+  serialized_start=1203,
+  serialized_end=1347,
 )
 
 
@@ -853,8 +860,8 @@ _LINK = _descriptor.Descriptor(
       name='link', full_name='bundle.Link.link',
       index=0, containing_type=None, fields=[]),
   ],
-  serialized_start=1322,
-  serialized_end=1515,
+  serialized_start=1350,
+  serialized_end=1543,
 )
 
 
@@ -884,8 +891,8 @@ _LOCALLINK = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1517,
-  serialized_end=1542,
+  serialized_start=1545,
+  serialized_end=1570,
 )
 
 
@@ -915,8 +922,8 @@ _S3LINK = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1544,
-  serialized_end=1565,
+  serialized_start=1572,
+  serialized_end=1593,
 )
 
 
@@ -995,8 +1002,8 @@ _DATABASELINK = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1568,
-  serialized_end=1708,
+  serialized_start=1596,
+  serialized_end=1736,
 )
 
 _HYPERFRAME.fields_by_name['frames'].message_type = _STRINGTUPLE

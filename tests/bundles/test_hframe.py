@@ -20,16 +20,7 @@ def _make_linkauth_records():
     :return: s3 auth record, vertica auth record
     """
     slar = hyperframe.S3LinkAuthRecord('id1234', 'keyabcd', 'tokenX', 'wildprofile')
-    vlar = hyperframe.DBLinkAuthRecord("/Library/Vertica/ODBC/lib/libverticaodbc.dylib",
-                                            "Intuit Vertica Connection",
-                                            "Analytics",
-                                            "pprddaavth-vip.ie.intuit.net",
-                                            "kyocum",
-                                            "something",
-                                            "5433",
-                                            "require",
-                                       "superprofile")
-    return slar, vlar
+    return slar
 
 
 def _make_link_records():
@@ -45,18 +36,7 @@ def _make_link_records():
 
     file_link = hyperframe.FileLinkRecord(fake_hfid, fake_laid, BUNDLE_URI_SCHEME+"Users/someuser/somefile.txt")
     s3_link = hyperframe.S3LinkRecord(fake_hfid, fake_laid, BUNDLE_URI_SCHEME+"ds-bucket/keyone/keytwo/target.sql")
-    db_link = hyperframe.DatabaseLinkRecord(fake_hfid,
-                                            fake_laid,
-                                            "db:///some.database.ep",
-                                            "server_sharkbait",
-                                            "db_somedb",
-                                            "schema_some",
-                                            "table_datatable",
-                                            ['col1', 'col2', 'col3'],
-                                            9999,
-                                            "dsn_default")
-
-    return file_link, s3_link, db_link
+    return file_link, s3_link
 
 
 def _make_lineage_record(hframe_name, hframe_uuid, depends_on=None):
@@ -72,7 +52,7 @@ def _make_lineage_record(hframe_name, hframe_uuid, depends_on=None):
 
     """
 
-    lr = hyperframe.LineageRecord(hframe_name=hframe_name, hframe_uuid=hframe_uuid,
+    lr = hyperframe.LineageRecord(hframe_proc_name=hframe_name, hframe_uuid=hframe_uuid,
                                   code_repo='bigdipper', code_name='unknown',
                                   code_semver='0.1.0', code_hash='5cd60d3',
                                   code_branch='develop', code_method='unknown', depends_on=depends_on)
@@ -235,17 +215,15 @@ def test_linkauth_rw_pb():
     :return:
     """
 
-    slar, vlar = _make_linkauth_records()
+    slar = _make_linkauth_records()
 
     """ Write out protocol buffers """
 
     w_pb_fs(testdir, slar)
-    w_pb_fs(testdir, vlar)
 
     """ Read in protocol buffers """
 
     r_pb_fs(os.path.join(testdir, slar.get_filename()), hyperframe.S3LinkAuthRecord)
-    r_pb_fs(os.path.join(testdir, vlar.get_filename()), hyperframe.DBLinkAuthRecord)
 
 
 def test_link_rw_pb():
@@ -254,19 +232,17 @@ def test_link_rw_pb():
     :return:
     """
 
-    file_link, s3_link, db_link = _make_link_records()
+    file_link, s3_link = _make_link_records()
 
     """ Write out protocol buffers """
 
     w_pb_fs(testdir, file_link)
     w_pb_fs(testdir, s3_link)
-    w_pb_fs(testdir, db_link)
 
     """ Read in protocol buffers """
 
     r_pb_fs(os.path.join(testdir, file_link.get_filename()), hyperframe.FileLinkRecord)
     r_pb_fs(os.path.join(testdir, s3_link.get_filename()), hyperframe.S3LinkRecord)
-    r_pb_fs(os.path.join(testdir, db_link.get_filename()), hyperframe.DatabaseLinkRecord)
 
 
 
@@ -327,27 +303,22 @@ def test_linkauth_rw_db():
 
     """ Create some PB records """
 
-    slar, vlar = _make_linkauth_records()
+    slar = _make_linkauth_records()
 
     """ Write out PBs as rows """
 
     slar_hash = w_pb_db(slar, engine_g)
-    vlar_hash = w_pb_db(vlar, engine_g)
 
     """ Read in PBs as rows"""
 
     link_auth_results = r_pb_db(hyperframe.LinkAuthBase, engine_g)
 
     slar_hash2 = None
-    vlar_hash2 = None
     for x in link_auth_results:
         if x.pb.WhichOneof('auth') == 's3_auth':
             slar_hash2 = hashlib.md5(slar.pb.SerializeToString()).hexdigest()
-        if x.pb.WhichOneof('auth') == 'db_auth':
-            vlar_hash2 = hashlib.md5(vlar.pb.SerializeToString()).hexdigest()
 
     assert (slar_hash == slar_hash2)
-    assert (vlar_hash == vlar_hash2)
 
 
 def test_link_rw_db():
@@ -365,13 +336,12 @@ def test_link_rw_db():
 
     """ Create some PB records """
 
-    local_link, s3_link, db_link = _make_link_records()
+    local_link, s3_link = _make_link_records()
 
     """ Write out PBs as rows """
 
     local_hash = w_pb_db(local_link, engine_g)
     s3_hash = w_pb_db(s3_link, engine_g)
-    db_hash = w_pb_db(db_link, engine_g)
 
     """ Read in PBs as rows"""
 
@@ -379,18 +349,15 @@ def test_link_rw_db():
 
     local_hash2 = None
     s3_hash2 = None
-    db_hash2 = None
+
     for x in link_results:
         if x.pb.WhichOneof('link') == 'local':
             local_hash2 = hashlib.md5(local_link.pb.SerializeToString()).hexdigest()
         if x.pb.WhichOneof('link') == 's3':
             s3_hash2 = hashlib.md5(s3_link.pb.SerializeToString()).hexdigest()
-        if x.pb.WhichOneof('link') == 'database':
-            db_hash2 = hashlib.md5(db_link.pb.SerializeToString()).hexdigest()
 
     assert (local_hash == local_hash2)
     assert (s3_hash == s3_hash2)
-    assert (db_hash == db_hash2)
 
 
 
