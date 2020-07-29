@@ -399,6 +399,7 @@ def ls_s3_url_keys(s3_url, is_object_directory=False):
         pool.close()
         pool.join()
     else:
+        print("ls_s3_url_keys not using MP for this list operation")
         results = s3_list_objects_at_prefix_v2(bucket, s3_path)
 
     return results
