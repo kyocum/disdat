@@ -60,7 +60,7 @@ def disdat_cpu_count():
     if env_cpu_count is None:
         return os.cpu_count()  # we did our best.
     else:
-        return env_cpu_count
+        return int(env_cpu_count)
 
 
 def batch_get_job_definition_name(pipeline_image_name):
