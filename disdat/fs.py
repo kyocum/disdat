@@ -1195,7 +1195,13 @@ class DisdatFS(object):
                 return
             # else fall through to see if we can pull from remote context
 
-        possible_hframe_objects = aws_s3.ls_s3_url_keys(data_context.get_remote_object_dir(),
+        # If uuid is supplied, just read objects at that key, not all the objects in the context
+        if uuid is not None:
+            object_directory = os.path.join(data_context.get_remote_object_dir(), uuid)
+        else:
+            object_directory = data_context.get_remote_object_dir()
+
+        possible_hframe_objects = aws_s3.ls_s3_url_keys(object_directory,
                                                         is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
 
         hframe_keys = [obj for obj in possible_hframe_objects if '_hframe.pb' in obj]
