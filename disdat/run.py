@@ -95,6 +95,9 @@ def _run_local(cli, pipeline_setup_file, arglist, backend):
 
     environment[common.LOCAL_EXECUTION] = 'True'
 
+    # Todo: Local runs do not yet set resource limits, but when they do, we'll have to set this
+    #environment['DISDAT_CPU_COUNT'] = vcpus
+
     volumes = {}
     aws_config_dir = os.getenv('AWS_CONFIG_DIR', os.path.join(os.environ['HOME'], '.aws'))
     if aws_config_dir is not None and os.path.exists(aws_config_dir):
@@ -288,6 +291,8 @@ def _run_aws_batch(arglist, fq_repository_name, job_name, pipeline_image_name,
                 {'name': 'AWS_SECRET_ACCESS_KEY', 'value': credentials.secret_key},
                 {'name': 'AWS_SESSION_TOKEN', 'value': credentials.token}
             ]
+
+    container_overrides['environment'].append({'name': 'DISDAT_CPU_COUNT', 'value': str(vcpus)})
 
     job = client.submit_job(jobName=job_name, jobDefinition=job_definition_fqn, jobQueue=job_queue,
                             containerOverrides=container_overrides)
