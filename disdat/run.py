@@ -292,7 +292,7 @@ def _run_aws_batch(arglist, fq_repository_name, job_name, pipeline_image_name,
                 {'name': 'AWS_SESSION_TOKEN', 'value': credentials.token}
             ]
 
-    container_overrides['environment'].append({'name': 'DISDAT_CPU_COUNT', 'value': vcpus})
+    container_overrides['environment'].append({'name': 'DISDAT_CPU_COUNT', 'value': str(vcpus)})
 
     job = client.submit_job(jobName=job_name, jobDefinition=job_definition_fqn, jobQueue=job_queue,
                             containerOverrides=container_overrides)
