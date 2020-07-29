@@ -461,7 +461,14 @@ class DataContext(object):
                     rcd = hyperframe.r_pb_fs(f, rcd_type)
                     store[rcd.pb.uuid] = rcd
 
-        for hfr in hframes.values():
+        hframe_count = len(hframes.values())
+        ten_percent = max(1, int(hframe_count / 10))
+        perc = 0
+        for i, hfr in enumerate(hframes.values()):
+            if i % ten_percent == 0:
+                print("Disdat DB rebuild: written {} ({} percent) to db".format(i, perc))
+                perc += 10
+
             if DataContext._validate_hframe(hfr, frames, auths):
                 # looks like a good hyperframe
                 # see if it exists, if it does do not write hframe and assume frames are also present
@@ -616,8 +623,9 @@ class DataContext(object):
         except (IOError, os.error) as why:
             _logger.error("Removal of hyperframe directory {} failed with error {}.".format(self.implicit_hframe_path(hfr_uuid), why))
 
-            # Must clean up db if directory removal failed, only delete same record if state marked for removal
+            # Must clean up db if directory removal failed
             hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid, state=hyperframe.RecordState.deleted)
+            hyperframe.delete_fr_db(self.local_engine, hfr_uuid)
 
             return False
 
