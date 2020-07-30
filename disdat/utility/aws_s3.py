@@ -484,7 +484,11 @@ def delete_s3_dir_many(s3_urls):
 
     """
     mp_ctxt = get_context(MP_CONTEXT_TYPE)  # Using forkserver here causes moto / pytest failures
-    with mp_ctxt.Pool(processes=disdat_cpu_count(), maxtasksperchild=MAX_TASKS_PER_CHILD) as pool:
+    with mp_ctxt.Pool(
+        processes=disdat_cpu_count(),
+        maxtasksperchild=MAX_TASKS_PER_CHILD,
+        initializer=initialize_process,
+    ) as pool:
         multiple_results = []
         results = []
         for s3_url in s3_urls:
@@ -505,10 +509,9 @@ def delete_s3_dir(s3_url):
         number deleted (int)
 
     """
-    s3 = b3.resource('s3')
     bucket, s3_path = split_s3_url(s3_url)
 
-    bucket = s3.Bucket(bucket)
+    bucket = s3_resource.Bucket(bucket)
     objects_to_delete = []
     for obj in bucket.objects.filter(Prefix=s3_path):
         objects_to_delete.append({'Key': obj.key})
@@ -585,6 +588,21 @@ def get_s3_resource():
     return b3.resource('s3')
 
 
+# Module global variable used to initialize and store process state
+s3_resource = None
+
+
+def initialize_process():
+    """
+    Helper function to independently initialize s3 clients in each process
+    Returns:
+
+    """
+    global s3_resource
+    print('getting s3 resource for process')
+    s3_resource = get_s3_resource()
+
+
 def get_s3_key(bucket, key, filename=None):
     """
 
@@ -598,7 +616,6 @@ def get_s3_key(bucket, key, filename=None):
 
     """
     dl_retry = 3
-    s3 = b3.resource('s3')
 
     if filename is None:
         filename = os.path.basename(key)
@@ -613,7 +630,7 @@ def get_s3_key(bucket, key, filename=None):
 
     while dl_retry > 0:
         try:
-            s3.Bucket(bucket).download_file(key, filename)
+            s3_resource.Bucket(bucket).download_file(key, filename)
             dl_retry = -1
         except Exception as e:
             _logger.warn("aws_s3.get_s3_key Retry Count [{}] on download_file raised exception {}".format(dl_retry, e))
@@ -644,7 +661,11 @@ def get_s3_key_many(bucket_key_file_tuples):
     mp_ctxt = get_context(MP_CONTEXT_TYPE)  # Using forkserver here causes moto / pytest failures
     est_cpu_count = disdat_cpu_count()
     print("get_s3_key_many using MP with cpu_count {}".format(est_cpu_count))
-    with mp_ctxt.Pool(processes=est_cpu_count, maxtasksperchild=MAX_TASKS_PER_CHILD) as pool:
+    with mp_ctxt.Pool(
+        processes=est_cpu_count,
+        maxtasksperchild=MAX_TASKS_PER_CHILD,
+        initializer=initialize_process,
+    ) as pool:
         multiple_results = []
         results = []
         for s3_bucket, s3_key, local_object_path in bucket_key_file_tuples:
