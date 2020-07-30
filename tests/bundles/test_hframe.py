@@ -275,7 +275,8 @@ def test_hframe_rw_db():
 
     """ Write out PBs as rows """
 
-    hf_hash = w_pb_db(hf2, engine_g)
+    hf_hash = hashlib.md5(hf2.pb.SerializeToString()).hexdigest()
+    w_pb_db(hf2, engine_g)
 
     """ Read in PBs as rows"""
 
@@ -307,7 +308,8 @@ def test_linkauth_rw_db():
 
     """ Write out PBs as rows """
 
-    slar_hash = w_pb_db(slar, engine_g)
+    slar_hash = hashlib.md5(slar.pb.SerializeToString()).hexdigest()
+    w_pb_db(slar, engine_g)
 
     """ Read in PBs as rows"""
 
@@ -316,7 +318,7 @@ def test_linkauth_rw_db():
     slar_hash2 = None
     for x in link_auth_results:
         if x.pb.WhichOneof('auth') == 's3_auth':
-            slar_hash2 = hashlib.md5(slar.pb.SerializeToString()).hexdigest()
+            slar_hash2 = hashlib.md5(x.pb.SerializeToString()).hexdigest()
 
     assert (slar_hash == slar_hash2)
 
@@ -340,8 +342,11 @@ def test_link_rw_db():
 
     """ Write out PBs as rows """
 
-    local_hash = w_pb_db(local_link, engine_g)
-    s3_hash = w_pb_db(s3_link, engine_g)
+    local_hash = hashlib.md5(local_link.pb.SerializeToString()).hexdigest()
+    w_pb_db(local_link, engine_g)
+
+    s3_hash = hashlib.md5(s3_link.pb.SerializeToString()).hexdigest()
+    w_pb_db(s3_link, engine_g)
 
     """ Read in PBs as rows"""
 
@@ -352,9 +357,9 @@ def test_link_rw_db():
 
     for x in link_results:
         if x.pb.WhichOneof('link') == 'local':
-            local_hash2 = hashlib.md5(local_link.pb.SerializeToString()).hexdigest()
+            local_hash2 = hashlib.md5(x.pb.SerializeToString()).hexdigest()
         if x.pb.WhichOneof('link') == 's3':
-            s3_hash2 = hashlib.md5(s3_link.pb.SerializeToString()).hexdigest()
+            s3_hash2 = hashlib.md5(x.pb.SerializeToString()).hexdigest()
 
     assert (local_hash == local_hash2)
     assert (s3_hash == s3_hash2)
