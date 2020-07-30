@@ -91,5 +91,4 @@ RUN rm -rf $BUILD_ROOT
 # Set up the default entry point. If the user starts an image with no
 # arguments, show some help
 COPY bin/entrypoint.py /opt/bin/entrypoint.py
-ENTRYPOINT [ "/opt/bin/entrypoint.py" ]
-CMD [ "--help" ]
+CMD [ "/opt/bin/entrypoint.py", "--help" ]
