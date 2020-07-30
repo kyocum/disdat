@@ -509,6 +509,11 @@ def delete_s3_dir(s3_url):
         number deleted (int)
 
     """
+
+    global s3_resource
+    if s3_resource is None:
+        s3_resource = get_s3_resource()
+
     bucket, s3_path = split_s3_url(s3_url)
 
     bucket = s3_resource.Bucket(bucket)
@@ -616,6 +621,9 @@ def get_s3_key(bucket, key, filename=None):
 
     """
     dl_retry = 3
+    global s3_resource
+    if s3_resource is None:
+        s3_resource = get_s3_resource()
 
     if filename is None:
         filename = os.path.basename(key)
