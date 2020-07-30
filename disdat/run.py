@@ -54,6 +54,9 @@ from disdat import logger as _logger
 _MODULE_NAME = inspect.getmodulename(__file__)
 
 
+ENTRYPOINT_BIN = '/opt/bin/entrypoint.py'
+
+
 class Backend(Enum):
     Local = 0
     AWSBatch = 1
@@ -123,7 +126,7 @@ def _run_local(cli, pipeline_setup_file, arglist, backend):
                 _logger.info("VOLUMES: {}".format(volumes))
         else:
             # Add the actual command to the arglist (for non-sagemaker runs)
-            arglist = ['/opt/bin/entrypoint.py'] + arglist
+            arglist = [ENTRYPOINT_BIN] + arglist
             pipeline_image_name = common.make_project_image_name(pipeline_setup_file)
 
         _logger.debug('Running image {} with arguments {}'.format(pipeline_image_name, arglist))
@@ -506,7 +509,7 @@ def _run(
         if backend == Backend.AWSBatch:
 
             # Add the actual command to the arglist
-            arglist = ['/opt/bin/entrypoint.py'] + arglist
+            arglist = [ENTRYPOINT_BIN] + arglist
 
             retval = _run_aws_batch(arglist,
                                     fq_repository_name,
