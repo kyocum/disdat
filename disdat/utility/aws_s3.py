@@ -37,8 +37,30 @@ from disdat import logger as _logger
 S3_LS_USE_MP_THRESH = 4000  # the threshold after which we should use MP to look up bundles on s3
 
 MP_CONTEXT_TYPE = 'forkserver'  # Use for published version
-#MP_CONTEXT_TYPE = 'fork'       # Use for testing
+# MP_CONTEXT_TYPE = 'fork'       # Use for testing
 MAX_TASKS_PER_CHILD = 100       # Force the pool to kill workers when they've done 100 tasks.
+
+
+# Helper module-level access function to make sure resource is initialized
+def get_s3_resource():
+    if get_s3_resource._s3_resource is None:
+        get_s3_resource._s3_resource = b3.resource('s3')
+    return get_s3_resource._s3_resource
+
+
+# Module global variable used to initialize and store process state for s3 resource
+get_s3_resource._s3_resource = None
+
+
+# Helper module-level access function to make sure client is initialized
+def get_s3_client():
+    if get_s3_client._s3_client is None:
+        get_s3_client._s3_client = b3.client('s3')
+    return get_s3_client._s3_client
+
+
+# Module global variable used to initialize and store process state for s3 client
+get_s3_client._s3_client = None
 
 
 def disdat_cpu_count():
@@ -263,7 +285,7 @@ def s3_path_exists(s3_url):
     """
     import botocore
 
-    s3 = b3.resource('s3')
+    s3 = get_s3_resource()
     bucket, key = split_s3_url(s3_url)
     if key is None:
         return s3_bucket_exists(bucket)
@@ -294,7 +316,7 @@ def s3_bucket_exists(bucket):
     """
     import botocore
 
-    s3 = b3.resource('s3')
+    s3 = get_s3_resource()
     exists = True
     try:
         s3.meta.client.head_bucket(Bucket=bucket)
@@ -330,7 +352,7 @@ def s3_list_objects_at_prefix(bucket, prefix):
     Returns:
         (list): List of item keys
     """
-    s3 = b3.resource('s3')
+    s3 = get_s3_resource()
     result = []
     try:
         s3_b = s3.Bucket(bucket)
@@ -357,7 +379,7 @@ def s3_list_objects_at_prefix_v2(bucket, prefix):
         (list): List of item keys
     """
     result = []
-    client = b3.client('s3')
+    client = get_s3_client()
 
     #print(f"s3_list_objects_at_prefix_v2 the b3[{b3}] and client[{b3.client} and resource[{b3.resource}]")
 
@@ -404,7 +426,11 @@ def ls_s3_url_keys(s3_url, is_object_directory=False):
         mp_ctxt = get_context(MP_CONTEXT_TYPE)
         est_cpu_count = disdat_cpu_count()
         print("ls_s3_url_keys using MP with cpu_count {}".format(est_cpu_count))
-        with mp_ctxt.Pool(processes=est_cpu_count, maxtasksperchild=MAX_TASKS_PER_CHILD) as pool:
+        with mp_ctxt.Pool(
+            processes=est_cpu_count,
+            maxtasksperchild=MAX_TASKS_PER_CHILD,
+            initializer=get_s3_client,
+        ) as pool:
             for i, prefix in enumerate(prefixes):
                 prefix = os.path.join(s3_path, prefix)
                 multiple_results.append(pool.apply_async(s3_list_objects_at_prefix_v2,
@@ -453,7 +479,7 @@ def ls_s3_url(s3_url):
 
     bucket, s3_path = split_s3_url(s3_url)
     result = []
-    client = b3.client('s3')
+    client = get_s3_client()
     paginator = client.get_paginator('list_objects_v2')
     page_iterator = paginator.paginate(Bucket=bucket,Prefix=s3_path)
     for page in page_iterator:
@@ -484,7 +510,11 @@ def delete_s3_dir_many(s3_urls):
 
     """
     mp_ctxt = get_context(MP_CONTEXT_TYPE)  # Using forkserver here causes moto / pytest failures
-    with mp_ctxt.Pool(processes=disdat_cpu_count(), maxtasksperchild=MAX_TASKS_PER_CHILD) as pool:
+    with mp_ctxt.Pool(
+        processes=disdat_cpu_count(),
+        maxtasksperchild=MAX_TASKS_PER_CHILD,
+        initializer=get_s3_resource,
+    ) as pool:
         multiple_results = []
         results = []
         for s3_url in s3_urls:
@@ -505,7 +535,8 @@ def delete_s3_dir(s3_url):
         number deleted (int)
 
     """
-    s3 = b3.resource('s3')
+
+    s3 = get_s3_resource()
     bucket, s3_path = split_s3_url(s3_url)
 
     bucket = s3.Bucket(bucket)
@@ -532,7 +563,7 @@ def cp_s3_file(s3_src_path, s3_root):
     Returns:
 
     """
-    s3 = b3.resource('s3')
+    s3 = get_s3_resource()
     bucket, s3_path = split_s3_url(s3_root)
     filename = os.path.basename(s3_src_path)
     output_path = os.path.join(s3_path, filename)
@@ -555,7 +586,7 @@ def cp_local_to_s3_file(local_file, s3_file):
     Returns:
         s3_file
     """
-    s3 = b3.resource('s3')
+    s3 = get_s3_resource()
     bucket, s3_path = split_s3_url(s3_file)
     s3.Object(bucket, s3_path).upload_file(local_file, ExtraArgs={"ServerSideEncryption": "AES256"})
     return s3_file
@@ -572,17 +603,13 @@ def put_s3_file(local_path, s3_root):
     Returns:
 
     """
-    s3 = b3.resource('s3')
+    s3 = get_s3_resource()
     bucket, s3_path = split_s3_url(s3_root)
     if s3_path is None:
         s3_path = ''
     filename = os.path.basename(local_path)
     s3.Object(bucket, os.path.join(s3_path, filename)).upload_file(local_path, ExtraArgs={"ServerSideEncryption": "AES256"})
     return filename
-
-
-def get_s3_resource():
-    return b3.resource('s3')
 
 
 def get_s3_key(bucket, key, filename=None):
@@ -598,7 +625,7 @@ def get_s3_key(bucket, key, filename=None):
 
     """
     dl_retry = 3
-    s3 = b3.resource('s3')
+    s3 = get_s3_resource()
 
     if filename is None:
         filename = os.path.basename(key)
@@ -644,7 +671,11 @@ def get_s3_key_many(bucket_key_file_tuples):
     mp_ctxt = get_context(MP_CONTEXT_TYPE)  # Using forkserver here causes moto / pytest failures
     est_cpu_count = disdat_cpu_count()
     print("get_s3_key_many using MP with cpu_count {}".format(est_cpu_count))
-    with mp_ctxt.Pool(processes=est_cpu_count, maxtasksperchild=MAX_TASKS_PER_CHILD) as pool:
+    with mp_ctxt.Pool(
+        processes=est_cpu_count,
+        maxtasksperchild=MAX_TASKS_PER_CHILD,
+        initializer=get_s3_resource,
+    ) as pool:
         multiple_results = []
         results = []
         for s3_bucket, s3_key, local_object_path in bucket_key_file_tuples:
