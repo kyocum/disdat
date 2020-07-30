@@ -293,7 +293,20 @@ class DataContext(object):
         """
         Currently a no-op.  Will connect to something like dynamodb
         when we have external indices for objects in cloud storage (aka S3).
+
+        Called when we first create a data_context object.
+        At this point it may or may not have a remote.
+        If we have a remote, then we assume AWS access.
+        If we have AWS access, then we try to associate with dynamo.
+
         """
+        if self.remote_ctxt_url is None:
+            return
+
+
+
+
+
         pass
 
     def init_local_db(self, in_memory=False):
