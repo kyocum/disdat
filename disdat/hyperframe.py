@@ -193,7 +193,7 @@ def w_pb_db(pb_record, engine_g):
 
     if not isinstance(pb_record, list):
         pb_record = [pb_record, ]
-    print("w_pb_db handling {} records in a transaction".format(len(pb_record)))
+    # print("w_pb_db handling {} records in a transaction".format(len(pb_record)))
     # gather up the tbls and rows to write for each record we are going to add
     all_inserts = []
     for rcd in pb_record:

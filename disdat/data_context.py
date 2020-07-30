@@ -491,18 +491,7 @@ class DataContext(object):
                 # if ignore_existing==False, then we will try to insert into DB anyhow.
                 hfr_from_db_list = hyperframe.select_hfr_db(self.local_engine, uuid=hfr.pb.uuid)
                 if not ignore_existing or len(hfr_from_db_list) == 0:
-                    #hyperframe.w_pb_db(hfr, self.local_engine)
                     insert_batch.append(hfr)
-                    for str_tuple in hfr.pb.frames:
-                        fr_uuid = str_tuple.v
-                        hfr_from_db_list = hyperframe.select_hfr_db(self.local_engine, uuid=fr_uuid)
-                        if not ignore_existing or len(hfr_from_db_list) == 0:
-                            # The frame pb doesn't store the hfr_uuid, but the db
-                            # does.  Since we are reading from disk, we need to
-                            # set it back into the FrameRecord.
-                            frames[fr_uuid].hframe_uuid = hfr.pb.uuid
-                            insert_batch.append(frames[fr_uuid])
-                            #hyperframe.w_pb_db(frames[fr_uuid], self.local_engine)
             else:
                 # invalid hyperframe, if present in db as valid, mark invalid
                 hfr_from_db_list = hyperframe.select_hfr_db(self.local_engine, uuid=hfr.pb.uuid)
@@ -517,14 +506,8 @@ class DataContext(object):
             if len(insert_batch) >= INSERT_BATCH:
                 hyperframe.w_pb_db(insert_batch, self.local_engine)
                 insert_batch = []
-
         if len(insert_batch) > 0:
             hyperframe.w_pb_db(insert_batch, self.local_engine)
-            insert_batch = []
-
-        #print "hframes {}".format(hframes)
-        #print "frames {}".format(frames)
-        #print "auths {}".format(auths)
 
     def bundle_count(self):
         """ Determine how many bundles in the current local context
@@ -701,9 +684,6 @@ class DataContext(object):
         """
         hyperframe.w_pb_db(hfr, self.local_engine)
 
-        # Write DB Frames
-        for fr in hfr.get_frames(self):
-            hyperframe.w_pb_db(fr, self.local_engine)
 
     def _write_hframe_local(self, hfr):
         """
@@ -724,10 +704,6 @@ class DataContext(object):
 
         # Write FS HyperFrame
         hyperframe.w_pb_fs(os.path.join(self.get_object_dir(), hfr.pb.uuid), hfr)
-
-        # Write DB Frames
-        for fr in hfr.get_frames(self):
-            hyperframe.w_pb_db(fr, self.local_engine)
 
         # Todo: Make it an option
         # Note: We are changing the default human_name to be only the task name
