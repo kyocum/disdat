@@ -262,16 +262,6 @@ def main(input_args):
     # of how you might do this in the future if needed.
     # some_default = os.environ[ENVVAR] if ENVVAR in os.environ else None
 
-    # Skip all the argparse stuff, and first check for --entrypoint
-    try:
-        entrypoint = input_args.index('--entrypoint')
-        del input_args[entrypoint]
-        input_args.insert(0, input_args.pop(entrypoint))
-        return subprocess.run(input_args, capture_output=True, check=True)
-    except ValueError:
-        # There is no entrypoint override, no worries
-        pass
-
     parser = argparse.ArgumentParser(
         description=_HELP,
     )
