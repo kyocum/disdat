@@ -308,8 +308,8 @@ class DataContext(object):
             try:
                 self.remote_engine = boto3.resource('dynamodb', endpoint_url="http://localhost:8000")
             except Exception as e:
-                print("Failed to get dynamo AWS resource")
-                raise
+                print("Failed to get dynamo AWS resource: {}".format(e))
+        return
 
     def init_local_db(self, in_memory=False):
         """
@@ -461,8 +461,7 @@ class DataContext(object):
         auths = {}
 
         pb_types = [('*_hframe.pb', hyperframe.HyperFrameRecord, hframes),
-                    ('*_frame.pb', hyperframe.FrameRecord, frames),
-                    ('*_auth.pb', hyperframe.LinkAuthBase, auths)]
+                    ('*_frame.pb', hyperframe.FrameRecord, frames)]
 
         # Make all the tables first.
         for glb, rcd_type, store in pb_types:
@@ -479,6 +478,8 @@ class DataContext(object):
         hframe_count = len(hframes.values())
         ten_percent = max(1, int(hframe_count / 10))
         perc = 0
+        INSERT_BATCH = 1000
+        insert_batch = []
         for i, hfr in enumerate(hframes.values()):
             if i % ten_percent == 0:
                 print("Disdat DB rebuild: written {} ({} percent) to db".format(i, perc))
@@ -490,7 +491,8 @@ class DataContext(object):
                 # if ignore_existing==False, then we will try to insert into DB anyhow.
                 hfr_from_db_list = hyperframe.select_hfr_db(self.local_engine, uuid=hfr.pb.uuid)
                 if not ignore_existing or len(hfr_from_db_list) == 0:
-                    hyperframe.w_pb_db(hfr, self.local_engine)
+                    #hyperframe.w_pb_db(hfr, self.local_engine)
+                    insert_batch.append(hfr)
                     for str_tuple in hfr.pb.frames:
                         fr_uuid = str_tuple.v
                         hfr_from_db_list = hyperframe.select_hfr_db(self.local_engine, uuid=fr_uuid)
@@ -499,10 +501,10 @@ class DataContext(object):
                             # does.  Since we are reading from disk, we need to
                             # set it back into the FrameRecord.
                             frames[fr_uuid].hframe_uuid = hfr.pb.uuid
-                            hyperframe.w_pb_db(frames[fr_uuid], self.local_engine)
+                            insert_batch.append(frames[fr_uuid])
+                            #hyperframe.w_pb_db(frames[fr_uuid], self.local_engine)
             else:
                 # invalid hyperframe, if present in db as valid, mark invalid
-                # Try to read it in
                 hfr_from_db_list = hyperframe.select_hfr_db(self.local_engine, uuid=hfr.pb.uuid)
                 assert(len(hfr_from_db_list) == 0 or len(hfr_from_db_list) == 1)
                 if len(hfr_from_db_list) == 1:
@@ -512,6 +514,13 @@ class DataContext(object):
                         hyperframe.update_hfr_db(self.local_engine, hyperframe.RecordState.invalid,
                                                  uuid=hfr.pb.uuid)
                     # else, pending, invalid, deleted is all OK with an invalid hyperframe
+            if len(insert_batch) >= INSERT_BATCH:
+                hyperframe.w_pb_db(insert_batch, self.local_engine)
+                insert_batch = []
+
+        if len(insert_batch) > 0:
+            hyperframe.w_pb_db(insert_batch, self.local_engine)
+            insert_batch = []
 
         #print "hframes {}".format(hframes)
         #print "frames {}".format(frames)

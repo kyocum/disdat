@@ -55,6 +55,7 @@ import six
 import enum
 from sqlalchemy import Table, Column, String, MetaData, BLOB, Text, Enum, UniqueConstraint, DateTime
 from sqlalchemy.sql import text
+from sqlalchemy.exc import IntegrityError
 
 import disdat.common as common
 from disdat.db_link import DBLink
@@ -144,8 +145,33 @@ def w_pb_fs(file_prefix, pb_record, fq_file_path=None, atomic=False):
         with tempfile.NamedTemporaryFile(
                 dir=os.path.dirname(fq_file_path), delete=False) as f:
             f.write(pb_record.pb.SerializeToString())
-        #os.replace(fout.name, datafile)  For Python 3.3+
         os.rename(f.name, fq_file_path)
+
+
+def _sql_write_tbl_rows(pb_tbls, pb_rows, db_conn):
+    """
+    NOTE: May throw sqlalchemy exceptions.  Caller should use try: except: clause.
+    Args:
+        pb_tbls:
+        pb_rows:
+        db_conn:
+
+    Returns:
+
+    """
+    if type(pb_tbls) is dict:
+        assert (isinstance(pb_rows, dict) or isinstance(pb_rows, defaultdict))
+        results = []
+        for k, tbl in pb_tbls.items(): # dict of tables
+            for r in pb_rows[k]:           # dict of list of rows
+                ins = tbl.insert()
+                results.append(db_conn.execute(ins, r))
+    else:
+        assert (type(pb_tbls) is not list)
+        assert (type(pb_tbls) is not tuple)
+        ins = pb_tbls.insert()
+        results = [db_conn.execute(ins, pb_rows), ]
+    return results
 
 
 def w_pb_db(pb_record, engine_g):
@@ -153,19 +179,36 @@ def w_pb_db(pb_record, engine_g):
     Given a pb record, write it out to the database connected with engine
     We should ensure our tables have a unique key requirement on uuid column
 
+    TODO: Do we use pb_hashes anywhere?
+    TODO: Do we ever use the frames table?
+
     Args:
-        pb_record:
+        pb_record (Union[list[PBObject], PBObject]):
         engine_g:
 
     Returns:
+        list of insert results
 
     """
-    pb_hash = hashlib.md5(pb_record.pb.SerializeToString()).hexdigest()
 
-    with engine_g.connect() as conn:
-        pb_record.write_row(RecordState.valid, conn)
+    if not isinstance(pb_record, list):
+        pb_record = [pb_record, ]
+    print("w_pb_db handling {} records in a transaction".format(len(pb_record)))
+    # gather up the tbls and rows to write for each record we are going to add
+    all_inserts = []
+    for rcd in pb_record:
+        pb_tbls, pb_rows = rcd.write_row(RecordState.valid)
+        all_inserts.append((pb_tbls, pb_rows))
 
-    return pb_hash
+    results = []
+    # run this set as a single transaction
+    with engine_g.begin() as db_conn:
+        for pb_tbls, pb_rows in all_inserts:
+            try:
+                results.append(_sql_write_tbl_rows(pb_tbls, pb_rows, db_conn))
+            except IntegrityError as ie:
+                _logger.info("Writing class pb to table encountered error {}".format(ie))
+    return results
 
 
 def r_pb_db(pb_cls, engine_g):
@@ -670,7 +713,7 @@ class PBObject(object):
         _ = cls._create_table(metadata)
         metadata.create_all()
 
-    def write_row(self, state, db_conn):
+    def write_row(self, state):
         """
         Do not over-ride
         Given sqlalchemy connection, execute write.
@@ -688,35 +731,16 @@ class PBObject(object):
 
         Args:
             state (enum): invalid, valid, pending, deleted
-            db_conn:
 
         Returns:
-            conn.execute result
+            pb_tbl, pb_rows:   #conn.execute result
         """
-        from sqlalchemy.exc import IntegrityError
-
         metadata = MetaData()
         self.state = state
         pb_tbls = self._create_table(metadata)
         pb_rows = self._write_row()
 
-        try:
-            if type(pb_tbls) is dict:
-                assert (isinstance(pb_rows, dict) or isinstance(pb_rows, defaultdict))
-                results = []
-                for k, tbl in pb_tbls.items(): # dict of tables
-                    for r in pb_rows[k]:           # dict of list of rows
-                        ins = tbl.insert()
-                        results.append(db_conn.execute(ins, r))
-                return results
-            else:
-                assert (type(pb_tbls) is not list)
-                assert (type(pb_tbls) is not tuple)
-                ins = pb_tbls.insert()
-                return db_conn.execute(ins, pb_rows)
-        except IntegrityError as ie:
-            _logger.info("Writing class pb {} to table encountered error {}".format(self._pb_type(), ie))
-            return None
+        return pb_tbls, pb_rows
 
     @classmethod
     def from_str_bytes(cls, pb_str_bytes):
