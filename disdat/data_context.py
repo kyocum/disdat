@@ -28,6 +28,7 @@ import luigi
 from luigi.contrib.s3 import S3Target
 from six.moves import urllib
 import six
+import boto3
 
 import disdat.constants as constants
 import disdat.hyperframe_pb2 as hyperframe_pb2
@@ -303,11 +304,12 @@ class DataContext(object):
         if self.remote_ctxt_url is None:
             return
 
-
-
-
-
-        pass
+        if not self.remote_engine:
+            try:
+                self.remote_engine = boto3.resource('dynamodb', endpoint_url="http://localhost:8000")
+            except Exception as e:
+                print("Failed to get dynamo AWS resource")
+                raise
 
     def init_local_db(self, in_memory=False):
         """
