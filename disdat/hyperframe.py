@@ -86,7 +86,7 @@ class RecordState(enum.Enum):
     deleted = 3
 
 
-def r_pb_fs(file_path, read_pb_class):
+def r_pb_fs(file_path, read_pb_class, validate_cksum=False):
     """
     Utility function to read pb from disk and return
       the xxxRecord that wraps the pb.  Checks hash if present
@@ -94,6 +94,7 @@ def r_pb_fs(file_path, read_pb_class):
     Args:
         file_path (str):
         read_pb_class:
+        validate_cksum (bool): check the hash of the record.
 
     Returns:
         instance of read_pb_class
@@ -103,12 +104,12 @@ def r_pb_fs(file_path, read_pb_class):
         contents = f.read()
         pb_record = read_pb_class.from_str_bytes(contents)
 
-    old_hash = pb_record.pb.hash
-    pb_record.pb.ClearField('hash')
-    new_hash = hashlib.md5(pb_record.pb.SerializeToString()).hexdigest()
-
-    assert(old_hash == new_hash)
-    pb_record.pb.hash = old_hash
+    if validate_cksum:
+        old_hash = pb_record.pb.hash
+        pb_record.pb.ClearField('hash')
+        new_hash = hashlib.md5(pb_record.pb.SerializeToString()).hexdigest()
+        assert(old_hash == new_hash)
+        pb_record.pb.hash = old_hash
 
     return pb_record
 
