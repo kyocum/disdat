@@ -425,7 +425,7 @@ def ls_s3_url_keys(s3_url, is_object_directory=False):
         multiple_results = []
         mp_ctxt = get_context(MP_CONTEXT_TYPE)
         est_cpu_count = disdat_cpu_count()
-        print("ls_s3_url_keys using MP with cpu_count {}".format(est_cpu_count))
+        _logger.debug("ls_s3_url_keys using MP with cpu_count {}".format(est_cpu_count))
         with mp_ctxt.Pool(
             processes=est_cpu_count,
             maxtasksperchild=MAX_TASKS_PER_CHILD,
@@ -670,7 +670,7 @@ def get_s3_key_many(bucket_key_file_tuples):
     """
     mp_ctxt = get_context(MP_CONTEXT_TYPE)  # Using forkserver here causes moto / pytest failures
     est_cpu_count = disdat_cpu_count()
-    print("get_s3_key_many using MP with cpu_count {}".format(est_cpu_count))
+    _logger.debug("get_s3_key_many using MP with cpu_count {}".format(est_cpu_count))
     with mp_ctxt.Pool(
         processes=est_cpu_count,
         maxtasksperchild=MAX_TASKS_PER_CHILD,
