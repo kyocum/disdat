@@ -268,6 +268,28 @@ class DataContext(object):
         else:
             return remote_ctxt_url[:-len('/context')]
 
+    @staticmethod
+    def extract_uuid_from_pb_path(pb_path, pb_type):
+        """
+        Extract the uuid that we put in each pb file name.
+        Both hframes and frames are <uuid>_frame.pb
+
+        Args:
+            pb_path(str):
+            pb_type(disdat.hyperframe.PBObject): either hyperframe.HyperFrameRecord or hyperframe.FrameRecord
+
+        Returns:
+            str: the uuid or None
+        """
+        if pb_type == hyperframe.FrameRecord:
+            frame_file_suffix = '_frame.pb'
+        elif pb_type == hyperframe.HyperFrameRecord:
+            frame_file_suffix = '_hframe.pb'
+        else:
+            assert False, "Unknown pb_type {} in extract_uuid_from_pb_path.".format(pb_type)
+        assert pb_path.endswith(frame_file_suffix)
+        return pb_path[:-len(frame_file_suffix)]
+
     def get_remote_object_dir(self):
         """
         Where objects live on remote.
@@ -349,6 +371,42 @@ class DataContext(object):
         return
 
     @staticmethod
+    def _weak_validate_hframe(hfr, found_frames_uuids):
+        """
+        This weakly validates the hframe.  First this is mainly called when we are rebuilding the
+        database.  It is the case that occasionally the s3 copy does not copy down the frames (something
+        to investigate).  In that case we do not want to index a hyperframe that is not complete on disk.
+
+        But, to do a full check means we have to read each and every protocol buffer file.  When there
+        are very large contexts (with 18 million pb's), this can take a long time.  Especially running
+        on containers connected to EBS volumes with a limited budget of IO's.
+
+        We make sure that there is a file path with the listed frame's UUID found
+        inside the hframe.   But unlike _validate_hframe we do not validate the contents
+        of the frame itself.  That is we do not look for each of the files the frame
+        may refer to.
+
+        NOTE: Only call this from rebuild_db to avoid more file reads than necessary.
+        TODO: Implement dbck that can check the db on a machine with a dedicated ssd/nvm store.
+
+        Args:
+            hfr:
+            found_frames_uuids (dict[str]): dict of frame uuids that exist on disk.
+
+        Returns:
+            bool: true if hframe passes weak test.
+
+        """
+        for str_tuple in hfr.pb.frames:
+            fr_name = str_tuple.k
+            fr_uuid = str_tuple.v
+            if fr_uuid not in found_frames_uuids:
+                # Frame was not on disk
+                _logger.warn("HyperFrame {} Frame {} {} not present on disk".format(hfr.pb.uuid, fr_name, fr_uuid))
+                return False
+        return True
+
+    @staticmethod
     def _validate_hframe(hfr, found_frames, found_auths):
         """
         for each frame UUID, is on disk?
@@ -364,7 +422,7 @@ class DataContext(object):
         b.) could be in the process of being written to disk (another process)
 
         NOTE:  We bounce out early at the first inconsistency.  We do not record
-        what wasn't correct.   TODO's.
+        what wasn't correct.
 
         Args:
             hfr (`HyperFrameRecord`):
@@ -372,8 +430,7 @@ class DataContext(object):
             found_auths:
 
         Returns:
-            valid (bool): This hframe_record corresponds to what we have on disk
-
+            bool: This hframe_record corresponds to what we have on disk
         """
 
         for str_tuple in hfr.pb.frames:
@@ -441,13 +498,11 @@ class DataContext(object):
         For this context, read in all pb's and rebuild tables.
         All state is immutable.
         1.) Read in all HFrame PBs
-        2.) Ensure that each HFrame PB is consistent -- it was completely written
-        to disk.
+        2.) Ensure that each HFrame PB is WEAKLY consistent -- file names corresponding to the
+        frames are on disk (but we do not check their contents or whether the file links exist).
         3.) A.) If yes, try to insert into db if it doesn't already exist.
             B.) If not consistent and not in db, leave it.  Could be concurrent add.
             C.) If not consistent and in db as 'valid', mark db entry as 'invalid'
-
-        dbck does the opposite process.  It will read the DB and see
 
         Args:
             ignore_existing (bool): If True, we ignore existing records (do not update). Else UPSERT on existing.
@@ -456,39 +511,36 @@ class DataContext(object):
             num errors (int):
 
         """
+        INSERT_BATCH = 1000
         hframes = {}
         frames = {}
-        auths = {}
 
         pb_types = [('*_hframe.pb', hyperframe.HyperFrameRecord, hframes),
                     ('*_frame.pb', hyperframe.FrameRecord, frames)]
 
-        # Make all the tables first.
-        for glb, rcd_type, store in pb_types:
-            rcd_type.create_table(self.local_engine)
+        # Note: we no longer create the frame and auth tables.
+        hyperframe.HyperFrameRecord.create_table(self.local_engine)
 
         for uuid_dir in os.listdir(self.get_object_dir()):
             for glb, rcd_type, store in pb_types:
                 files = glob.glob(os.path.join(os.path.join(self.get_object_dir(), uuid_dir), glb))
                 for f in files:
-                    # hyperframes, frames, and links all have uuid fields
-                    rcd = hyperframe.r_pb_fs(f, rcd_type)
-                    store[rcd.pb.uuid] = rcd
+                    if rcd_type == hyperframe.HyperFrameRecord:
+                        rcd = hyperframe.r_pb_fs(f, rcd_type)
+                        store[rcd.pb.uuid] = rcd
+                    elif rcd_type == hyperframe.FrameRecord:
+                        base_f = os.path.basename(f)
+                        store[DataContext.extract_uuid_from_pb_path(base_f, rcd_type)] = True
 
         hframe_count = len(hframes.values())
         ten_percent = max(1, int(hframe_count / 10))
         perc = 0
-        INSERT_BATCH = 1000
         insert_batch = []
         for i, hfr in enumerate(hframes.values()):
             if i % ten_percent == 0:
                 print("Disdat DB rebuild: written {} ({} percent) to db".format(i, perc))
                 perc += 10
-
-            if DataContext._validate_hframe(hfr, frames, auths):
-                # looks like a good hyperframe
-                # see if it exists, if it does do not write hframe and assume frames are also present
-                # if ignore_existing==False, then we will try to insert into DB anyhow.
+            if DataContext._weak_validate_hframe(hfr, frames):
                 hfr_from_db_list = hyperframe.select_hfr_db(self.local_engine, uuid=hfr.pb.uuid)
                 if not ignore_existing or len(hfr_from_db_list) == 0:
                     insert_batch.append(hfr)
@@ -621,7 +673,7 @@ class DataContext(object):
                 self.rm_db_links(hfr[0], dry_run=False)
                 shutil.rmtree(self.implicit_hframe_path(hfr_uuid))
                 hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid)
-                hyperframe.delete_fr_db(self.local_engine, hfr_uuid)
+                #hyperframe.delete_fr_db(self.local_engine, hfr_uuid) -- frames table depricated
             else:
                 print ("Disdat: Looks like you're trying to remove a committed bundle with a db link backing a view.")
                 print ("Disdat: Removal of this bundle with db links that back a view requires '--force'")
@@ -632,7 +684,7 @@ class DataContext(object):
 
             # Must clean up db if directory removal failed
             hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid, state=hyperframe.RecordState.deleted)
-            hyperframe.delete_fr_db(self.local_engine, hfr_uuid)
+            #hyperframe.delete_fr_db(self.local_engine, hfr_uuid) -- frames table depricated
 
             return False
 
@@ -683,7 +735,6 @@ class DataContext(object):
 
         """
         hyperframe.w_pb_db(hfr, self.local_engine)
-
 
     def _write_hframe_local(self, hfr):
         """
