@@ -28,6 +28,7 @@ import luigi
 from luigi.contrib.s3 import S3Target
 from six.moves import urllib
 import six
+import boto3
 
 import disdat.constants as constants
 import disdat.hyperframe_pb2 as hyperframe_pb2
@@ -293,8 +294,22 @@ class DataContext(object):
         """
         Currently a no-op.  Will connect to something like dynamodb
         when we have external indices for objects in cloud storage (aka S3).
+
+        Called when we first create a data_context object.
+        At this point it may or may not have a remote.
+        If we have a remote, then we assume AWS access.
+        If we have AWS access, then we try to associate with dynamo.
+
         """
-        pass
+        if self.remote_ctxt_url is None:
+            return
+
+        if not self.remote_engine:
+            try:
+                self.remote_engine = boto3.resource('dynamodb', endpoint_url="http://localhost:8000")
+            except Exception as e:
+                print("Failed to get dynamo AWS resource: {}".format(e))
+        return
 
     def init_local_db(self, in_memory=False):
         """
@@ -446,8 +461,7 @@ class DataContext(object):
         auths = {}
 
         pb_types = [('*_hframe.pb', hyperframe.HyperFrameRecord, hframes),
-                    ('*_frame.pb', hyperframe.FrameRecord, frames),
-                    ('*_auth.pb', hyperframe.LinkAuthBase, auths)]
+                    ('*_frame.pb', hyperframe.FrameRecord, frames)]
 
         # Make all the tables first.
         for glb, rcd_type, store in pb_types:
@@ -464,6 +478,8 @@ class DataContext(object):
         hframe_count = len(hframes.values())
         ten_percent = max(1, int(hframe_count / 10))
         perc = 0
+        INSERT_BATCH = 1000
+        insert_batch = []
         for i, hfr in enumerate(hframes.values()):
             if i % ten_percent == 0:
                 print("Disdat DB rebuild: written {} ({} percent) to db".format(i, perc))
@@ -475,19 +491,9 @@ class DataContext(object):
                 # if ignore_existing==False, then we will try to insert into DB anyhow.
                 hfr_from_db_list = hyperframe.select_hfr_db(self.local_engine, uuid=hfr.pb.uuid)
                 if not ignore_existing or len(hfr_from_db_list) == 0:
-                    hyperframe.w_pb_db(hfr, self.local_engine)
-                    for str_tuple in hfr.pb.frames:
-                        fr_uuid = str_tuple.v
-                        hfr_from_db_list = hyperframe.select_hfr_db(self.local_engine, uuid=fr_uuid)
-                        if not ignore_existing or len(hfr_from_db_list) == 0:
-                            # The frame pb doesn't store the hfr_uuid, but the db
-                            # does.  Since we are reading from disk, we need to
-                            # set it back into the FrameRecord.
-                            frames[fr_uuid].hframe_uuid = hfr.pb.uuid
-                            hyperframe.w_pb_db(frames[fr_uuid], self.local_engine)
+                    insert_batch.append(hfr)
             else:
                 # invalid hyperframe, if present in db as valid, mark invalid
-                # Try to read it in
                 hfr_from_db_list = hyperframe.select_hfr_db(self.local_engine, uuid=hfr.pb.uuid)
                 assert(len(hfr_from_db_list) == 0 or len(hfr_from_db_list) == 1)
                 if len(hfr_from_db_list) == 1:
@@ -497,10 +503,11 @@ class DataContext(object):
                         hyperframe.update_hfr_db(self.local_engine, hyperframe.RecordState.invalid,
                                                  uuid=hfr.pb.uuid)
                     # else, pending, invalid, deleted is all OK with an invalid hyperframe
-
-        #print "hframes {}".format(hframes)
-        #print "frames {}".format(frames)
-        #print "auths {}".format(auths)
+            if len(insert_batch) >= INSERT_BATCH:
+                hyperframe.w_pb_db(insert_batch, self.local_engine)
+                insert_batch = []
+        if len(insert_batch) > 0:
+            hyperframe.w_pb_db(insert_batch, self.local_engine)
 
     def bundle_count(self):
         """ Determine how many bundles in the current local context
@@ -677,9 +684,6 @@ class DataContext(object):
         """
         hyperframe.w_pb_db(hfr, self.local_engine)
 
-        # Write DB Frames
-        for fr in hfr.get_frames(self):
-            hyperframe.w_pb_db(fr, self.local_engine)
 
     def _write_hframe_local(self, hfr):
         """
@@ -700,10 +704,6 @@ class DataContext(object):
 
         # Write FS HyperFrame
         hyperframe.w_pb_fs(os.path.join(self.get_object_dir(), hfr.pb.uuid), hfr)
-
-        # Write DB Frames
-        for fr in hfr.get_frames(self):
-            hyperframe.w_pb_db(fr, self.local_engine)
 
         # Todo: Make it an option
         # Note: We are changing the default human_name to be only the task name
