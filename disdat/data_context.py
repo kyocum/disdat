@@ -673,7 +673,7 @@ class DataContext(object):
                 self.rm_db_links(hfr[0], dry_run=False)
                 shutil.rmtree(self.implicit_hframe_path(hfr_uuid))
                 hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid)
-                hyperframe.delete_fr_db(self.local_engine, hfr_uuid)
+                #hyperframe.delete_fr_db(self.local_engine, hfr_uuid) -- frames table depricated
             else:
                 print ("Disdat: Looks like you're trying to remove a committed bundle with a db link backing a view.")
                 print ("Disdat: Removal of this bundle with db links that back a view requires '--force'")
@@ -684,7 +684,7 @@ class DataContext(object):
 
             # Must clean up db if directory removal failed
             hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid, state=hyperframe.RecordState.deleted)
-            hyperframe.delete_fr_db(self.local_engine, hfr_uuid)
+            #hyperframe.delete_fr_db(self.local_engine, hfr_uuid) -- frames table depricated
 
             return False
 
