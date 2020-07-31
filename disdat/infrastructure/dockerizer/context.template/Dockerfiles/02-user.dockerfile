@@ -34,9 +34,7 @@ fi
 RUN if [ -f $BUILD_ROOT/config/$OS_NAME/r.txt ]; then \
     apt-get update -y \
     && apt-get install -y --no-install-recommends --no-install-suggests apt-transport-https ca-certificates software-properties-common gnupg2 gnupg1 \
-    && mkdir ~/.gnupg \
-    && echo "disable-ipv6" >> ~/.gnupg/dirmngr.conf \
-    && apt-key adv --homedir ~/.gnupg --keyserver hkps://hkps.pool.sks-keyservers.net --recv-keys E298A3A825C0D65DFD57CBB651716619E084DAB9 \
+    && apt-key add $BUILD_ROOT/config/$OS_NAME/r-debian.pub \
     && add-apt-repository "deb https://cloud.r-project.org/bin/linux/debian stretch-cran35/" \
     && apt-get update -y \
     && apt-get upgrade -y \
