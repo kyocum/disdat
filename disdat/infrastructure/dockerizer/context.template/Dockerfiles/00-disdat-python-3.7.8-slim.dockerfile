@@ -21,6 +21,14 @@ RUN apt-get upgrade -y
 RUN apt-get install -y git build-essential unixodbc-dev
 RUN pip install virtualenv==16.7.9
 
+# Since Ubuntu 20.x the default security level
+# has been raised to 2.   This causes this problem:
+# https://askubuntu.com/questions/1231844/ssl-sslerror-ssl-dh-key-too-small-dh-key-too-small-ssl-c1108
+# NOTE: This should be a change at the offending server, not the client.
+
+RUN mv /etc/ssl/openssl.cnf /etc/ssl/openssl.back.cnf; \
+    sed -e 's/DEFAULT@SECLEVEL=2/DEFAULT@SECLEVEL=1/g' /etc/ssl/openssl.back.cnf > /etc/ssl/openssl.cnf
+
 # Install the kickstart scripts used by later layers
 COPY kickstart $KICKSTART_ROOT
 
