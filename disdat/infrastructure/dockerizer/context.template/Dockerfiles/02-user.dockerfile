@@ -35,7 +35,7 @@ RUN if [ -f $BUILD_ROOT/config/$OS_NAME/r.txt ]; then \
     apt-get update -y \
     && apt-get install -y --no-install-recommends --no-install-suggests apt-transport-https ca-certificates software-properties-common gnupg2 gnupg1 \
     && apt-key add $BUILD_ROOT/config/$OS_NAME/r-debian.pub \
-    && add-apt-repository "deb https://cloud.r-project.org/bin/linux/debian stretch-cran35/" \
+    && add-apt-repository "deb https://cloud.r-project.org/bin/linux/debian buster-cran35/" \
     && apt-get update -y \
     && apt-get upgrade -y \
     && lsb_release -a \
