@@ -330,7 +330,7 @@ class DataContext(object):
             try:
                 self.remote_engine = boto3.resource('dynamodb', endpoint_url="http://localhost:8000")
             except Exception as e:
-                print("Failed to get dynamo AWS resource: {}".format(e))
+                _logger.debug("Failed to get dynamo AWS resource: {}".format(e))
         return
 
     def init_local_db(self, in_memory=False):
