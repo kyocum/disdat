@@ -259,9 +259,12 @@ class Bundle(HyperFrameRecord):
         found = {}
         arg_names = ['_arg_{}'.format(i) for i in range(0, len(self.pb.lineage.depends_on))]
         for an, dep in zip(arg_names, self.pb.lineage.depends_on):
-            if dep.HasField("arg_name"):
-                found[dep.arg_name] = (dep.hframe_proc_name, dep.hframe_uuid)
-            else:
+            try:
+                if dep.arg_name:
+                    found[dep.arg_name] = (dep.hframe_proc_name, dep.hframe_uuid)
+                else:
+                    found[an] = (dep.hframe_proc_name, dep.hframe_uuid)
+            except ValueError as ve:
                 found[an] = (dep.hframe_proc_name, dep.hframe_uuid)
         return found
 
