@@ -289,18 +289,18 @@ def s3_path_exists(s3_url):
     bucket, key = split_s3_url(s3_url)
     if key is None:
         return s3_bucket_exists(bucket)
-    exists = True
+
     try:
         s3.Object(bucket, key).load()
     except botocore.exceptions.ClientError as e:
         error_code = int(e.response['Error']['Code'])
         _logger.info("Error code {}".format(error_code))
         if error_code == 404:
-            exists = False
+            return False
         else:
             raise
 
-    return exists
+    return True
 
 
 def s3_bucket_exists(bucket):

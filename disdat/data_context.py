@@ -1030,10 +1030,15 @@ class DataContext(object):
         except TypeError:
             series_like = np.array(series_like)
 
+        # If local files, append 'file://' to each path.
+        # If local directory, raise exception
         local_files_series = hyperframe.detect_local_fs_path(series_like)
 
         if local_files_series is not None:
             series_like = local_files_series
+
+        # Make sure s3 files exist -- copy in does this check
+        # series_like = hyperframe.detect_s3_fs_path(series_like)
 
         if hyperframe.FrameRecord.is_link_series(series_like):
             """ 
@@ -1137,54 +1142,50 @@ class DataContext(object):
 
     def copy_in_files(self, src_files, dst_dir, localize=True):
         """
-        Given a set of link URLs, move them to the destination.
+         Given a set of link URLs, move them to the destination.
+         The link URLs will have file:///, s3://, or db:// schemes
 
-        The link URLs will have file:///, s3://, or db:// schemes
+         This call works for src: dst pairs of the form:
 
-        This call works for src: dst pairs of the form:
-        local fs : managed local fs dir
-        local fs : managed s3 dir
-        s3       : managed s3 dir
-        s3       : managed local fs dir
-        db       : db
+         local fs : managed local fs dir
+         local fs : managed s3 dir
+         s3       : managed local fs dir
+         s3       : managed s3 dir
 
-        Note: We do not copy-in external tables to managed tables.
-
-        Args:
+         Args:
             src_files (:list:str):  A single file path or a list of paths
             dst_dir (str): Local or Remote managed dirs
             localize (bool): If True, then copy src s3 -> dst file:/// (Default).  Else do not copy.
 
-        Returns:
+         Returns:
             file_set: set of new paths where files were copied.  Either one file or a list of files
-
         """
         file_set = []
         return_one_file = False
+        dst_scheme = urllib.parse.urlparse(dst_dir).scheme
 
-        if isinstance(src_files, six.string_types) or \
-                isinstance(src_files, luigi.LocalTarget) or \
-                isinstance(src_files, S3Target) or \
-                isinstance(src_files, DBLink):
+        if not isinstance(src_files, list) and not isinstance(src_files, tuple):
             return_one_file = True
             src_files = [src_files]
 
-        dst_scheme = urllib.parse.urlparse(dst_dir).scheme
-
         for src_path in src_files:
-
             if isinstance(src_path, luigi.LocalTarget) or isinstance(src_path, S3Target):
                 src_path = src_path.path
 
-            # Do not copy src file in to local if:
-            # 1. Managed Local File or
-            # 2. Managed S3 File (Remote and push should be set (checked at the time the user gets a managed path))
-            # 3. Non Managed S3 File (Remote and push should be set)
+            src_urlparse = urllib.parse.urlparse(src_path)
 
+            if src_urlparse.scheme == 's3' and not aws_s3.s3_path_exists(src_path):
+                raise common.BadLinkError("copy_in_files: s3 path {} does not exit.".format(src_path))
+            elif src_urlparse.scheme == 'file' and os.path.isdir(src_path):
+                raise common.BadLinkError("copy_in_files: local path {} is a directory.".format(src_path))
+
+            # Do not copy src file in to local if:
+            # 1. Managed Local or S3 File  -- src path starts with dst path (dst is always a bundle directory)
             if src_path.startswith(dst_dir):
                 file_set.append(urllib.parse.urljoin('file:', src_path))
                 continue
 
+            # 2. Non Managed S3 File (Remote and push should be set)
             if self.remote_ctxt_url:
                 """ If there is a remote and we see a source S3 path
                 If it is an external S3 path, then copy it to the dst_dir (local or s3)
@@ -1196,10 +1197,6 @@ class DataContext(object):
                 if src_path.startswith(managed_path_s3) and not localize:
                     file_set.append(src_path)
                     continue
-                # If we want to change the policy to not copy in unmanaged s3 locally . . .
-                #if urllib.parse.urlparse(src_path).scheme == 's3' and dst_dir == os.path.join(self.get_object_dir(), uuid):
-                #    file_set.append(src_path)
-                #    continue
 
             # Src path can contain a sub-directory.
             sub_dir = DataContext.find_subdir(src_path, dst_dir)
@@ -1210,49 +1207,32 @@ class DataContext(object):
             else:
                 file_set.append(dst_file)
 
-            if src_path.startswith(os.path.dirname(file_set[-1])):
-                # This can happen if you re-push something already pushed that's not localized
-                # Or if the user places files directly in the output directory (or in a sub-directory of that directory)
-                file_set[-1] = src_path
-                _logger.debug("DataContext: copy_in_files found src {} == dst {}".format(src_path, file_set[-1]))
-                # but it can also happen if you re-bind and push.  So check that file is present!
-                if urllib.parse.urlparse(src_path).scheme == 's3' and not aws_s3.s3_path_exists(src_path):
-                    print(("DataContext: copy_in_files found s3 link {} not present!".format(src_path)))
-                    print ("It is likely that this bundle existed on another remote branch and ")
-                    print ("was not localized before changing remotes.")
-                    raise Exception("copy_in_files: bad localized bundle push.")
-                continue
-
             try:
-                if not os.path.isdir(src_path):
-                    o = urllib.parse.urlparse(src_path)
-
-                    if o.scheme == 's3':
-                        # s3 to s3
-                        if dst_scheme == 's3':
-                            aws_s3.cp_s3_file(src_path, os.path.dirname(dst_file))
-                        elif dst_scheme != 'db':  # assume 'file'
-                            aws_s3.get_s3_file(src_path, dst_file)
-                        else:
-                            raise Exception("copy_in_files: copy s3 to unsupported scheme {}".format(dst_scheme))
-
-                    elif o.scheme == 'db':  # left for back compat for now
-                        _logger.debug("Skipping a db file on bundle add")
-
-                    elif o.scheme == 'file':
-                        if dst_scheme == 's3':
-                            # local to s3
-                            aws_s3.put_s3_file(o.path, os.path.dirname(dst_file))
-                        elif dst_scheme != 'db':  # assume 'file'
-                            # local to local
-                            shutil.copy(o.path, os.path.dirname(dst_file))
-                        else:
-                            raise Exception("copy_in_files: copy local file to unsupported scheme {}".format(dst_scheme))
-
+                if src_urlparse.scheme == 's3':
+                    # s3 to s3
+                    if dst_scheme == 's3':
+                        aws_s3.cp_s3_file(src_path, os.path.dirname(dst_file))
+                    elif dst_scheme == 'file':
+                        aws_s3.get_s3_file(src_path, dst_file)
                     else:
-                        raise Exception("DataContext copy-in-file found bad scheme: {} from {}".format(o.scheme, o))
+                        raise common.BadLinkError("copy_in_files: copy s3 to unsupported scheme {}".format(dst_scheme))
+
+                elif src_urlparse.scheme == 'db':  # left for back compat for now
+                    _logger.debug("Skipping a db file on bundle add")
+
+                elif src_urlparse.scheme == 'file':
+                    if dst_scheme == 's3':
+                        # local to s3
+                        aws_s3.put_s3_file(src_urlparse.path, os.path.dirname(dst_file))
+                    elif dst_scheme == 'file':
+                        # local to local
+                        shutil.copy(src_urlparse.path, os.path.dirname(dst_file))
+                    else:
+                        raise common.BadLinkError("copy_in_files: copy local file to unsupported scheme {}".format(dst_scheme))
                 else:
-                    _logger.info("DataContext copy-in-file: Not adding files in directory {}".format(src_path))
+                    raise common.BadLinkError("copy-in-file found bad scheme: {} from {}".format(src_urlparse.scheme,
+                                                                                                 src_urlparse))
+
             except (IOError, os.error) as why:
                 _logger.error("Disdat add error: {} {} {}".format(src_path, dst_dir, str(why)))
 

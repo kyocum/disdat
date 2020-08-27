@@ -60,6 +60,7 @@ from sqlalchemy.exc import IntegrityError
 import disdat.common as common
 from disdat.db_link import DBLink
 from disdat import hyperframe_pb2
+from disdat.utility.aws_s3 import s3_path_exists
 from disdat import logger as _logger
 
 
@@ -571,15 +572,20 @@ def get_files_in_dir(dir):
 
 def detect_local_fs_path(series):
     """
-    Given a series, check whether all entries appear to be real paths and:
+    Given a series, check whether all entries appear to be real local file paths.
+
     1.) get their absolute paths
     2.) pre-pend file:///
+
+    Raise exception if any local file path is a directory.
+
+    If any potential path is not a local file, return None
 
     Args:
         series:
 
     Returns:
-        series: Same series but absolute otherwise None
+        `numpy.array`
 
     """
     output = []
@@ -590,11 +596,36 @@ def detect_local_fs_path(series):
             output.append("file://{}".format(os.path.abspath(s)))
         elif os.path.isdir(s):
             """ Find files one-level down """
-            output.extend(["file://{}".format(os.path.join(s, f)) for f in get_files_in_dir(s)])
+            raise common.BadLinkError("Unable to process links: {} is a directory.".format(s))
+            # output.extend(["file://{}".format(os.path.join(s, f)) for f in get_files_in_dir(s)])
         else:
             del output
             return None
     return np.array(output)
+
+
+def detect_s3_fs_path(series):
+    """
+    Given a series, check whether all entries appear to be real files on S3
+
+    Raise BadLinkException if any local file path is a directory.
+
+    If any potential path is not a local file, return None
+
+    Args:
+        series:
+
+    Returns:
+        `numpy.array`
+    """
+
+    for s in series:
+        if not isinstance(s, six.string_types):
+            raise common.BadLinkError("Unable to process links: s3 path not string type - found {} .".format(type(s)))
+        if s3_path_exists(s):
+            raise common.BadLinkError("Unable to process links: s3 object {} not found.".format(s))
+
+    return series
 
 
 def strip_file_prefix(series):

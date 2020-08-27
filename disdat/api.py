@@ -595,12 +595,12 @@ class Bundle(HyperFrameRecord):
     def get_directory(self, dir_name):
         """ Returns path `<disdat-managed-directory>/<dir_name>`.  This gives the user a local
         output directory into which to write files.  This is useful when a user needs to give an external tool, such
-        as Spark or Tensorflow, a directory to place output files.
+        as Spark or Tensorflow, a directory to place output files.   After this call, the directory
+        will exist in the local context.
 
-        Add this path as you would add file paths to your output bundle.  Disdat will incorporate
-        all the data found in this directory into the bundle.
+        It is the user's responsibility to add individual file links to the bundle.
 
-        See Pipe.create_output_dir()
+        It is an error to add a directory as a file link.
 
         Arguments:
             dir_name (str): A basedir of a directory to appear in the local bundle.
@@ -625,7 +625,6 @@ class Bundle(HyperFrameRecord):
             if not why.errno == errno.EEXIST:
                 _logger.error("Creating directory in bundle directory failed errno {}".format(why.strerror))
                 raise
-            # else directory exists is OK and fall through
         except IOError as why:
             _logger.error("Creating directory in bundle directory failed {}".format(why))
             raise
@@ -637,8 +636,9 @@ class Bundle(HyperFrameRecord):
         This allows you to create versioned data sets without file copies and without worrying about where
         your data files are to be stored.
 
-        To use, you must a.) write data into this file-like object (a 'target'), and b.) add this
-        target to the bundle by either including its file path or the luigi target object itself.
+        To use, you must:
+            a.) Write data into this location
+            b.) Add this target to the bundle by including this file path
 
         TODO: for binary files add a binary=True, and return luigi.LocalTarget('test.npz', format=luigi.format.Nop)
 
@@ -646,20 +646,19 @@ class Bundle(HyperFrameRecord):
             filename (str,list,dict): filename to create in the bundle
 
         Returns:
-            `luigi.LocalTarget`
+            str
         """
         self._check_open()
-        return PipeBase.filename_to_luigi_targets(self._local_dir, filename)
+        return os.path.join(self._local_dir, filename)
 
     def get_remote_directory(self, dir_name):
         """ Returns path `<disdat-managed-remote-directory>/<dir_name>`.  This gives the user a remote (e.g., s3)
         output directory into which to write files.  This is useful when a user needs to give an external tool, such
         as Spark or Tensorflow, a directory to place output files.
 
-        Add this path as you would add file paths to your output bundle.  Disdat will incorporate
-        all the data found in this directory into the bundle.
+        It is the user's responsibility to add individual file links to the bundle.
 
-        See Pipe.create_output_dir_remote()
+        It is an error to add a directory as a file link.
 
         Arguments:
             dir_name (str): A basedir of a directory to appear in the remote bundle.
@@ -668,9 +667,7 @@ class Bundle(HyperFrameRecord):
             str: A directory path managed by disdat
         """
         self._check_open()
-
         fqp = os.path.join(self._remote_dir, dir_name.lstrip('/'))
-
         return fqp
 
     def get_remote_file(self, filename):
@@ -693,7 +690,7 @@ class Bundle(HyperFrameRecord):
         if not self.data_context.remote_ctxt_url:
             raise Exception('Managed S3 path creation requires a remote context')
 
-        return PipeBase.filename_to_luigi_targets(self._remote_dir, filename)
+        return os.path.join(self._remote_dir, filename)
 
     @staticmethod
     def calc_default_processing_name(code_ref, params, dep_proc_ids):
