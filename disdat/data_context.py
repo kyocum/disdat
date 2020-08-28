@@ -1037,6 +1037,8 @@ class DataContext(object):
         if local_files_series is not None:
             series_like = local_files_series
 
+        #print (series_like)
+
         # Make sure s3 files exist -- copy in does this check
         # series_like = hyperframe.detect_s3_fs_path(series_like)
 
@@ -1068,13 +1070,20 @@ class DataContext(object):
 
             copied_in_series_like = []
             for src in series_like:
-                if isinstance(src, S3Target) or isinstance(src, luigi.LocalTarget):
+                if isinstance(src, S3Target):
                     src = src.path
+                elif isinstance(src, luigi.LocalTarget):
+                    src = urllib.parse.urljoin('file:', src.path)
+
                 if urllib.parse.urlparse(src).scheme == 's3':
                     if remote_managed_path is not None:
-                        copied_in_series_like.append(self.copy_in_files(src, remote_managed_path, localize=False))
+                        copied_in_series_like.append(self.copy_in_files(src,
+                                                                        remote_managed_path,
+                                                                        localize=False))
                         continue
-                copied_in_series_like.append(self.copy_in_files(src, local_managed_path, localize=False))
+                copied_in_series_like.append(self.copy_in_files(src,
+                                                                urllib.parse.urljoin('file:', local_managed_path),
+                                                                localize=False))
 
             frame = hyperframe.FrameRecord.make_link_frame(hfid, name, copied_in_series_like,
                                                            local_managed_path, remote_managed_path)
@@ -1152,6 +1161,8 @@ class DataContext(object):
          s3       : managed local fs dir
          s3       : managed s3 dir
 
+         Assumes that src_files and dst_dir begin with scheme 'file'
+
          Args:
             src_files (:list:str):  A single file path or a list of paths
             dst_dir (str): Local or Remote managed dirs
@@ -1163,6 +1174,8 @@ class DataContext(object):
         file_set = []
         return_one_file = False
         dst_scheme = urllib.parse.urlparse(dst_dir).scheme
+        assert dst_scheme == 'file' or dst_scheme == 's3', \
+            "copy_in_files: dst_dir with unrecognized scheme {}".format(dst_scheme)
 
         if not isinstance(src_files, list) and not isinstance(src_files, tuple):
             return_one_file = True
@@ -1182,7 +1195,8 @@ class DataContext(object):
             # Do not copy src file in to local if:
             # 1. Managed Local or S3 File  -- src path starts with dst path (dst is always a bundle directory)
             if src_path.startswith(dst_dir):
-                file_set.append(urllib.parse.urljoin('file:', src_path))
+                # print("----> copy_in_files: ZERO COPY SRC {} to DST_DIR {}".format(src_path, dst_dir))
+                file_set.append(src_path)
                 continue
 
             # 2. Non Managed S3 File (Remote and push should be set)
@@ -1198,14 +1212,15 @@ class DataContext(object):
                     file_set.append(src_path)
                     continue
 
-            # Src path can contain a sub-directory.
+            # Add the destination as the final location, adding sub directories if present
             sub_dir = DataContext.find_subdir(src_path, dst_dir)
             dst_file = os.path.join(dst_dir, sub_dir, os.path.basename(src_path))
-
-            if dst_scheme != 's3' and dst_scheme != 'db':
-                file_set.append(urllib.parse.urljoin('file:', dst_file))
-            else:
-                file_set.append(dst_file)
+            # print("----> copy_in_files: COPY SRC {} to DST FILE {}".format(src_path, dst_file))
+            file_set.append(dst_file)  # Record it with 'file://'
+            dst_file_parse = urllib.parse.urlsplit(dst_file)
+            # But strip 'file://' so that the copies to/from work.   S3 paths work all the time with s3://
+            if dst_file_parse.scheme == 'file':
+                dst_file = dst_file_parse.path
 
             try:
                 if src_urlparse.scheme == 's3':

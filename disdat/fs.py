@@ -24,7 +24,7 @@ from __future__ import print_function
 
 import os
 import json
-import uuid
+import urllib
 import time
 from datetime import datetime
 from enum import Enum
@@ -1020,6 +1020,8 @@ class DisdatFS(object):
         if fr.is_local_fs_link_frame() or fr.is_s3_link_frame():
             src_paths = data_context.actualize_link_urls(fr)
             bundle_dir = os.path.join(branch_object_dir, fr.hframe_uuid)
+            if urllib.parse.urlparse(bundle_dir).scheme != "s3":
+                bundle_dir = urllib.parse.urljoin('file:', bundle_dir)
             _ = data_context.copy_in_files(src_paths, bundle_dir)
         return
 
@@ -1106,12 +1108,11 @@ class DisdatFS(object):
         Returns:
             None
         """
-        managed_path = os.path.join(data_context.get_object_dir(), s3_uuid)
+        managed_path = urllib.parse.urljoin('file:', os.path.join(data_context.get_object_dir(), s3_uuid))
         for fr in local_hfr.get_frames(data_context):
             if fr.is_link_frame():
                 src_paths = data_context.actualize_link_urls(fr)
-                for f in src_paths:
-                    data_context.copy_in_files(f, managed_path)
+                data_context.copy_in_files(src_paths, managed_path)
 
     @staticmethod
     def fast_pull(data_context, localize):
