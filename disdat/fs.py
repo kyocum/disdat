@@ -1145,7 +1145,6 @@ class DisdatFS(object):
         if delocalize:
             for f in to_delete:
                 try:
-                    print ("Deleting {}".format(f))
                     os.remove(f)
                 except IOError as e:
                     print("fast_push: during delocalization, unable to remove {} due to {}".format(f, e))
@@ -1367,7 +1366,7 @@ def _push(fs, args):
     if args.uuid:
         uuid = args.uuid
 
-    fs.push(bundle, uuid, tags=common.parse_args_tags(args.tag))
+    fs.push(bundle, uuid, tags=common.parse_args_tags(args.tag), delocalize=args.delocalize)
 
 
 def _pull(fs, args):
@@ -1578,14 +1577,20 @@ def add_arg_parser(subparsers):
     push_p = subparsers.add_parser('push')
     push_p.add_argument('bundle', type=str, nargs='?', default=None,
                         help='The bundle name in the current context')
-    push_p.add_argument('-u', '--uuid', type=str, help='A UUID of a bundle in the current context')
+    push_p.add_argument('-u', '--uuid', type=str,
+                        help='A UUID of a bundle in the current context')
     push_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
                         help="Having a specific tag: 'dsdt ls -t committed:True -t version:0.7.1'")
+    push_p.add_argument('-d', '--delocalize', action='store_true',
+                        help='After pushing, remove all local files linked to Bundle.  Default leaves local copies.')
     push_p.set_defaults(func=lambda args: _push(fs, args))
 
     # pull <name --uuid <uuid>
     pull_p = subparsers.add_parser('pull')
-    pull_p.add_argument('bundle', type=str, nargs='?', default=None, help='The bundle name in the current context')
-    pull_p.add_argument('-u', '--uuid', type=str, help='A UUID of a bundle in the current context')
-    pull_p.add_argument('-l', '--localize', action='store_true', help='Pull files with the bundle.  Default to leaving files at remote.')
+    pull_p.add_argument('bundle', type=str, nargs='?', default=None,
+                        help='The bundle name in the current context')
+    pull_p.add_argument('-u', '--uuid', type=str,
+                        help='A UUID of a bundle in the current context')
+    pull_p.add_argument('-l', '--localize', action='store_true',
+                        help='Pull files with the bundle.  Default to leaving files at remote.')
     pull_p.set_defaults(func=lambda args: _pull(fs, args))

@@ -119,8 +119,7 @@ def create_remote_file_bundle(name):
     assert md5 == saved_md5
 
 
-@moto.mock_s3
-def xtest_fast_push():
+def _setup(remote=True):
     api.delete_context(TEST_CONTEXT)
     api.context(context_name=TEST_CONTEXT)
 
@@ -134,13 +133,22 @@ def xtest_fast_push():
     assert 'Contents' not in objects, 'Bucket should be empty'
 
     # Bind remote context
-    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
+    if remote:
+        api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
+
+    return s3_client
+
+
+@moto.mock_s3
+def test_fast_push():
+
+    s3_client = _setup()
 
     bundles = {}
-    for i in range(7):
+    for i in range(3):
         name = "shark{}".format(i)
         bundles[name] = create_local_file_bundle(name)
-        bundles[name].push()
+        bundles[name].push()   # need this to put the bundles in the remote b/c of moto mp issues
 
     # Moto keeps s3 xfers in memory, so multiprocessing will succeed
     # But when the subprocess exits, the files will disappear
@@ -162,26 +170,14 @@ def xtest_fast_push():
 
 
 @moto.mock_s3
-def xtest_bundle_push_delocalize():
+def test_bundle_push_delocalize():
     """ Test Bundle.push(delocalize)
+    Test if we can push individually, and see that the files actualize to s3 paths.
     """
-    api.delete_context(TEST_CONTEXT)
-    api.context(context_name=TEST_CONTEXT)
-
-    # Setup moto s3 resources
-    s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3')
-    s3_resource.create_bucket(Bucket=TEST_BUCKET)
-
-    # Make sure bucket is empty
-    objects = s3_client.list_objects(Bucket=TEST_BUCKET)
-    assert 'Contents' not in objects, 'Bucket should be empty'
-
-    # Bind remote context
-    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
+    s3_client = _setup()
 
     bundles = {}
-    for i in range(7):
+    for i in range(3):
         name = "shark{}".format(i)
         bundles[name] = create_local_file_bundle(name)
         bundles[name].push(delocalize=True)
@@ -190,9 +186,18 @@ def xtest_bundle_push_delocalize():
     assert 'Contents' in objects, 'Bucket should not be empty'
     assert len(objects['Contents']) > 0, 'Bucket should not be empty'
 
+    # Check for delocalization
     for b in bundles.values():
         for i, f in enumerate(b.data):
             assert f.startswith("s3://")
+
+    # Might as well test the push and pull worked.
+    api.rm(TEST_CONTEXT, rm_all=True)
+    api.pull(TEST_CONTEXT, localize=True)
+    found_bundles = {b.name: b for b in api.search(TEST_CONTEXT)}
+    for n, b in found_bundles.items():
+        for i, f in enumerate(b.data):
+            assert md5_file(f) == b.tags["f{}".format(i)]
 
     api.delete_context(TEST_CONTEXT)
 
@@ -200,29 +205,17 @@ def xtest_bundle_push_delocalize():
 def test_api_push_delocalize():
     """ Test api.push(delocalize)
     """
-    api.delete_context(TEST_CONTEXT)
-    api.context(context_name=TEST_CONTEXT)
-
-    # Setup moto s3 resources
-    s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3')
-    s3_resource.create_bucket(Bucket=TEST_BUCKET)
-
-    # Make sure bucket is empty
-    objects = s3_client.list_objects(Bucket=TEST_BUCKET)
-    assert 'Contents' not in objects, 'Bucket should be empty'
-
-    # Bind remote context
-    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
+    _ = _setup()
 
     bundles = {}
-    for i in range(7):
+    for i in range(3):
         name = "shark{}".format(i)
         bundles[name] = create_local_file_bundle(name)
 
     # Moto keeps s3 xfers in memory, so multiprocessing will succeed
     # But when the subprocess exits, the files will disappear
-    # So this won't push anything, but the delocalize should remove the data.
+    # So we cannot see the result of the push (b/c of moto in memory s3),
+    # but the delocalize should remove the data.
     api.push(TEST_CONTEXT, delocalize=True)  # push and remote all data, then pull and localize.
 
     for b in bundles.values():
@@ -233,38 +226,61 @@ def test_api_push_delocalize():
 
 
 @moto.mock_s3
-def test_bundle_link_localization():
+def test_bundle_link_localization_no_remote():
     """ Test the ability to localize and delocalize individual links
-    Note: you can only localize / de-localize a closed bundle. 
+    Note: you can only localize / de-localize a closed bundle.
+
+    create bundles.
+
+    test w/o a remote
+
     """
+    _ = _setup(remote=False)
+
+    b = create_local_file_bundle("sharkies")
+
+    # all local files.  then delocalize each in turn.
+    errors = 0
+    for i, f in enumerate(b.data):
+        assert f.startswith("/")
+        try:
+            b.delocalize(f)
+        except AssertionError as ae:
+            print ("Caught an expected assertion error -- {}".format(ae))
+            errors += 1
+        assert b.data[i].startswith("/") # should have failed
+
+    assert errors == len(b.data)
     api.delete_context(TEST_CONTEXT)
-    api.context(context_name=TEST_CONTEXT)
 
-    # Setup moto s3 resources
-    s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3')
-    s3_resource.create_bucket(Bucket=TEST_BUCKET)
 
-    # Make sure bucket is empty
-    objects = s3_client.list_objects(Bucket=TEST_BUCKET)
-    assert 'Contents' not in objects, 'Bucket should be empty'
+@moto.mock_s3
+def test_bundle_link_localization_with_remote():
+    """ Test the ability to localize and delocalize individual links
+    Note: you can only localize / de-localize a closed bundle.
 
-    # Bind remote context
-    api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
+    create bundles.
 
-    bundles = {}
-    for i in range(7):
-        name = "shark{}".format(i)
-        bundles[name] = create_local_file_bundle(name)
+    test w/o a remote
 
-    # Moto keeps s3 xfers in memory, so multiprocessing will succeed
-    # But when the subprocess exits, the files will disappear
-    # So this won't push anything, but the delocalize should remove the data.
-    api.push(TEST_CONTEXT, delocalize=True)  # push and remote all data, then pull and localize.
+    """
+    _ = _setup()
 
-    for b in bundles.values():
-        for i, f in enumerate(b.data):
-            assert f.startswith("s3://")
+    b = create_local_file_bundle("sharkies")
+
+    b.push()
+
+    # all local files.  then delocalize each in turn.
+    for i, f in enumerate(b.data):
+        assert f.startswith("/")
+        b.delocalize(f)
+        assert b.data[i].startswith("s3://")
+
+    # bring it all back
+    for i, f in enumerate(b.data):
+        assert b.data[i].startswith("s3://")  # testing if we can both s3 and local paths in a link frame
+        b.localize(f)
+        assert b.data[i].startswith("/")
 
     api.delete_context(TEST_CONTEXT)
 

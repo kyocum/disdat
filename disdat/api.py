@@ -42,6 +42,7 @@ import disdat.fs
 import disdat.common as common
 from disdat.pipe_base import PipeBase
 from disdat.data_context import DataContext
+from disdat.utility.aws_s3 import s3_path_exists
 
 from disdat.hyperframe import HyperFrameRecord, LineageRecord
 from disdat.run import Backend, run_entry
@@ -473,6 +474,7 @@ class Bundle(HyperFrameRecord):
         self.pb = hfr.pb
         self.init_internal_state()
         self._data = self.data_context.present_hfr(hfr)
+        self._local_dir, self._remote_dir = self.data_context.util_get_managed_paths(self.uuid)
         return self
 
     """ Python Context Manager Interface """
@@ -625,7 +627,7 @@ class Bundle(HyperFrameRecord):
 
         """
         self._check_closed()
-        scheme = urllib.parse.urlparse(path)
+        scheme = urllib.parse.urlparse(path).scheme
         assert scheme == 's3', "Bundle.localize: Bad scheme {}, requires an s3 path".format(scheme)
         assert self._remote_dir is not None, "Bundle.localize failed, bundle created in context without remote."
         assert path.startswith(self._remote_dir), "Bundle.localize failed, {} is not remote managed path in {}".format(path, self._remote_dir)
@@ -639,7 +641,7 @@ class Bundle(HyperFrameRecord):
 
         return new_path
 
-    def delocalize(self, path, force=False):
+    def delocalize(self, path):
         """ Given a local managed path in a bundle, delete the local copy.
 
         Tests that the metadata and this item have been pushed.
@@ -653,13 +655,22 @@ class Bundle(HyperFrameRecord):
 
         """
         self._check_closed()
-        scheme = urllib.parse.urlparse(path)
+        scheme = urllib.parse.urlparse(path).scheme
         assert scheme == '' or scheme == 'file', "Bundle.delocalize: Bad scheme {}, requires a local path".format(scheme)
         assert self._remote_dir is not None, "Bundle.delocalize failed, bundle created in context without remote."
         assert path.startswith(self._local_dir), "Bundle.delocalize failed, {} is not a managed path in {}".format(path, self._remote_dir)
+        hframe_file = os.path.join(self._remote_dir, "{}_hframe.pb".format(self.uuid))
+        assert s3_path_exists(hframe_file), "Bundle.delocalize failed. Bundle must be pushed to remote before use."
 
-        # Push the one file.
-        new_path = self.data_context.copy_in_files(path, self._remote_dir)
+        # Push the one file.   This is a safety call.
+        # If we can't guarantee that we've made a copy, we don't remove the local copy.
+        new_path = self.data_context.copy_in_files(urllib.parse.urljoin('file:', path), self._remote_dir)
+
+        # Delete local copy
+        try:
+            os.remove(path)
+        except IOError as e:
+            print("delocalize: unable to remove {} due to {}".format(path, e))
 
         # Update the presentation
         assert self.is_presentable

@@ -603,6 +603,28 @@ class DataContext(object):
 
         return path
 
+    def util_get_managed_paths(self, uuid):
+        """ Given a uuid, use the local and remote contexts
+        to return the local directory for this bundle and
+        the remote directory for this bundle.
+
+        Note:  We do not validate the directories returned!
+
+        Returns:
+            (str, str):  A tuple of local_dir and remote_dir
+        """
+
+        assert(self.is_valid())
+
+        local_dir = os.path.join("file:///", self.get_object_dir(), uuid)  # @ReservedAssignment
+
+        if self.remote_ctxt_url is not None:
+            remote_dir = os.path.join(self.get_remote_object_dir(), uuid)
+        else:
+            remote_dir = None
+
+        return local_dir, remote_dir
+
     def make_managed_path(self, uuid=None):
         """
         Create a managed path for files created within this context.
@@ -625,17 +647,14 @@ class DataContext(object):
         else:
             _provided_uuid = uuid
 
-        dir = os.path.join("file:///", self.get_object_dir(), _provided_uuid)  # @ReservedAssignment
-        if os.path.exists(dir):
+        local_dir, remote_dir = self.util_get_managed_paths(_provided_uuid)
+
+        if os.path.exists(local_dir):
             raise Exception('Caught UUID collision {}'.format(uuid))
-        os.makedirs(dir)
 
-        if self.remote_ctxt_url is not None:
-            remote_dir = os.path.join(self.get_remote_object_dir(), _provided_uuid)
-        else:
-            remote_dir = None
+        os.makedirs(local_dir)
 
-        return dir, _provided_uuid, remote_dir
+        return local_dir, _provided_uuid, remote_dir
 
     def rm_hframe(self, hfr_uuid):
         """
@@ -1172,23 +1191,22 @@ class DataContext(object):
             local_file_set = [os.path.join(local_dir, fr.hframe_uuid, f.replace(common.BUNDLE_URI_SCHEME, '')) for f in
                               urls]
 
-        # At the moment, this is all or none.  There are cases where you could localize and pull
-        # only some of the files, in which case we could mix local and remote.  However, that may
-        # indicate that something else is wrong.   We should probably indicate that in the future.
-        if all(os.path.isfile(lf) for lf in local_file_set):
-            if strip_file_scheme:
-                append = ''
+        # Check to see which files are present and which must stay remote
+        # This can now happen with individual link localize and delocalize.
+        # The only state that tells us if the whole bundle has been pushed is to check if the
+        # hyperframe <uuid>_hframe.pb exists on the remote.
+        for lf, rurl in zip(local_file_set, urls):
+            if os.path.isfile(lf):
+                if not strip_file_scheme:
+                    lf = urllib.parse.urljoin('file:', lf)
+                file_set.append(lf)
             else:
-                append = 'file://'
-            file_set = ["{}{}".format(append, lf) for lf in local_file_set]
-        else:
-            # Note that remote_dir already includes the URL scheme
-            remote_dir = self.get_remote_object_dir()
-            if remote_dir is not None:
-                file_set = [ "{}".format(os.path.join(remote_dir, fr.hframe_uuid, f.replace(common.BUNDLE_URI_SCHEME,''))) for f in urls]
-            else:
-                _logger.info("actualize_link_urls: Files are not local, and no remote context bound.")
-                raise Exception("actualize_link_urls: Files are not local, and no remote context bound.")
+                remote_dir = self.get_remote_object_dir()
+                if remote_dir is not None:
+                    file_set.append(os.path.join(remote_dir, fr.hframe_uuid, rurl.replace(common.BUNDLE_URI_SCHEME,'')))
+                else:
+                    _logger.info("actualize_link_urls: Files are not local, and no remote context bound.")
+                    raise Exception("actualize_link_urls: Files are not local, and no remote context bound.")
 
         return file_set
 
