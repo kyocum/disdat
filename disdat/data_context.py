@@ -26,8 +26,7 @@ import pandas as pd
 import numpy as np
 import luigi
 from luigi.contrib.s3 import S3Target
-from six.moves import urllib
-import six
+import urllib
 import boto3
 
 import disdat.constants as constants
@@ -638,7 +637,7 @@ class DataContext(object):
 
         return dir, _provided_uuid, remote_dir
 
-    def rm_hframe(self, hfr_uuid, force=False):
+    def rm_hframe(self, hfr_uuid):
         """
         Given a hfr_uuid, remove the hyperframe from the context.
         This is a destructive operation.  After this the hframe and all of its data
@@ -653,7 +652,6 @@ class DataContext(object):
 
         Args:
             hfr_uuid (str):
-            force (bool): remove even if there are db links backing views
 
         Returns:
             success (bool): Whether or not we deleted the bundle
@@ -661,30 +659,19 @@ class DataContext(object):
         """
         try:
             hfr = self.get_hframes(uuid=hfr_uuid)
-
             assert hfr is not None
             assert len(hfr) == 1
 
-            # First, test whether any db links are used to back the current view
-            no_force_required = self.rm_db_links(hfr[0])
+            hyperframe.update_hfr_db(self.local_engine, hyperframe.RecordState.deleted, uuid=hfr_uuid)
+            shutil.rmtree(self.implicit_hframe_path(hfr_uuid))
+            hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid)
 
-            if no_force_required or force:
-                hyperframe.update_hfr_db(self.local_engine, hyperframe.RecordState.deleted, uuid=hfr_uuid)
-                self.rm_db_links(hfr[0], dry_run=False)
-                shutil.rmtree(self.implicit_hframe_path(hfr_uuid))
-                hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid)
-                #hyperframe.delete_fr_db(self.local_engine, hfr_uuid) -- frames table depricated
-            else:
-                print ("Disdat: Looks like you're trying to remove a committed bundle with a db link backing a view.")
-                print ("Disdat: Removal of this bundle with db links that back a view requires '--force'")
-                return False
             return True
         except (IOError, os.error) as why:
             _logger.error("Removal of hyperframe directory {} failed with error {}.".format(self.implicit_hframe_path(hfr_uuid), why))
 
-            # Must clean up db if directory removal failed
+            # Clean up db if directory removal failed
             hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid, state=hyperframe.RecordState.deleted)
-            #hyperframe.delete_fr_db(self.local_engine, hfr_uuid) -- frames table depricated
 
             return False
 
@@ -736,8 +723,15 @@ class DataContext(object):
         """
         hyperframe.w_pb_db(hfr, self.local_engine)
 
-    def _write_hframe_local(self, hfr):
+    def write_hframe_local(self, hfr):
         """
+        Given a HyperFrameRecord we need to record it in our current active context.
+        Since we have a DB, it just means putting it in our DB.
+
+        NOTE: writing it into the DB is *not* the same as writing it to disk.  The context
+        is meta-information about the bundles.  For example, an hframe contains uuid references
+        to frames.  The DB isn't guaranteed to always have the full binary blob of the PB.
+
 
         Args:
             hfr (`disdat.hyperframe.HyperFrameRecord`):
@@ -756,88 +750,33 @@ class DataContext(object):
         # Write FS HyperFrame
         hyperframe.w_pb_fs(os.path.join(self.get_object_dir(), hfr.pb.uuid), hfr)
 
-        # Todo: Make it an option
-        # Note: We are changing the default human_name to be only the task name
-        # self.prune_uncommitted_history(hfr.pb.human_name)
-
         return result
 
-    def _write_hframe_remote(self, hfr):
+    def write_hframe_remote(self, hfr, dry_run=False):
         """
+        Given a HyperFrameRecord, write out pb records to remote
 
         Args:
             hfr (`disdat.hyperframe.HyperFrameRecord`):
+            dry_run (bool): do not write files, just return src, dst pairs.
 
         Returns:
-
+            list: (src, dst) file path pairs
         """
         local_obj_dir = os.path.join(self.get_object_dir(), hfr.pb.uuid)
         if not os.path.exists(local_obj_dir):
             raise Exception("Write HFrame to remote failed because hfr {} doesn't appear to be in local context".format(
                 hfr.pb.uuid))
-        to_copy_files = glob.glob(os.path.join(local_obj_dir, '*.pb'))
+        to_copy_files = glob.glob(os.path.join(local_obj_dir, '*frame.pb'))
+        dst_files = []
+        remote_object_dir = os.path.join(self.get_remote_object_dir(), hfr.pb.uuid)
         for f in to_copy_files:
-            aws_s3.put_s3_file(f, os.path.join(self.get_remote_object_dir(), hfr.pb.uuid))
+            dst_files.append(os.path.join(remote_object_dir, os.path.basename(f)))
+            if not dry_run:
+                aws_s3.put_s3_file(f, remote_object_dir)
 
-        return None
+        return [(src, dst) for src, dst in zip(to_copy_files, dst_files)]
 
-    def rm_db_links(self, hfr, dry_run=True):
-        """
-        For all the db links, let the user code know we wish to delete the relational data.
-
-        Note: the dbt.rm() operation should be idempotent.
-
-        Args:
-            hfr (hyperframe.HyperFrameRecord): The HFR we are about to remove.
-            dry_run (bool): If True, then we are just testing whether all db links can be safely removed.  If False,
-            then remove the tables on the db no matter if they back the view or not.
-
-        Returns:
-            bool: If True, we can safely remove all links, if False, at least one table is supporting a view.
-
-        """
-        commit_tag = hfr.get_tag('committed')
-        success = True
-        if not dry_run:
-            for fr in hfr.get_frames(self):
-                if fr.is_db_link_frame():
-                    for dbt_pb in fr.pb.links:
-                        dbt = DBLink(None, dbt_pb.database.dsn, dbt_pb.database.table,
-                                     dbt_pb.database.schema, dbt_pb.database.servername,
-                                     dbt_pb.database.database, hfr.pb.uuid)
-                        success = dbt.rm(commit_tag=commit_tag)
-        return success
-
-    def commit_db_links(self, hfr):
-        """
-        For all the db link frames, commit the tables.
-
-        Note: Typically, commits are isolated since they only apply to the local bundle in the local context.  However,
-        DBTargets, once committed, form a collective view of the latest logical tables in all bundles in a context.
-
-        Note: Therefore, we should treat a bundle commit with many DBTargets as a single logical transaction, updating
-        this collective view in an all or nothing way.   At this time, though, it is possible that, if the task fails
-        then there may be some physical tables not written and some virtual (views) tables that have not been updated.
-         Further, this implies that a user in a local context may query the database, see this collective view, and note
-         that another user must have committed some other bundle in the context, a copy of which they may not have.
-
-        The DBTarget object is a user-facing object.   However, DBTarget does define the commit because
-        it is the place where the naming logic for tables resides.
-
-        Args:
-            hfr (`disdat.hyperframe.HyperFrameRecord`):
-
-        Returns:
-            None
-        """
-
-        for fr in hfr.get_frames(self):
-            if fr.is_db_link_frame():
-                for dbt_pb in fr.pb.links:
-                    dbt = DBLink(None, dbt_pb.database.dsn, dbt_pb.database.table,
-                                 dbt_pb.database.schema, dbt_pb.database.servername,
-                                 dbt_pb.database.database, hfr.pb.uuid)
-                    dbt.commit()
 
     def atomic_update_hframe(self, hfr):
         """
@@ -868,64 +807,6 @@ class DataContext(object):
         result = hyperframe.w_pb_db(hfr, self.local_engine)
 
         return result
-
-    def write_hframe(self, hfr, to_remote=False):
-        """
-        Given a HyperFrameRecord we need to record it in our current active context.
-        Since we have a DB, it just means putting it in our DB.
-
-        NOTE: writing it into the DB is *not* the same as writing it to disk.  The context
-        is meta-information about the bundles.  For example, an hframe contains uuid references
-        to frames.  The DB isn't guaranteed to always have the full binary blob of the PB.
-
-        Args:
-            hfr (`hyperframe.HyperFrameRecord`);
-            to_remote (bool): Push frame to remote -- Default False
-
-        Returns:
-            result : result of insert
-        """
-
-        if to_remote:
-            return self._write_hframe_remote(hfr)
-        else:
-            return self._write_hframe_local(hfr)
-
-    def prune_uncommitted_history(self, human_name):
-        """
-        As we create new data bundles, we prune the local history of the bundles that
-            a.) Have the same human name
-            b.) That do not have the committed flag attached to them.
-            c.) That are outside of the len_uncommitted_history
-
-        NOTE: Called *after* we have added the newest hframe
-
-        TODO: Unify with DisdatFS.rm !
-
-        Args:
-            human_name (str): name of the bundle to prune
-
-        Returns:
-
-        """
-
-        hfrs = self.get_hframes(human_name=human_name)
-        removed_history = 0
-
-        if len(hfrs) == 0:
-            return
-
-        for hfr in hfrs[1:]:
-
-            if 'committed' in hfr.tag_dict:
-                assert hfr.tag_dict['committed'] == 'True'
-                continue
-
-            if removed_history < self.len_uncommitted_history:
-                removed_history += 1
-                continue
-
-            self.rm_hframe(hfr.pb.uuid)
 
     def push_hfr_to_remote(self, hfr):
         """
@@ -1149,7 +1030,7 @@ class DataContext(object):
         else:
             return ''
 
-    def copy_in_files(self, src_files, dst_dir, localize=True):
+    def copy_in_files(self, src_files, dst_dir, localize=True, dry_run=False):
         """
          Given a set of link URLs, move them to the destination.
          The link URLs will have file:///, s3://, or db:// schemes
@@ -1167,6 +1048,7 @@ class DataContext(object):
             src_files (:list:str):  A single file path or a list of paths
             dst_dir (str): Local or Remote managed dirs
             localize (bool): If True, then copy src s3 -> dst file:/// (Default).  Else do not copy.
+            dry_run (bool): Return the destination files, but do not perform the copy
 
          Returns:
             file_set: set of new paths where files were copied.  Either one file or a list of files
@@ -1222,34 +1104,34 @@ class DataContext(object):
             if dst_file_parse.scheme == 'file':
                 dst_file = dst_file_parse.path
 
-            try:
-                if src_urlparse.scheme == 's3':
-                    # s3 to s3
-                    if dst_scheme == 's3':
-                        aws_s3.cp_s3_file(src_path, os.path.dirname(dst_file))
-                    elif dst_scheme == 'file':
-                        aws_s3.get_s3_file(src_path, dst_file)
+            if not dry_run:
+                try:
+                    if src_urlparse.scheme == 's3':
+                        # s3 to s3
+                        if dst_scheme == 's3':
+                            aws_s3.cp_s3_file(src_path, os.path.dirname(dst_file))
+                        elif dst_scheme == 'file':
+                            aws_s3.get_s3_file(src_path, dst_file)
+                        else:
+                            raise common.BadLinkError("copy_in_files: copy s3 to unsupported scheme {}".format(dst_scheme))
+
+                    elif src_urlparse.scheme == 'db':  # left for back compat for now
+                        _logger.debug("Skipping a db file on bundle add")
+
+                    elif src_urlparse.scheme == 'file':
+                        if dst_scheme == 's3':
+                            # local to s3
+                            aws_s3.put_s3_file(src_urlparse.path, os.path.dirname(dst_file))
+                        elif dst_scheme == 'file':
+                            # local to local
+                            shutil.copy(src_urlparse.path, os.path.dirname(dst_file))
+                        else:
+                            raise common.BadLinkError("copy_in_files: copy local file to unsupported scheme {}".format(dst_scheme))
                     else:
-                        raise common.BadLinkError("copy_in_files: copy s3 to unsupported scheme {}".format(dst_scheme))
-
-                elif src_urlparse.scheme == 'db':  # left for back compat for now
-                    _logger.debug("Skipping a db file on bundle add")
-
-                elif src_urlparse.scheme == 'file':
-                    if dst_scheme == 's3':
-                        # local to s3
-                        aws_s3.put_s3_file(src_urlparse.path, os.path.dirname(dst_file))
-                    elif dst_scheme == 'file':
-                        # local to local
-                        shutil.copy(src_urlparse.path, os.path.dirname(dst_file))
-                    else:
-                        raise common.BadLinkError("copy_in_files: copy local file to unsupported scheme {}".format(dst_scheme))
-                else:
-                    raise common.BadLinkError("copy-in-file found bad scheme: {} from {}".format(src_urlparse.scheme,
-                                                                                                 src_urlparse))
-
-            except (IOError, os.error) as why:
-                _logger.error("Disdat add error: {} {} {}".format(src_path, dst_dir, str(why)))
+                        raise common.BadLinkError("copy-in-file found bad scheme: {} from {}".format(src_urlparse.scheme,
+                                                                                                     src_urlparse))
+                except (IOError, os.error) as why:
+                    _logger.error("Disdat add error: {} {} {}".format(src_path, dst_dir, str(why)))
 
         if return_one_file:
             return file_set[0]

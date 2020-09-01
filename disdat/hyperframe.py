@@ -150,6 +150,25 @@ def w_pb_fs(file_prefix, pb_record, fq_file_path=None, atomic=False):
         os.rename(f.name, fq_file_path)
 
 
+def is_hyperframe_pb_file(file):
+    """ Given a file path, is this a hyperframe pb or a frame pb file?
+    Often in a bundle directory we simply want to distinguish between
+    user files and pb files.   The truly safe way is to look through
+    all link frames.
+
+    We always give them <uuid>_hframe.pb or <uuid>_frame.pb names.
+    So this weakly checks for files ending in 'frame.pb'
+
+    Args:
+        file:
+
+    Returns:
+
+    """
+    if file.endswith('frame.pb'):
+        return True
+    return False
+
 def _sql_write_tbl_rows(pb_tbls, pb_rows, db_conn):
     """
     NOTE: May throw sqlalchemy exceptions.  Caller should use try: except: clause.
@@ -549,25 +568,6 @@ def delete_fr_db(engine_g, hfr_uuid):
         results = conn.execute(fr_del)
 
     return [results]
-
-
-def get_files_in_dir(dir):
-    """ Look for files in a user returned directory
-    1.) Only look one-level down (in this directory)
-    2.) Do not include anything that looks like one of disdat's pbufs
-
-    TODO: One place that defines the format of the Disdat pb file names
-    See data_context.DataContext: rebuild_db() *_frame.pb, *_hframe.pb, *_auth.pb
-    Args:
-        (str): local directory
-    Returns:
-        (list:str): List of files in that directory
-    """
-
-    files = [os.path.join(dir, f) for f in os.listdir(dir) if os.path.isfile(os.path.join(dir, f))
-             and ('_hframe.pb' not in f) and ('_frame.pb' not in f) and ('_auth.pb' not in f)]
-
-    return files
 
 
 def detect_local_fs_path(series):

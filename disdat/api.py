@@ -34,6 +34,7 @@ import warnings
 import errno
 import hashlib
 import collections
+import urllib
 
 import disdat.apply   # <--- imports api, which imports apply, etc.
 import disdat.run
@@ -201,6 +202,12 @@ class Bundle(HyperFrameRecord):
 
     @property
     def data(self):
+        """ Return the presented data if closed (refreshing in case of localization / delocalization).
+        Or return the data currently attached to an open bundle (if not closed).
+        """
+        if self._closed:
+            assert self.is_presentable
+            self._data = self.data_context.present_hfr(self) # actualize link urls
         return self._data
 
     @property
@@ -524,7 +531,7 @@ class Bundle(HyperFrameRecord):
             if self.processing_name == '':
                 self.processing_name = self.default_processing_name()
             self._mod_finish(new_time=True)   # Set the hash based on all the context now in the pb, record create time
-            self.data_context.write_hframe(self)
+            self.data_context.write_hframe_local(self)
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
             self.abandon()
@@ -562,8 +569,11 @@ class Bundle(HyperFrameRecord):
         self._fs.commit(None, None, uuid=self.uuid, data_context=self.data_context)
         return self
 
-    def push(self):
+    def push(self, delocalize=False):
         """ Shortcut version of api.push(uuid=bundle.uuid)
+
+        Args:
+            delocalize (bool): Remove all local files, default False
 
         Returns:
             (`disdat.api.Bundle`): this bundle
@@ -575,7 +585,12 @@ class Bundle(HyperFrameRecord):
             raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(self.data_context.get_remote_name(),
                                                                                           self.data_context.get_local_name()))
 
-        self._fs.push(uuid=self.uuid, data_context=self.data_context)
+        self._fs.push(uuid=self.uuid, data_context=self.data_context, delocalize=delocalize)
+
+        # if we removed files, update the the presentation
+        if delocalize:
+            assert self.is_presentable
+            self._data = self.data_context.present_hfr(self) # actualize link urls
 
         return self
 
@@ -587,10 +602,70 @@ class Bundle(HyperFrameRecord):
         """
         self._check_closed()
         self._fs.pull(uuid=self.uuid, localize=localize, data_context=self.data_context)
+
+        # if we pulled files, update the the presentation
         if localize:
             assert self.is_presentable
             self._data = self.data_context.present_hfr(self) # actualize link urls
         return self
+
+    def localize(self, path):
+        """ Given a remote managed path in a bundle, retrieve the file.
+
+        A local path should already be localized, but in case the user keeps a
+        local path around, double check that it is local.
+
+        Assumes the bundle has been pushed via b.push()
+
+        Args:
+            path (str): The managed s3 path
+
+        Returns:
+            str: The localized path
+
+        """
+        self._check_closed()
+        scheme = urllib.parse.urlparse(path)
+        assert scheme == 's3', "Bundle.localize: Bad scheme {}, requires an s3 path".format(scheme)
+        assert self._remote_dir is not None, "Bundle.localize failed, bundle created in context without remote."
+        assert path.startswith(self._remote_dir), "Bundle.localize failed, {} is not remote managed path in {}".format(path, self._remote_dir)
+
+        # Pull the one file.
+        new_path = self.data_context.copy_in_files(path, urllib.parse.urljoin('file:', self._local_dir))
+
+        # Update the presentation
+        assert self.is_presentable
+        self._data = self.data_context.present_hfr(self)  # actualize link urls
+
+        return new_path
+
+    def delocalize(self, path, force=False):
+        """ Given a local managed path in a bundle, delete the local copy.
+
+        Tests that the metadata and this item have been pushed.
+
+        Args:
+            path: A managed local or s3 path.
+            force(bool):  Delete the file without checking if the bundle is at the current remote.
+
+        Returns:
+            str: The path to the non-localized file or None if force is set and no remote available.
+
+        """
+        self._check_closed()
+        scheme = urllib.parse.urlparse(path)
+        assert scheme == '' or scheme == 'file', "Bundle.delocalize: Bad scheme {}, requires a local path".format(scheme)
+        assert self._remote_dir is not None, "Bundle.delocalize failed, bundle created in context without remote."
+        assert path.startswith(self._local_dir), "Bundle.delocalize failed, {} is not a managed path in {}".format(path, self._remote_dir)
+
+        # Push the one file.
+        new_path = self.data_context.copy_in_files(path, self._remote_dir)
+
+        # Update the presentation
+        assert self.is_presentable
+        self._data = self.data_context.present_hfr(self)  # actualize link urls
+
+        return new_path
 
     def get_directory(self, dir_name):
         """ Returns path `<disdat-managed-directory>/<dir_name>`.  This gives the user a local
@@ -1012,7 +1087,7 @@ def get(local_context, bundle_name, uuid=None, tags=None):
     return b
 
 
-def rm(local_context, bundle_name=None, uuid=None, tags=None, rm_all=False, rm_old_only=False, force=False):
+def rm(local_context, bundle_name=None, uuid=None, tags=None, rm_all=False, rm_old_only=False):
     """ Delete a bundle with a certain name, uuid, or tags.  By default removes the most recent bundle.
     Otherwise one may specify `rm_all=True` to remove all bundles, or `rm_old_only=True` to remove
     all bundles but the most recent.
@@ -1024,7 +1099,6 @@ def rm(local_context, bundle_name=None, uuid=None, tags=None, rm_all=False, rm_o
         tags (dict(str:str)): Optional dictionary of tags that must be present on bundle to remove
         rm_all (bool): Remove latest and all historical if given bundle_name
         rm_old_only (bool): remove everything but latest if given bundle_name
-        force (bool): If a db-link exists and it is the latest on the remote DB, force remove. Default False.
 
     Returns:
         None
@@ -1035,7 +1109,7 @@ def rm(local_context, bundle_name=None, uuid=None, tags=None, rm_all=False, rm_o
     data_context = _get_context(local_context)
 
     fs.rm(human_name=bundle_name, rm_all=rm_all, rm_old_only=rm_old_only,
-          uuid=uuid, tags=tags, force=force, data_context=data_context)
+          uuid=uuid, tags=tags, data_context=data_context)
 
 
 def add(local_context, bundle_name, path, tags=None):
@@ -1152,14 +1226,15 @@ def commit(local_context, bundle_name, tags=None, uuid=None):
     fs.commit(bundle_name, tags, uuid=uuid, data_context=data_context)
 
 
-def push(local_context, bundle_name, tags=None, uuid=None):
+def push(local_context, bundle_name=None, tags=None, uuid=None, delocalize=False):
     """ Push a bundle to a remote repository.
 
     Args:
-        local_context (str):  The local context to push to (must have a remote).
+        local_context (str):  The local context to push to (must have a remote).  Default None means push all.
         bundle_name (str): human name of the bundle to push or None (if using uuid)
         tags (dict): Tags the bundle must have
         uuid (str): Optional UUID of the bundle to push.  UUID takes precedence over bundle name
+        delocalize (bool): After pushing, remove all local file links (default False)
 
     Returns:
         None
@@ -1174,7 +1249,7 @@ def push(local_context, bundle_name, tags=None, uuid=None):
         raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(data_context.get_remote_name(),
                                                                                       data_context.get_local_name()))
 
-    fs.push(human_name=bundle_name, uuid=uuid, tags=tags, data_context=data_context)
+    fs.push(human_name=bundle_name, uuid=uuid, tags=tags, data_context=data_context, delocalize=delocalize)
 
 
 def pull(local_context, bundle_name=None, uuid=None, localize=False):
@@ -1408,3 +1483,23 @@ def dockerize_get_id(setup_dir):
         (str): The full docker container image hash
     """
     return dockerize_entry(pipeline_root=setup_dir, get_id=True)
+
+
+def helper_get_files_in_dir(dir):
+    """ Return all files under this directory.
+    If no scheme, assume local files.
+    1.) Only look one-level down (in this directory)
+    2.) Do not include anything that looks like one of disdat's pbufs
+
+    TODO: One place that defines the format of the Disdat pb file names
+    See data_context.DataContext: rebuild_db() *_frame.pb, *_hframe.pb, *_auth.pb
+    Args:
+        (str): local directory
+    Returns:
+        (list:str): List of files in that directory
+    """
+
+    files = [os.path.join(dir, f) for f in os.listdir(dir) if os.path.isfile(os.path.join(dir, f))
+             and ('_hframe.pb' not in f) and ('_frame.pb' not in f) and ('_auth.pb' not in f)]
+
+    return files
