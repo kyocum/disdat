@@ -60,6 +60,7 @@ from sqlalchemy.exc import IntegrityError
 import disdat.common as common
 from disdat.db_link import DBLink
 from disdat import hyperframe_pb2
+from disdat.utility.aws_s3 import s3_path_exists
 from disdat import logger as _logger
 
 
@@ -148,6 +149,25 @@ def w_pb_fs(file_prefix, pb_record, fq_file_path=None, atomic=False):
             f.write(pb_record.pb.SerializeToString())
         os.rename(f.name, fq_file_path)
 
+
+def is_hyperframe_pb_file(file):
+    """ Given a file path, is this a hyperframe pb or a frame pb file?
+    Often in a bundle directory we simply want to distinguish between
+    user files and pb files.   The truly safe way is to look through
+    all link frames.
+
+    We always give them <uuid>_hframe.pb or <uuid>_frame.pb names.
+    So this weakly checks for files ending in 'frame.pb'
+
+    Args:
+        file:
+
+    Returns:
+
+    """
+    if file.endswith('frame.pb'):
+        return True
+    return False
 
 def _sql_write_tbl_rows(pb_tbls, pb_rows, db_conn):
     """
@@ -550,36 +570,22 @@ def delete_fr_db(engine_g, hfr_uuid):
     return [results]
 
 
-def get_files_in_dir(dir):
-    """ Look for files in a user returned directory
-    1.) Only look one-level down (in this directory)
-    2.) Do not include anything that looks like one of disdat's pbufs
-
-    TODO: One place that defines the format of the Disdat pb file names
-    See data_context.DataContext: rebuild_db() *_frame.pb, *_hframe.pb, *_auth.pb
-    Args:
-        (str): local directory
-    Returns:
-        (list:str): List of files in that directory
-    """
-
-    files = [os.path.join(dir, f) for f in os.listdir(dir) if os.path.isfile(os.path.join(dir, f))
-             and ('_hframe.pb' not in f) and ('_frame.pb' not in f) and ('_auth.pb' not in f)]
-
-    return files
-
-
 def detect_local_fs_path(series):
     """
-    Given a series, check whether all entries appear to be real paths and:
+    Given a series, check whether all entries appear to be real local file paths.
+
     1.) get their absolute paths
     2.) pre-pend file:///
+
+    Raise exception if any local file path is a directory.
+
+    If any potential path is not a local file, return None
 
     Args:
         series:
 
     Returns:
-        series: Same series but absolute otherwise None
+        `numpy.array`
 
     """
     output = []
@@ -590,11 +596,36 @@ def detect_local_fs_path(series):
             output.append("file://{}".format(os.path.abspath(s)))
         elif os.path.isdir(s):
             """ Find files one-level down """
-            output.extend(["file://{}".format(os.path.join(s, f)) for f in get_files_in_dir(s)])
+            raise common.BadLinkError("Unable to process links: {} is a directory.".format(s))
+            # output.extend(["file://{}".format(os.path.join(s, f)) for f in get_files_in_dir(s)])
         else:
             del output
             return None
     return np.array(output)
+
+
+def detect_s3_fs_path(series):
+    """
+    Given a series, check whether all entries appear to be real files on S3
+
+    Raise BadLinkException if any local file path is a directory.
+
+    If any potential path is not a local file, return None
+
+    Args:
+        series:
+
+    Returns:
+        `numpy.array`
+    """
+
+    for s in series:
+        if not isinstance(s, six.string_types):
+            raise common.BadLinkError("Unable to process links: s3 path not string type - found {} .".format(type(s)))
+        if s3_path_exists(s):
+            raise common.BadLinkError("Unable to process links: s3 object {} not found.".format(s))
+
+    return series
 
 
 def strip_file_prefix(series):

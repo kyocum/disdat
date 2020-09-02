@@ -289,18 +289,18 @@ def s3_path_exists(s3_url):
     bucket, key = split_s3_url(s3_url)
     if key is None:
         return s3_bucket_exists(bucket)
-    exists = True
+
     try:
         s3.Object(bucket, key).load()
     except botocore.exceptions.ClientError as e:
         error_code = int(e.response['Error']['Code'])
         _logger.info("Error code {}".format(error_code))
         if error_code == 404:
-            exists = False
+            return False
         else:
             raise
 
-    return exists
+    return True
 
 
 def s3_bucket_exists(bucket):
@@ -588,6 +588,8 @@ def cp_local_to_s3_file(local_file, s3_file):
     """
     s3 = get_s3_resource()
     bucket, s3_path = split_s3_url(s3_file)
+    local_file = urllib.parse.urlparse(local_file).path
+    # print("cp s3 src {}  dst {}".format(local_file, s3_file))
     s3.Object(bucket, s3_path).upload_file(local_file, ExtraArgs={"ServerSideEncryption": "AES256"})
     return s3_file
 
@@ -609,7 +611,41 @@ def put_s3_file(local_path, s3_root):
         s3_path = ''
     filename = os.path.basename(local_path)
     s3.Object(bucket, os.path.join(s3_path, filename)).upload_file(local_path, ExtraArgs={"ServerSideEncryption": "AES256"})
-    return filename
+    return os.path.join(s3_root, filename)
+
+
+def put_s3_key_many(bucket_key_file_tuples):
+    """ Push many s3 keys in parallel from filename
+
+    Like get_s3_key_many, this was done primarily because when testing from an external module, moto
+    fails to stub out calls to aws clients/resources if the multiprocessing occurs
+    outside of the module doing the s3 calls.
+
+    Args:
+        bucket_key_file_tuples (list[tuple]): (filename, s3_path)
+
+    Returns:
+        list: list of destination s3 paths
+
+    """
+    mp_ctxt = get_context(MP_CONTEXT_TYPE)
+    est_cpu_count = disdat_cpu_count()
+    _logger.debug("put_s3_key_many using MP with cpu_count {}".format(est_cpu_count))
+    with mp_ctxt.Pool(
+            processes=est_cpu_count,
+            maxtasksperchild=MAX_TASKS_PER_CHILD,
+            initializer=get_s3_resource,
+    ) as pool:
+        multiple_results = []
+        results = []
+        for local_object_path, s3_path in bucket_key_file_tuples:
+            multiple_results.append(pool.apply_async(cp_local_to_s3_file,
+                                                     (local_object_path, s3_path),
+                                                     callback=results.append))
+
+        pool.close()
+        pool.join()
+    return results
 
 
 def get_s3_key(bucket, key, filename=None):
@@ -672,9 +708,9 @@ def get_s3_key_many(bucket_key_file_tuples):
     est_cpu_count = disdat_cpu_count()
     _logger.debug("get_s3_key_many using MP with cpu_count {}".format(est_cpu_count))
     with mp_ctxt.Pool(
-        processes=est_cpu_count,
-        maxtasksperchild=MAX_TASKS_PER_CHILD,
-        initializer=get_s3_resource,
+            processes=est_cpu_count,
+            maxtasksperchild=MAX_TASKS_PER_CHILD,
+            initializer=get_s3_resource,
     ) as pool:
         multiple_results = []
         results = []

@@ -24,7 +24,7 @@ from __future__ import print_function
 
 import os
 import json
-import uuid
+import urllib
 import time
 from datetime import datetime
 from enum import Enum
@@ -354,7 +354,7 @@ class DisdatFS(object):
             #_logger.error(e)
         return return_strings
 
-    def rm(self, human_name=None, rm_all=False, rm_old_only=False, uuid=None, tags=None, force=False, data_context=None):
+    def rm(self, human_name=None, rm_all=False, rm_old_only=False, uuid=None, tags=None, data_context=None):
         """
         Remove bundle with human_name or tag_value
 
@@ -368,7 +368,6 @@ class DisdatFS(object):
             rm_old_only: Remove everything but the latest bundle matching name, tags
             uuid (str): Remove the particular bundle
             tags (:dict):   A dict of (key,value) to find bundles
-            force (bool): If a committed bundle has a db link backing a view, you have to force removal.
             data_context (`disdat.data_context.DataContext`): Context for particular removal
 
         Returns:
@@ -391,11 +390,11 @@ class DisdatFS(object):
 
         if rm_old_only or rm_all:
             for hfr in hfrs[1:]:
-                if data_context.rm_hframe(hfr.pb.uuid, force=force):
+                if data_context.rm_hframe(hfr.pb.uuid):
                     return_strings.append("Removing old bundle {}".format(hfr.to_string()))
 
         if not rm_old_only:
-            if data_context.rm_hframe(hfrs[0].pb.uuid, force=force):
+            if data_context.rm_hframe(hfrs[0].pb.uuid):
                 return_strings.append("Removing latest bundle {}".format(hfrs[0].to_string()))
 
         return return_strings
@@ -903,9 +902,6 @@ class DisdatFS(object):
         existing_tags.update(tags)
         hfr.replace_tags(existing_tags)
 
-        # Commit DBTarget links if present:
-        data_context.commit_db_links(hfr)
-
         # Commit to disk:
         data_context.atomic_update_hframe(hfr)
 
@@ -955,7 +951,7 @@ class DisdatFS(object):
 
         return found_link_frames
 
-    def _copy_hfr_to_branch(self, hfr, data_context, to_remote=True):
+    def _copy_hfr_to_remote_branch(self, hfr, data_context, dry_run=False):
         """
         Copy this HyperFrameRecord to a different branch.  Note that this works because
         we use relative Hyperframes (Link URLs have no location specific prefix).  If we
@@ -967,40 +963,35 @@ class DisdatFS(object):
         If Frame is local FS -- copy_in to new directory
         If Frame is local FS and to_remote -- Make correct s3 paths, push files to s3
         If Frame is s3 -- Copy_in files to new s3 path and fix path (optimize in future)
-        If Frame is db -- Do nothing
 
         Args:
             hfr: The hyperframe
             data_context: The data context to copy from
-            to_remote (bool): Optional.  Write to the remote on the current context. Default true.
+            dry_run (bool): just return the copies to the remote
 
         Returns:
-            None
+            list: (src, dst) file path pairs
         """
 
         assert data_context is not None
-
+        copies = []
         for fr in hfr.get_frames(data_context):
-
             if fr.is_hfr_frame():
                 # CASE 1: A frame containing HFRs.   Descend recursively.
                 for next_hfr in fr.get_hframes():
-                    self._copy_hfr_to_branch(next_hfr, data_context, to_remote=to_remote)
+                    copies.extend(self._copy_hfr_to_remote_branch(next_hfr, data_context, dry_run=dry_run))
             else:
-                # CASE 2:  If it is a local fs or an s3 frame, then we have to copy
-                if to_remote:
-                    obj_dir = data_context.get_remote_object_dir()
-                else:
-                    obj_dir = data_context.get_object_dir()
-                self._copy_fr_links_to_branch(fr, obj_dir, data_context)
+                # CASE 2:  Copy any local files or unmanaged S3 files to S3 remote
+                obj_dir = data_context.get_remote_object_dir()
+                copies.extend(self._copy_fr_links_to_branch(fr, obj_dir, data_context, dry_run=dry_run))
 
-        # Push hyperframe to remote
-        data_context.write_hframe(hfr, to_remote=to_remote)
+        # Write PBs to remote
+        copies.extend(data_context.write_hframe_remote(hfr, dry_run=dry_run))
 
-        return
+        return copies
 
     @staticmethod
-    def _copy_fr_links_to_branch(fr, branch_object_dir, data_context):
+    def _copy_fr_links_to_branch(fr, branch_object_dir, data_context, dry_run=False):
         """
         Given a frame, if a local fs or s3 frame, do the
         copy_in to this branch.
@@ -1011,19 +1002,24 @@ class DisdatFS(object):
             fr:  Frame to possibly copy_in files to managed_path
             branch_object_dir: s3:// or file:/// path of the object directory on the branch
             data_context: The context from which to copy.
+            dry_run (bool): return list of tuples(src, dst) without doing the copy
 
         Returns:
-            None
+            list: (src, dst) tuples
         """
         assert data_context is not None
-
+        src_paths = []
+        dst_paths = []
         if fr.is_local_fs_link_frame() or fr.is_s3_link_frame():
             src_paths = data_context.actualize_link_urls(fr)
             bundle_dir = os.path.join(branch_object_dir, fr.hframe_uuid)
-            _ = data_context.copy_in_files(src_paths, bundle_dir)
-        return
+            if urllib.parse.urlparse(bundle_dir).scheme != "s3":
+                bundle_dir = urllib.parse.urljoin('file:', bundle_dir)
+            dst_paths = data_context.copy_in_files(src_paths, bundle_dir, dry_run=dry_run)
 
-    def push(self, human_name=None, uuid=None, tags=None, data_context=None):
+        return [(src, dst) for src, dst in zip(src_paths, dst_paths)]
+
+    def push(self, human_name=None, uuid=None, tags=None, data_context=None, delocalize=False):
         """
 
         Push a particular hyperframe to our remote context.   This only pushes the most recent (in time) version of
@@ -1044,6 +1040,7 @@ class DisdatFS(object):
             uuid (str) : Uniquely identify the bundle to push.
             tags (:dict): Set of tags bundle must have
             data_context (`disdat.data_context.DataContext`): Optional data context in which to find / commit bundle.
+            delocalize (bool): Whether to clean the local context of the files after pushing
 
         Returns:
             (`hyperframe.HyperFrameRecord`): The, possibly new, pushed hyperframe.
@@ -1064,6 +1061,10 @@ class DisdatFS(object):
 
         tags['committed'] = 'True'
 
+        if human_name is None and uuid is None:
+            self.fast_push(data_context, delocalize)
+            return
+
         if uuid is not None:
             hfr = self.get_hframe_by_uuid(uuid,
                                           tags=tags,
@@ -1082,16 +1083,70 @@ class DisdatFS(object):
 
         # All bundles contain relative paths.  Copying is a simple
         # recursive process that copies files and protobufs to the remote.
+        to_delete = []
         try:
-            self._copy_hfr_to_branch(hfr, data_context, to_remote=True)
+            src_dst_copies = self._copy_hfr_to_remote_branch(hfr, data_context)
+            for src, dst in src_dst_copies:
+                if not hyperframe.is_hyperframe_pb_file(src):
+                    to_delete.append(urllib.parse.urlparse(src).path)
         except Exception as e:
             print("Push unable to copy bundle to branch: {}".format(e))
             return None
+
+        if delocalize:
+            for f in to_delete:
+                try:
+                    os.remove(f)
+                except IOError as e:
+                    print("fast_push: during delocalization, unable to remove {} due to {}".format(f, e))
 
         print("Pushed committed bundle {} uuid {} to remote {}".format(human_name, hfr.pb.uuid,
                                                                        data_context.remote_ctxt_url))
 
         return hfr
+
+    def fast_push(self, data_context, delocalize):
+        """ Push all the bundles (all versions) in this context to the remote in parallel.
+
+        Args:
+            data_context (`data_context.DataContext`): The context to push.
+            delocalize (bool): Delete the files after pushing.
+
+        Returns:
+            None
+        """
+        _logger.info("Fast Pull synchronizing with remote context {}@{}".format(data_context.remote_ctxt,
+                                                                                data_context.remote_ctxt_url))
+
+        remote_s3_object_dir = data_context.get_remote_object_dir()
+        bucket, _ = aws_s3.split_s3_url(remote_s3_object_dir)
+        all_keys = aws_s3.ls_s3_url_keys(remote_s3_object_dir,
+                                         is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
+        all_keys = {os.path.join("s3://", bucket, k): os.path.join("s3://", bucket, k) for k in all_keys}
+
+        # TODO: change to iterators to avoid large file lists.
+        all_local_hframes = data_context.get_hframes(tags={'committed': 'True'})
+        push_tuples = []
+        to_delete = []
+
+        for hfr in all_local_hframes:
+            src_dst_copies = self._copy_hfr_to_remote_branch(hfr, data_context, dry_run=True)
+            for src, dst in src_dst_copies:
+                if dst not in all_keys:
+                    push_tuples.append((src, dst))
+                if not hyperframe.is_hyperframe_pb_file(src):
+                    to_delete.append(urllib.parse.urlparse(src).path)
+
+        _logger.info("Fast push copying {} objects to S3 . . .".format(len(push_tuples)))
+        results = aws_s3.put_s3_key_many(push_tuples)
+        _logger.info("Fast push completed {} transfers -- process pool closed and joined.".format(len(results)))
+
+        if delocalize:
+            for f in to_delete:
+                try:
+                    os.remove(f)
+                except IOError as e:
+                    print("fast_push: during delocalization, unable to remove {} due to {}".format(f, e))
 
     @staticmethod
     def _localize_hfr(local_hfr, s3_uuid, data_context):
@@ -1106,12 +1161,11 @@ class DisdatFS(object):
         Returns:
             None
         """
-        managed_path = os.path.join(data_context.get_object_dir(), s3_uuid)
+        managed_path = urllib.parse.urljoin('file:', os.path.join(data_context.get_object_dir(), s3_uuid))
         for fr in local_hfr.get_frames(data_context):
             if fr.is_link_frame():
                 src_paths = data_context.actualize_link_urls(fr)
-                for f in src_paths:
-                    data_context.copy_in_files(f, managed_path)
+                data_context.copy_in_files(src_paths, managed_path)
 
     @staticmethod
     def fast_pull(data_context, localize):
@@ -1311,7 +1365,7 @@ def _push(fs, args):
     if args.uuid:
         uuid = args.uuid
 
-    fs.push(bundle, uuid, tags=common.parse_args_tags(args.tag))
+    fs.push(bundle, uuid, tags=common.parse_args_tags(args.tag), delocalize=args.delocalize)
 
 
 def _pull(fs, args):
@@ -1326,7 +1380,7 @@ def _pull(fs, args):
 
 
 def _rm(fs, args):
-    for f in fs.rm(args.bundle, rm_all=args.all, rm_old_only=args.old, tags=common.parse_args_tags(args.tag), uuid=args.uuid, force=args.force):
+    for f in fs.rm(args.bundle, rm_all=args.all, rm_old_only=args.old, tags=common.parse_args_tags(args.tag), uuid=args.uuid):
         print(f)
 
 
@@ -1457,7 +1511,6 @@ def add_arg_parser(subparsers):
     # rm
     rm_p = subparsers.add_parser('rm')
     rm_p.add_argument('bundle', nargs='?', type=str, default=None, help='The bundle in the current context')
-    rm_p.add_argument('-f', '--force', action='store_true', default=False, help='Force remove of a committed bundle')
     rm_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to remove')
     rm_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
                       help="Having a specific tag: 'dsdt rm -t committed:True -t version:0.7.1'")
@@ -1523,14 +1576,20 @@ def add_arg_parser(subparsers):
     push_p = subparsers.add_parser('push')
     push_p.add_argument('bundle', type=str, nargs='?', default=None,
                         help='The bundle name in the current context')
-    push_p.add_argument('-u', '--uuid', type=str, help='A UUID of a bundle in the current context')
+    push_p.add_argument('-u', '--uuid', type=str,
+                        help='A UUID of a bundle in the current context')
     push_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
                         help="Having a specific tag: 'dsdt ls -t committed:True -t version:0.7.1'")
+    push_p.add_argument('-d', '--delocalize', action='store_true',
+                        help='After pushing, remove all local files linked to Bundle.  Default leaves local copies.')
     push_p.set_defaults(func=lambda args: _push(fs, args))
 
     # pull <name --uuid <uuid>
     pull_p = subparsers.add_parser('pull')
-    pull_p.add_argument('bundle', type=str, nargs='?', default=None, help='The bundle name in the current context')
-    pull_p.add_argument('-u', '--uuid', type=str, help='A UUID of a bundle in the current context')
-    pull_p.add_argument('-l', '--localize', action='store_true', help='Pull files with the bundle.  Default to leaving files at remote.')
+    pull_p.add_argument('bundle', type=str, nargs='?', default=None,
+                        help='The bundle name in the current context')
+    pull_p.add_argument('-u', '--uuid', type=str,
+                        help='A UUID of a bundle in the current context')
+    pull_p.add_argument('-l', '--localize', action='store_true',
+                        help='Pull files with the bundle.  Default to leaving files at remote.')
     pull_p.set_defaults(func=lambda args: _pull(fs, args))

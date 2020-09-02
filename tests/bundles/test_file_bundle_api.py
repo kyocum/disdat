@@ -70,16 +70,16 @@ def test_zero_copy_local_file(run_test):
     with api.Bundle(TEST_CONTEXT, name=TEST_BUNDLE) as b:
         f1 = b.get_file("file_1.txt")
         f2 = b.get_file("file_2.txt")
-        with f1.open(mode='w') as f:
+        with open(f1, mode='w') as f:
             f.write("This is our first file!")
-        with f2.open(mode='w') as f:
+        with open(f2, mode='w') as f:
             f.write("This is our second file!")
         b.add_data([f1,f2])
         b.add_params({'type':'file'})
 
     saved_uuid = b.uuid
-    saved_f1_md5 = md5_file(f1.path)
-    saved_f2_md5 = md5_file(f2.path)
+    saved_f1_md5 = md5_file(f1)
+    saved_f2_md5 = md5_file(f2)
 
     b = api.get(TEST_CONTEXT, None, uuid=saved_uuid)
     assert md5_file(b.data[0]) == saved_f1_md5
@@ -150,9 +150,9 @@ def test_zero_copy_s3_file(run_test):
     saved_md5 = md5_file(__file__)
 
     with api.Bundle(TEST_CONTEXT, name=TEST_BUNDLE) as b:
-        s3_target = b.get_remote_file('test_s3_file.txt')
-        aws_s3.cp_local_to_s3_file(__file__, s3_target.path)
-        b.add_data(s3_target)
+        s3_path = b.get_remote_file('test_s3_file.txt')
+        aws_s3.cp_local_to_s3_file(__file__, s3_path)
+        b.add_data(s3_path)
         b.add_tags({'info': 'added an s3 file'})
     saved_uuid = b.uuid
 

@@ -26,8 +26,7 @@ import pandas as pd
 import numpy as np
 import luigi
 from luigi.contrib.s3 import S3Target
-from six.moves import urllib
-import six
+import urllib
 import boto3
 
 import disdat.constants as constants
@@ -604,6 +603,28 @@ class DataContext(object):
 
         return path
 
+    def util_get_managed_paths(self, uuid):
+        """ Given a uuid, use the local and remote contexts
+        to return the local directory for this bundle and
+        the remote directory for this bundle.
+
+        Note:  We do not validate the directories returned!
+
+        Returns:
+            (str, str):  A tuple of local_dir and remote_dir
+        """
+
+        assert(self.is_valid())
+
+        local_dir = os.path.join("file:///", self.get_object_dir(), uuid)  # @ReservedAssignment
+
+        if self.remote_ctxt_url is not None:
+            remote_dir = os.path.join(self.get_remote_object_dir(), uuid)
+        else:
+            remote_dir = None
+
+        return local_dir, remote_dir
+
     def make_managed_path(self, uuid=None):
         """
         Create a managed path for files created within this context.
@@ -626,19 +647,16 @@ class DataContext(object):
         else:
             _provided_uuid = uuid
 
-        dir = os.path.join("file:///", self.get_object_dir(), _provided_uuid)  # @ReservedAssignment
-        if os.path.exists(dir):
+        local_dir, remote_dir = self.util_get_managed_paths(_provided_uuid)
+
+        if os.path.exists(local_dir):
             raise Exception('Caught UUID collision {}'.format(uuid))
-        os.makedirs(dir)
 
-        if self.remote_ctxt_url is not None:
-            remote_dir = os.path.join(self.get_remote_object_dir(), _provided_uuid)
-        else:
-            remote_dir = None
+        os.makedirs(local_dir)
 
-        return dir, _provided_uuid, remote_dir
+        return local_dir, _provided_uuid, remote_dir
 
-    def rm_hframe(self, hfr_uuid, force=False):
+    def rm_hframe(self, hfr_uuid):
         """
         Given a hfr_uuid, remove the hyperframe from the context.
         This is a destructive operation.  After this the hframe and all of its data
@@ -653,7 +671,6 @@ class DataContext(object):
 
         Args:
             hfr_uuid (str):
-            force (bool): remove even if there are db links backing views
 
         Returns:
             success (bool): Whether or not we deleted the bundle
@@ -661,30 +678,19 @@ class DataContext(object):
         """
         try:
             hfr = self.get_hframes(uuid=hfr_uuid)
-
             assert hfr is not None
             assert len(hfr) == 1
 
-            # First, test whether any db links are used to back the current view
-            no_force_required = self.rm_db_links(hfr[0])
+            hyperframe.update_hfr_db(self.local_engine, hyperframe.RecordState.deleted, uuid=hfr_uuid)
+            shutil.rmtree(self.implicit_hframe_path(hfr_uuid))
+            hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid)
 
-            if no_force_required or force:
-                hyperframe.update_hfr_db(self.local_engine, hyperframe.RecordState.deleted, uuid=hfr_uuid)
-                self.rm_db_links(hfr[0], dry_run=False)
-                shutil.rmtree(self.implicit_hframe_path(hfr_uuid))
-                hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid)
-                #hyperframe.delete_fr_db(self.local_engine, hfr_uuid) -- frames table depricated
-            else:
-                print ("Disdat: Looks like you're trying to remove a committed bundle with a db link backing a view.")
-                print ("Disdat: Removal of this bundle with db links that back a view requires '--force'")
-                return False
             return True
         except (IOError, os.error) as why:
             _logger.error("Removal of hyperframe directory {} failed with error {}.".format(self.implicit_hframe_path(hfr_uuid), why))
 
-            # Must clean up db if directory removal failed
+            # Clean up db if directory removal failed
             hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid, state=hyperframe.RecordState.deleted)
-            #hyperframe.delete_fr_db(self.local_engine, hfr_uuid) -- frames table depricated
 
             return False
 
@@ -736,8 +742,15 @@ class DataContext(object):
         """
         hyperframe.w_pb_db(hfr, self.local_engine)
 
-    def _write_hframe_local(self, hfr):
+    def write_hframe_local(self, hfr):
         """
+        Given a HyperFrameRecord we need to record it in our current active context.
+        Since we have a DB, it just means putting it in our DB.
+
+        NOTE: writing it into the DB is *not* the same as writing it to disk.  The context
+        is meta-information about the bundles.  For example, an hframe contains uuid references
+        to frames.  The DB isn't guaranteed to always have the full binary blob of the PB.
+
 
         Args:
             hfr (`disdat.hyperframe.HyperFrameRecord`):
@@ -756,88 +769,33 @@ class DataContext(object):
         # Write FS HyperFrame
         hyperframe.w_pb_fs(os.path.join(self.get_object_dir(), hfr.pb.uuid), hfr)
 
-        # Todo: Make it an option
-        # Note: We are changing the default human_name to be only the task name
-        # self.prune_uncommitted_history(hfr.pb.human_name)
-
         return result
 
-    def _write_hframe_remote(self, hfr):
+    def write_hframe_remote(self, hfr, dry_run=False):
         """
+        Given a HyperFrameRecord, write out pb records to remote
 
         Args:
             hfr (`disdat.hyperframe.HyperFrameRecord`):
+            dry_run (bool): do not write files, just return src, dst pairs.
 
         Returns:
-
+            list: (src, dst) file path pairs
         """
         local_obj_dir = os.path.join(self.get_object_dir(), hfr.pb.uuid)
         if not os.path.exists(local_obj_dir):
             raise Exception("Write HFrame to remote failed because hfr {} doesn't appear to be in local context".format(
                 hfr.pb.uuid))
-        to_copy_files = glob.glob(os.path.join(local_obj_dir, '*.pb'))
+        to_copy_files = glob.glob(os.path.join(local_obj_dir, '*frame.pb'))
+        dst_files = []
+        remote_object_dir = os.path.join(self.get_remote_object_dir(), hfr.pb.uuid)
         for f in to_copy_files:
-            aws_s3.put_s3_file(f, os.path.join(self.get_remote_object_dir(), hfr.pb.uuid))
+            dst_files.append(os.path.join(remote_object_dir, os.path.basename(f)))
+            if not dry_run:
+                aws_s3.put_s3_file(f, remote_object_dir)
 
-        return None
+        return [(src, dst) for src, dst in zip(to_copy_files, dst_files)]
 
-    def rm_db_links(self, hfr, dry_run=True):
-        """
-        For all the db links, let the user code know we wish to delete the relational data.
-
-        Note: the dbt.rm() operation should be idempotent.
-
-        Args:
-            hfr (hyperframe.HyperFrameRecord): The HFR we are about to remove.
-            dry_run (bool): If True, then we are just testing whether all db links can be safely removed.  If False,
-            then remove the tables on the db no matter if they back the view or not.
-
-        Returns:
-            bool: If True, we can safely remove all links, if False, at least one table is supporting a view.
-
-        """
-        commit_tag = hfr.get_tag('committed')
-        success = True
-        if not dry_run:
-            for fr in hfr.get_frames(self):
-                if fr.is_db_link_frame():
-                    for dbt_pb in fr.pb.links:
-                        dbt = DBLink(None, dbt_pb.database.dsn, dbt_pb.database.table,
-                                     dbt_pb.database.schema, dbt_pb.database.servername,
-                                     dbt_pb.database.database, hfr.pb.uuid)
-                        success = dbt.rm(commit_tag=commit_tag)
-        return success
-
-    def commit_db_links(self, hfr):
-        """
-        For all the db link frames, commit the tables.
-
-        Note: Typically, commits are isolated since they only apply to the local bundle in the local context.  However,
-        DBTargets, once committed, form a collective view of the latest logical tables in all bundles in a context.
-
-        Note: Therefore, we should treat a bundle commit with many DBTargets as a single logical transaction, updating
-        this collective view in an all or nothing way.   At this time, though, it is possible that, if the task fails
-        then there may be some physical tables not written and some virtual (views) tables that have not been updated.
-         Further, this implies that a user in a local context may query the database, see this collective view, and note
-         that another user must have committed some other bundle in the context, a copy of which they may not have.
-
-        The DBTarget object is a user-facing object.   However, DBTarget does define the commit because
-        it is the place where the naming logic for tables resides.
-
-        Args:
-            hfr (`disdat.hyperframe.HyperFrameRecord`):
-
-        Returns:
-            None
-        """
-
-        for fr in hfr.get_frames(self):
-            if fr.is_db_link_frame():
-                for dbt_pb in fr.pb.links:
-                    dbt = DBLink(None, dbt_pb.database.dsn, dbt_pb.database.table,
-                                 dbt_pb.database.schema, dbt_pb.database.servername,
-                                 dbt_pb.database.database, hfr.pb.uuid)
-                    dbt.commit()
 
     def atomic_update_hframe(self, hfr):
         """
@@ -868,64 +826,6 @@ class DataContext(object):
         result = hyperframe.w_pb_db(hfr, self.local_engine)
 
         return result
-
-    def write_hframe(self, hfr, to_remote=False):
-        """
-        Given a HyperFrameRecord we need to record it in our current active context.
-        Since we have a DB, it just means putting it in our DB.
-
-        NOTE: writing it into the DB is *not* the same as writing it to disk.  The context
-        is meta-information about the bundles.  For example, an hframe contains uuid references
-        to frames.  The DB isn't guaranteed to always have the full binary blob of the PB.
-
-        Args:
-            hfr (`hyperframe.HyperFrameRecord`);
-            to_remote (bool): Push frame to remote -- Default False
-
-        Returns:
-            result : result of insert
-        """
-
-        if to_remote:
-            return self._write_hframe_remote(hfr)
-        else:
-            return self._write_hframe_local(hfr)
-
-    def prune_uncommitted_history(self, human_name):
-        """
-        As we create new data bundles, we prune the local history of the bundles that
-            a.) Have the same human name
-            b.) That do not have the committed flag attached to them.
-            c.) That are outside of the len_uncommitted_history
-
-        NOTE: Called *after* we have added the newest hframe
-
-        TODO: Unify with DisdatFS.rm !
-
-        Args:
-            human_name (str): name of the bundle to prune
-
-        Returns:
-
-        """
-
-        hfrs = self.get_hframes(human_name=human_name)
-        removed_history = 0
-
-        if len(hfrs) == 0:
-            return
-
-        for hfr in hfrs[1:]:
-
-            if 'committed' in hfr.tag_dict:
-                assert hfr.tag_dict['committed'] == 'True'
-                continue
-
-            if removed_history < self.len_uncommitted_history:
-                removed_history += 1
-                continue
-
-            self.rm_hframe(hfr.pb.uuid)
 
     def push_hfr_to_remote(self, hfr):
         """
@@ -1030,10 +930,17 @@ class DataContext(object):
         except TypeError:
             series_like = np.array(series_like)
 
+        # If local files, append 'file://' to each path.
+        # If local directory, raise exception
         local_files_series = hyperframe.detect_local_fs_path(series_like)
 
         if local_files_series is not None:
             series_like = local_files_series
+
+        #print (series_like)
+
+        # Make sure s3 files exist -- copy in does this check
+        # series_like = hyperframe.detect_s3_fs_path(series_like)
 
         if hyperframe.FrameRecord.is_link_series(series_like):
             """ 
@@ -1063,13 +970,20 @@ class DataContext(object):
 
             copied_in_series_like = []
             for src in series_like:
-                if isinstance(src, S3Target) or isinstance(src, luigi.LocalTarget):
+                if isinstance(src, S3Target):
                     src = src.path
+                elif isinstance(src, luigi.LocalTarget):
+                    src = urllib.parse.urljoin('file:', src.path)
+
                 if urllib.parse.urlparse(src).scheme == 's3':
                     if remote_managed_path is not None:
-                        copied_in_series_like.append(self.copy_in_files(src, remote_managed_path, localize=False))
+                        copied_in_series_like.append(self.copy_in_files(src,
+                                                                        remote_managed_path,
+                                                                        localize=False))
                         continue
-                copied_in_series_like.append(self.copy_in_files(src, local_managed_path, localize=False))
+                copied_in_series_like.append(self.copy_in_files(src,
+                                                                urllib.parse.urljoin('file:', local_managed_path),
+                                                                localize=False))
 
             frame = hyperframe.FrameRecord.make_link_frame(hfid, name, copied_in_series_like,
                                                            local_managed_path, remote_managed_path)
@@ -1135,56 +1049,58 @@ class DataContext(object):
         else:
             return ''
 
-    def copy_in_files(self, src_files, dst_dir, localize=True):
+    def copy_in_files(self, src_files, dst_dir, localize=True, dry_run=False):
         """
-        Given a set of link URLs, move them to the destination.
+         Given a set of link URLs, move them to the destination.
+         The link URLs will have file:///, s3://, or db:// schemes
 
-        The link URLs will have file:///, s3://, or db:// schemes
+         This call works for src: dst pairs of the form:
 
-        This call works for src: dst pairs of the form:
-        local fs : managed local fs dir
-        local fs : managed s3 dir
-        s3       : managed s3 dir
-        s3       : managed local fs dir
-        db       : db
+         local fs : managed local fs dir
+         local fs : managed s3 dir
+         s3       : managed local fs dir
+         s3       : managed s3 dir
 
-        Note: We do not copy-in external tables to managed tables.
+         Assumes that src_files and dst_dir begin with scheme 'file'
 
-        Args:
+         Args:
             src_files (:list:str):  A single file path or a list of paths
             dst_dir (str): Local or Remote managed dirs
             localize (bool): If True, then copy src s3 -> dst file:/// (Default).  Else do not copy.
+            dry_run (bool): Return the destination files, but do not perform the copy
 
-        Returns:
+         Returns:
             file_set: set of new paths where files were copied.  Either one file or a list of files
-
         """
         file_set = []
         return_one_file = False
+        dst_scheme = urllib.parse.urlparse(dst_dir).scheme
+        assert dst_scheme == 'file' or dst_scheme == 's3', \
+            "copy_in_files: dst_dir with unrecognized scheme {}".format(dst_scheme)
 
-        if isinstance(src_files, six.string_types) or \
-                isinstance(src_files, luigi.LocalTarget) or \
-                isinstance(src_files, S3Target) or \
-                isinstance(src_files, DBLink):
+        if not isinstance(src_files, list) and not isinstance(src_files, tuple):
             return_one_file = True
             src_files = [src_files]
 
-        dst_scheme = urllib.parse.urlparse(dst_dir).scheme
-
         for src_path in src_files:
-
             if isinstance(src_path, luigi.LocalTarget) or isinstance(src_path, S3Target):
                 src_path = src_path.path
 
-            # Do not copy src file in to local if:
-            # 1. Managed Local File or
-            # 2. Managed S3 File (Remote and push should be set (checked at the time the user gets a managed path))
-            # 3. Non Managed S3 File (Remote and push should be set)
+            src_urlparse = urllib.parse.urlparse(src_path)
 
+            if src_urlparse.scheme == 's3' and not aws_s3.s3_path_exists(src_path):
+                raise common.BadLinkError("copy_in_files: s3 path {} does not exit.".format(src_path))
+            elif src_urlparse.scheme == 'file' and os.path.isdir(src_path):
+                raise common.BadLinkError("copy_in_files: local path {} is a directory.".format(src_path))
+
+            # Do not copy src file in to local if:
+            # 1. Managed Local or S3 File  -- src path starts with dst path (dst is always a bundle directory)
             if src_path.startswith(dst_dir):
-                file_set.append(urllib.parse.urljoin('file:', src_path))
+                # print("----> copy_in_files: ZERO COPY SRC {} to DST_DIR {}".format(src_path, dst_dir))
+                file_set.append(src_path)
                 continue
 
+            # 2. Non Managed S3 File (Remote and push should be set)
             if self.remote_ctxt_url:
                 """ If there is a remote and we see a source S3 path
                 If it is an external S3 path, then copy it to the dst_dir (local or s3)
@@ -1196,65 +1112,45 @@ class DataContext(object):
                 if src_path.startswith(managed_path_s3) and not localize:
                     file_set.append(src_path)
                     continue
-                # If we want to change the policy to not copy in unmanaged s3 locally . . .
-                #if urllib.parse.urlparse(src_path).scheme == 's3' and dst_dir == os.path.join(self.get_object_dir(), uuid):
-                #    file_set.append(src_path)
-                #    continue
 
-            # Src path can contain a sub-directory.
+            # Add the destination as the final location, adding sub directories if present
             sub_dir = DataContext.find_subdir(src_path, dst_dir)
             dst_file = os.path.join(dst_dir, sub_dir, os.path.basename(src_path))
+            # print("----> copy_in_files: COPY SRC {} to DST FILE {}".format(src_path, dst_file))
+            file_set.append(dst_file)  # Record it with 'file://'
+            dst_file_parse = urllib.parse.urlsplit(dst_file)
+            # But strip 'file://' so that the copies to/from work.   S3 paths work all the time with s3://
+            if dst_file_parse.scheme == 'file':
+                dst_file = dst_file_parse.path
 
-            if dst_scheme != 's3' and dst_scheme != 'db':
-                file_set.append(urllib.parse.urljoin('file:', dst_file))
-            else:
-                file_set.append(dst_file)
-
-            if src_path.startswith(os.path.dirname(file_set[-1])):
-                # This can happen if you re-push something already pushed that's not localized
-                # Or if the user places files directly in the output directory (or in a sub-directory of that directory)
-                file_set[-1] = src_path
-                _logger.debug("DataContext: copy_in_files found src {} == dst {}".format(src_path, file_set[-1]))
-                # but it can also happen if you re-bind and push.  So check that file is present!
-                if urllib.parse.urlparse(src_path).scheme == 's3' and not aws_s3.s3_path_exists(src_path):
-                    print(("DataContext: copy_in_files found s3 link {} not present!".format(src_path)))
-                    print ("It is likely that this bundle existed on another remote branch and ")
-                    print ("was not localized before changing remotes.")
-                    raise Exception("copy_in_files: bad localized bundle push.")
-                continue
-
-            try:
-                if not os.path.isdir(src_path):
-                    o = urllib.parse.urlparse(src_path)
-
-                    if o.scheme == 's3':
+            if not dry_run:
+                try:
+                    if src_urlparse.scheme == 's3':
                         # s3 to s3
                         if dst_scheme == 's3':
                             aws_s3.cp_s3_file(src_path, os.path.dirname(dst_file))
-                        elif dst_scheme != 'db':  # assume 'file'
+                        elif dst_scheme == 'file':
                             aws_s3.get_s3_file(src_path, dst_file)
                         else:
-                            raise Exception("copy_in_files: copy s3 to unsupported scheme {}".format(dst_scheme))
+                            raise common.BadLinkError("copy_in_files: copy s3 to unsupported scheme {}".format(dst_scheme))
 
-                    elif o.scheme == 'db':  # left for back compat for now
+                    elif src_urlparse.scheme == 'db':  # left for back compat for now
                         _logger.debug("Skipping a db file on bundle add")
 
-                    elif o.scheme == 'file':
+                    elif src_urlparse.scheme == 'file':
                         if dst_scheme == 's3':
                             # local to s3
-                            aws_s3.put_s3_file(o.path, os.path.dirname(dst_file))
-                        elif dst_scheme != 'db':  # assume 'file'
+                            aws_s3.put_s3_file(src_urlparse.path, os.path.dirname(dst_file))
+                        elif dst_scheme == 'file':
                             # local to local
-                            shutil.copy(o.path, os.path.dirname(dst_file))
+                            shutil.copy(src_urlparse.path, os.path.dirname(dst_file))
                         else:
-                            raise Exception("copy_in_files: copy local file to unsupported scheme {}".format(dst_scheme))
-
+                            raise common.BadLinkError("copy_in_files: copy local file to unsupported scheme {}".format(dst_scheme))
                     else:
-                        raise Exception("DataContext copy-in-file found bad scheme: {} from {}".format(o.scheme, o))
-                else:
-                    _logger.info("DataContext copy-in-file: Not adding files in directory {}".format(src_path))
-            except (IOError, os.error) as why:
-                _logger.error("Disdat add error: {} {} {}".format(src_path, dst_dir, str(why)))
+                        raise common.BadLinkError("copy-in-file found bad scheme: {} from {}".format(src_urlparse.scheme,
+                                                                                                     src_urlparse))
+                except (IOError, os.error) as why:
+                    _logger.error("Disdat add error: {} {} {}".format(src_path, dst_dir, str(why)))
 
         if return_one_file:
             return file_set[0]
@@ -1295,23 +1191,22 @@ class DataContext(object):
             local_file_set = [os.path.join(local_dir, fr.hframe_uuid, f.replace(common.BUNDLE_URI_SCHEME, '')) for f in
                               urls]
 
-        # At the moment, this is all or none.  There are cases where you could localize and pull
-        # only some of the files, in which case we could mix local and remote.  However, that may
-        # indicate that something else is wrong.   We should probably indicate that in the future.
-        if all(os.path.isfile(lf) for lf in local_file_set):
-            if strip_file_scheme:
-                append = ''
+        # Check to see which files are present and which must stay remote
+        # This can now happen with individual link localize and delocalize.
+        # The only state that tells us if the whole bundle has been pushed is to check if the
+        # hyperframe <uuid>_hframe.pb exists on the remote.
+        for lf, rurl in zip(local_file_set, urls):
+            if os.path.isfile(lf):
+                if not strip_file_scheme:
+                    lf = urllib.parse.urljoin('file:', lf)
+                file_set.append(lf)
             else:
-                append = 'file://'
-            file_set = ["{}{}".format(append, lf) for lf in local_file_set]
-        else:
-            # Note that remote_dir already includes the URL scheme
-            remote_dir = self.get_remote_object_dir()
-            if remote_dir is not None:
-                file_set = [ "{}".format(os.path.join(remote_dir, fr.hframe_uuid, f.replace(common.BUNDLE_URI_SCHEME,''))) for f in urls]
-            else:
-                _logger.info("actualize_link_urls: Files are not local, and no remote context bound.")
-                raise Exception("actualize_link_urls: Files are not local, and no remote context bound.")
+                remote_dir = self.get_remote_object_dir()
+                if remote_dir is not None:
+                    file_set.append(os.path.join(remote_dir, fr.hframe_uuid, rurl.replace(common.BUNDLE_URI_SCHEME,'')))
+                else:
+                    _logger.info("actualize_link_urls: Files are not local, and no remote context bound.")
+                    raise Exception("actualize_link_urls: Files are not local, and no remote context bound.")
 
         return file_set
 

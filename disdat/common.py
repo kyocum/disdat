@@ -72,6 +72,11 @@ class CatNoBundleError(Exception):
         super(CatNoBundleError, self).__init__(message)
 
 
+class BadLinkError(Exception):
+    def __init__(self, message):
+        super(BadLinkError, self).__init__(message)
+
+
 def error(msg, *args, **kwargs):
     _logger.error(msg, *args, **kwargs)
     sys.exit(1)

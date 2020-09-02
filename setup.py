@@ -98,7 +98,7 @@ setup(
 
     install_requires=[
         'luigi>=2.8.11,<3.0',
-        'boto3>=1.13.10,<2.0',
+        'boto3>=1.14.49,<2.0',
         'termcolor>=1.1.0,<2.0',
         'docker>=4.1.0,<4.4.0',
         'pandas>=0.25.3,<=1.2.0',
@@ -126,7 +126,8 @@ setup(
             'pylint',
             'coverage',
             'tox',
-            'moto'
+            'moto',
+            's3fs<=0.4.2' # 0.5.0 breaks with aiobotocore and missing AWS headers
         ],
         'rel': [
             'wheel',
