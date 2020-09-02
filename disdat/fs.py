@@ -1126,7 +1126,6 @@ class DisdatFS(object):
 
         # TODO: change to iterators to avoid large file lists.
         all_local_hframes = data_context.get_hframes(tags={'committed': 'True'})
-        push_count = 0
         push_tuples = []
         to_delete = []
 
@@ -1138,7 +1137,7 @@ class DisdatFS(object):
                 if not hyperframe.is_hyperframe_pb_file(src):
                     to_delete.append(urllib.parse.urlparse(src).path)
 
-        _logger.info("Fast push copying {} objects to S3 . . .".format(push_count))
+        _logger.info("Fast push copying {} objects to S3 . . .".format(len(push_tuples)))
         results = aws_s3.put_s3_key_many(push_tuples)
         _logger.info("Fast push completed {} transfers -- process pool closed and joined.".format(len(results)))
 

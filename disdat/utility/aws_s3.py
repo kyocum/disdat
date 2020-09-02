@@ -36,8 +36,8 @@ from disdat import logger as _logger
 
 S3_LS_USE_MP_THRESH = 4000  # the threshold after which we should use MP to look up bundles on s3
 
-#MP_CONTEXT_TYPE = 'forkserver'  # Use for published version
-MP_CONTEXT_TYPE = 'fork'       # Use for testing
+MP_CONTEXT_TYPE = 'forkserver'  # Use for published version
+#MP_CONTEXT_TYPE = 'fork'       # Use for testing
 MAX_TASKS_PER_CHILD = 100       # Force the pool to kill workers when they've done 100 tasks.
 
 
