@@ -589,7 +589,7 @@ def cp_local_to_s3_file(local_file, s3_file):
     s3 = get_s3_resource()
     bucket, s3_path = split_s3_url(s3_file)
     local_file = urllib.parse.urlparse(local_file).path
-    # print("cp s3 src {}  dst {}".format(local_file, s3_file))
+    # print("AWS_S3: ----->>>>>>>\tCP s3 src {}  dst {}".format(local_file, s3_file))
     s3.Object(bucket, s3_path).upload_file(local_file, ExtraArgs={"ServerSideEncryption": "AES256"})
     return s3_file
 

@@ -1115,7 +1115,7 @@ class DisdatFS(object):
         Returns:
             None
         """
-        _logger.info("Fast Pull synchronizing with remote context {}@{}".format(data_context.remote_ctxt,
+        _logger.info("Fast Push synchronizing with remote context {}@{}".format(data_context.remote_ctxt,
                                                                                 data_context.remote_ctxt_url))
 
         remote_s3_object_dir = data_context.get_remote_object_dir()
@@ -1138,9 +1138,15 @@ class DisdatFS(object):
                     to_delete.append(urllib.parse.urlparse(src).path)
 
         _logger.info("Fast push copying {} objects to S3 . . .".format(len(push_tuples)))
+        #for s, d in push_tuples:
+        #    _logger.info("----> ".format(push_tuples))
+        #    _logger.info("\tSRC {} ".format(s))
+        #    _logger.info("\tDST {} ".format(d))
+
         results = aws_s3.put_s3_key_many(push_tuples)
         _logger.info("Fast push completed {} transfers -- process pool closed and joined.".format(len(results)))
-
+        assert len(results) == len(push_tuples), "Fast push failed: transferred {} out of {} files".format(len(results),
+                                                                                                           len(push_tuples))
         if delocalize:
             for f in to_delete:
                 try:
