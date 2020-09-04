@@ -850,6 +850,14 @@ def _get_context(context_name):
     return data_context
 
 
+def init():
+    """ Initialize disdat with a local context directory and default configs
+    Returns:
+        None
+    """
+    disdat.fs.DisdatConfig.init()
+
+
 def current_context():
     """ Return the current context name (not object) """
 
