@@ -562,6 +562,16 @@ class Bundle(HyperFrameRecord):
         self._fs.rm(uuid=self.uuid, data_context=self.data_context)
         return self
 
+    def rmr(self):
+        """ Remove bundle from the current remote context associated with this bundle object
+        Only remove this bundle with this uuid.
+
+        WARNING: If all of your links are delocalized, this will permanently remove *all* of your data!
+        """
+        self._check_closed()
+        self._fs.rmr(uuid=self.uuid, data_context=self.data_context)
+        return self
+
     def commit(self):
         """ Shortcut version of api.commit(uuid=bundle.uuid)
 
@@ -848,6 +858,14 @@ def _get_context(context_name):
         raise RuntimeError(error_msg)
 
     return data_context
+
+
+def init():
+    """ Initialize disdat with a local context directory and default configs
+    Returns:
+        None
+    """
+    disdat.fs.DisdatConfig.init()
 
 
 def current_context():

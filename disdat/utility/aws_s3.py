@@ -518,7 +518,7 @@ def delete_s3_dir_many(s3_urls):
         multiple_results = []
         results = []
         for s3_url in s3_urls:
-            multiple_results.append(pool.apply_async(delete_s3_dir, (s3_url,), callback=results.extend))
+            multiple_results.append(pool.apply_async(delete_s3_dir, (s3_url,), callback=results.append))
         pool.close()
         pool.join()
 

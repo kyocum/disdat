@@ -1280,7 +1280,7 @@ class DisdatFS(object):
             local_hfr = self.get_hframe_by_uuid(s3_uuid, data_context=data_context)
             if local_hfr is not None:
                 if not localize:
-                    print("Found HyperFrame UUID {} present in local context, skipping . . .".format(s3_uuid))
+                    _logger.debug("Found HyperFrame UUID {} present in local context, skipping . . .".format(s3_uuid))
                 else:
                     if human_name is not None:
                         if human_name != local_hfr.pb.human_name:
