@@ -36,8 +36,8 @@ from disdat import logger as _logger
 
 S3_LS_USE_MP_THRESH = 4000  # the threshold after which we should use MP to look up bundles on s3
 
-MP_CONTEXT_TYPE = 'forkserver'  # Use for published version
-#MP_CONTEXT_TYPE = 'fork'       # Use for testing
+# Use forkserver unless this environment variable is set (hopefully to fork, used by testing)
+MP_CONTEXT_TYPE = os.environ.get('MP_CONTEXT_TYPE', 'forkserver')
 MAX_TASKS_PER_CHILD = 100       # Force the pool to kill workers when they've done 100 tasks.
 
 
@@ -571,7 +571,11 @@ def cp_s3_file(s3_src_path, s3_root):
     src_bucket, src_key = split_s3_url(s3_src_path)
     # print "Trying to copy from bucket {} key {} to bucket {} key {}".format(src_bucket, src_key, bucket, output_path)
 
-    s3.Object(bucket, output_path).copy_from(CopySource={'Bucket': src_bucket, 'Key': src_key}, ServerSideEncryption="AES256")
+    s3.Object(bucket, output_path).copy_from(
+        CopySource={'Bucket': src_bucket, 'Key': src_key},
+        ACL="bucket-owner-full-control",
+        ServerSideEncryption="AES256"
+    )
     return os.path.join("s3://", bucket, output_path)
 
 
@@ -590,7 +594,10 @@ def cp_local_to_s3_file(local_file, s3_file):
     bucket, s3_path = split_s3_url(s3_file)
     local_file = urllib.parse.urlparse(local_file).path
     # print("AWS_S3: ----->>>>>>>\tCP s3 src {}  dst {}".format(local_file, s3_file))
-    s3.Object(bucket, s3_path).upload_file(local_file, ExtraArgs={"ServerSideEncryption": "AES256"})
+    s3.Object(bucket, s3_path).upload_file(
+        local_file,
+        ExtraArgs={"ServerSideEncryption": "AES256", "ACL": "bucket-owner-full-control"}
+    )
     return s3_file
 
 
@@ -610,7 +617,10 @@ def put_s3_file(local_path, s3_root):
     if s3_path is None:
         s3_path = ''
     filename = os.path.basename(local_path)
-    s3.Object(bucket, os.path.join(s3_path, filename)).upload_file(local_path, ExtraArgs={"ServerSideEncryption": "AES256"})
+    s3.Object(bucket, os.path.join(s3_path, filename)).upload_file(
+        local_path,
+        ExtraArgs={"ServerSideEncryption": "AES256", "ACL": "bucket-owner-full-control"}
+    )
     return os.path.join(s3_root, filename)
 
 
@@ -717,7 +727,7 @@ def get_s3_key_many(bucket_key_file_tuples):
         for s3_bucket, s3_key, local_object_path in bucket_key_file_tuples:
             multiple_results.append(pool.apply_async(get_s3_key,
                                                      (s3_bucket, s3_key, local_object_path),
-                                                     callback=results.extend))
+                                                     callback=results.append))
 
         pool.close()
         pool.join()
