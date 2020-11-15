@@ -128,6 +128,8 @@ class DataContext(object):
         A local branch can be bound to a remote shared FS where you can push/pull hyperframes.
         If the remote_context directory does not exist, a push will create it.
 
+        This call expects the bucket in `s3_url` to exist, but the key does not have to point to an existing object.
+
         Note that pull is lazy.  If the user rebinds to a new remote context then Disdat will not
         be able to localize bundles from the prior context.
 
@@ -146,8 +148,9 @@ class DataContext(object):
             print("Context already bound to remote at {}".format(s3_url))
             return
 
-        if not aws_s3.s3_path_exists(s3_url):
-            _logger.error("Unable to bind context {} because URL {} does not exist.".format(remote_context, s3_url))
+        bucket, key = aws_s3.split_s3_url(s3_url)
+        if not aws_s3.s3_bucket_exists(bucket):
+            _logger.error("Unable to bind context {} because bucket {} does not exist.".format(remote_context, bucket))
             raise RuntimeError
 
         if self.remote_ctxt_url is not None:
@@ -325,7 +328,8 @@ class DataContext(object):
         if self.remote_ctxt_url is None:
             return
 
-        if not self.remote_engine:
+        # Enable when we start to use Dynamo for an index.
+        if not self.remote_engine and False:
             try:
                 self.remote_engine = boto3.resource('dynamodb', endpoint_url="http://localhost:8000")
             except Exception as e:
@@ -537,7 +541,7 @@ class DataContext(object):
         insert_batch = []
         for i, hfr in enumerate(hframes.values()):
             if i % ten_percent == 0:
-                print("Disdat DB rebuild: written {} ({} percent) to db".format(i, perc))
+                _logger.debug("Disdat DB rebuild: written {} ({} percent) to db".format(i, perc))
                 perc += 10
             if DataContext._weak_validate_hframe(hfr, frames):
                 hfr_from_db_list = hyperframe.select_hfr_db(self.local_engine, uuid=hfr.pb.uuid)

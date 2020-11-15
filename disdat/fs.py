@@ -1360,8 +1360,10 @@ def _commit(fs, args):
 
 
 def _remote(fs, args):
-    fs.remote_add(args.context, args.s3_url)
-
+    try:
+        fs.remote_add(args.context, args.s3_url)
+    except RuntimeError as rte:
+        pass
 
 def _push(fs, args):
     bundle = None

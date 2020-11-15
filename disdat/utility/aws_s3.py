@@ -36,7 +36,6 @@ from disdat import logger as _logger
 
 S3_LS_USE_MP_THRESH = 4000  # the threshold after which we should use MP to look up bundles on s3
 
-
 # Use forkserver unless this environment variable is set (hopefully to fork, used by testing)
 MP_CONTEXT_TYPE = os.environ.get('MP_CONTEXT_TYPE', 'forkserver')
 MAX_TASKS_PER_CHILD = 100       # Force the pool to kill workers when they've done 100 tasks.
@@ -728,7 +727,7 @@ def get_s3_key_many(bucket_key_file_tuples):
         for s3_bucket, s3_key, local_object_path in bucket_key_file_tuples:
             multiple_results.append(pool.apply_async(get_s3_key,
                                                      (s3_bucket, s3_key, local_object_path),
-                                                     callback=results.extend))
+                                                     callback=results.append))
 
         pool.close()
         pool.join()
