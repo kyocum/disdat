@@ -36,8 +36,9 @@ from disdat import logger as _logger
 
 S3_LS_USE_MP_THRESH = 4000  # the threshold after which we should use MP to look up bundles on s3
 
-MP_CONTEXT_TYPE = 'forkserver'  # Use for published version
-#MP_CONTEXT_TYPE = 'fork'       # Use for testing
+
+# Use forkserver unless this environment variable is set (hopefully to fork, used by testing)
+MP_CONTEXT_TYPE = os.environ.get('MP_CONTEXT_TYPE', 'forkserver')
 MAX_TASKS_PER_CHILD = 100       # Force the pool to kill workers when they've done 100 tasks.
 
 
@@ -573,7 +574,7 @@ def cp_s3_file(s3_src_path, s3_root):
 
     s3.Object(bucket, output_path).copy_from(
         CopySource={'Bucket': src_bucket, 'Key': src_key},
-        ExtraArgs={"ACL": "bucket-owner-full-control"},
+        ACL="bucket-owner-full-control",
         ServerSideEncryption="AES256"
     )
     return os.path.join("s3://", bucket, output_path)

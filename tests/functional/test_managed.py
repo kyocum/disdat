@@ -329,8 +329,8 @@ def test_no_remote_no_push_non_managed_s3():
 
 
 if __name__ == '__main__':
-    test_remote_push_managed_s3()
-    #pytest.main([__file__])
+    #test_remote_push_managed_s3()
+    pytest.main([__file__])
 
 
 
