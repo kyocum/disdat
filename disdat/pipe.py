@@ -494,16 +494,16 @@ class PipeTask(luigi.Task, PipeBase):
         """
         raise NotImplementedError()
 
-    def add_dependency(self, name, task_class, params):
+    def add_dependency(self, param_name, task_class, params):
         """
         Disdat Pipe API Function
 
         Add a task and its parameters to our requirements
 
         Args:
-            name (str): Name of our upstream (also name of argument in downstream)
-            task_class (:object):  upstream task class
-            params (:dict):  Dictionary of
+            param_name (str): The parameter name this bundle assumes when passed to Pipe.run
+            task_class (object):  Class name of upstream task if looking for external bundle by processing_id.
+            params (dict):  Dictionary of parameters if looking for external bundle by processing_id.
 
         Returns:
             None
@@ -513,8 +513,8 @@ class PipeTask(luigi.Task, PipeBase):
             error = "add_dependency third argument must be a dictionary of parameters"
             raise Exception(error)
 
-        assert (name not in self.add_deps)
-        self.add_deps[name] = (task_class, params)
+        assert (param_name not in self.add_deps)
+        self.add_deps[param_name] = (task_class, params)
 
         return
 
