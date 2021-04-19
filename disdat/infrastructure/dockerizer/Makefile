@@ -188,8 +188,10 @@ $(DISDAT_DOCKER_CONTEXT)/pipeline: $(DISDAT_DOCKER_CONTEXT) $(shell find $(PIPEL
 	@echo "----- Copying pipeline $(PIPELINE_ROOT)"
 	cd $(PIPELINE_ROOT); \
 	    mkdir $@; \
-	    python setup.py egg_info; \
-	    cp `ls *.egg-info/requires.txt` $@/user_package_egg_requires.txt; \
+	    mkdir disdat-temp.egg-base; \
+	    python setup.py egg_info --egg-base disdat-temp.egg-base; \
+	    cp `ls disdat-temp.egg-base/*.egg-info/requires.txt` $@/user_package_egg_requires.txt; \
+	    rm -rf disdat-temp.egg-base; \
 	    python setup.py sdist --dist-dir $@; \
 	    cd -
 	@touch $@
