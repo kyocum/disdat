@@ -78,7 +78,6 @@ setup(
             'Dockerfiles/hyperframe_def/*'
             'dockerizer/Makefile',
             'dockerizer/Dockerfiles/*',
-            'dockerizer/bin/*.py',
             'dockerizer/kickstart/bin/*',
             'dockerizer/kickstart/etc/*',
         ],
@@ -114,10 +113,6 @@ setup(
     # for example:
     # $ pip install -e '.[dev, rel]'
     extras_require={
-        'examples': [
-            'spacy',
-            'tensorflow',
-        ],
         'dev': [
             'pytest',
             'ipython',
@@ -131,14 +126,13 @@ setup(
         ],
         'rel': [
             'wheel',
-            'sphinx',
-            'sphinx_rtd_theme'
         ]
     },
 
     entry_points={
         'console_scripts': [
-            'dsdt = disdat.dsdt:main',
+            'dsdt = disdat.entrypoints.cli_ep:main',
+            'dsdt_docker = disdat.entrypoints.docker_ep:main'
         ],
         'distutils.commands': [
             "dsdt_distname = disdat.infrastructure.dockerizer.setup_tools_commands:DistributionName",

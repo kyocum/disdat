@@ -253,7 +253,9 @@ def run_disdat_container(args):
     sys.exit(os.EX_OK)
 
 
-def main(input_args):
+def main():
+
+    input_args = sys.argv[1:]
 
     # To simplify configuring and building pipeline images, we can keep
     # various default parameter values in the Docker image makefile,
@@ -377,6 +379,6 @@ def main(input_args):
 
 
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    main()
 
 
