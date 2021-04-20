@@ -86,7 +86,7 @@ ENV PIPELINE_GIT_DIRTY=${GIT_DIRTY}
 # Clean up the temporary build directory
 RUN rm -rf $BUILD_ROOT
 
-# Set up the default entry point. If the user starts an image with no
-# arguments, show some help
-COPY bin/entrypoint.py /opt/bin/entrypoint.py
-CMD [ "/opt/bin/entrypoint.py", "--help" ]
+# Set up the default entrypoint from the disdat package.
+# The disdat cli run command will use this command to run the container.
+# If the user wishes to run their own entrypoint, they may pass it to `dsdt run`
+CMD [ "dsdt_docker", "--help" ]

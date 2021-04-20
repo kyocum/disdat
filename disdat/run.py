@@ -54,7 +54,7 @@ from disdat import logger as _logger
 _MODULE_NAME = inspect.getmodulename(__file__)
 
 
-ENTRYPOINT_BIN = '/opt/bin/entrypoint.py'
+ENTRYPOINT_BIN = 'dsdt_docker'
 
 
 class Backend(Enum):
