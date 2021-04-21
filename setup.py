@@ -23,7 +23,14 @@ def find_version():
         version = version_file.read().strip()
     return version
 
+
 setup(
+    use_scm_version={
+        'write_to': 'disdat/version.py',
+        'write_to_template': '__version__ = "{version}"'
+    },
+    setup_requires=['setuptools_scm'],
+
     name='disdat',
     version=find_version(),
     description='DisDat: versioned data science',

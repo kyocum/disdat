@@ -29,7 +29,7 @@ import os
 
 from disdat import apply, dockerize, run, fs, add, lineage
 from disdat.common import DisdatConfig
-from disdat import log
+from disdat import log, __version__
 
 _pipes_fs = None
 
@@ -46,9 +46,6 @@ def main():
         here = os.path.join(sys._MEIPASS, 'disdat')
     else:
         here = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-
-    with open(os.path.join(here, 'VERSION')) as version_file:
-        __version__ = version_file.read().strip()
 
     args = sys.argv[1:]
 

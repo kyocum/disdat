@@ -14,3 +14,6 @@
 # limitations under the License.
 #
 from disdat.log import logger
+from disdat.version import __version__
+
+
