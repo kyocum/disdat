@@ -8,3 +8,4 @@
 .tox
 .coverage
 htmlcov
+/disdat/version.py

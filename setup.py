@@ -14,18 +14,15 @@
 # limitations under the License.
 #
 from setuptools import setup, find_packages
-import os
-
-
-def find_version():
-    here = os.path.abspath(os.path.dirname(__file__))
-    with open(os.path.join(here, 'disdat','VERSION')) as version_file:
-        version = version_file.read().strip()
-    return version
 
 setup(
+    use_scm_version={
+        'write_to': 'disdat/version.py',
+        'write_to_template': '__version__ = "{version}"'
+    },
+    setup_requires=['setuptools_scm'],
+
     name='disdat',
-    version=find_version(),
     description='DisDat: versioned data science',
     author='Ken Yocum',
     author_email='kyocum@gmail.com',
@@ -117,7 +114,6 @@ setup(
             'pytest',
             'ipython',
             'mock',
-            'nose',
             'pylint',
             'coverage',
             'tox',

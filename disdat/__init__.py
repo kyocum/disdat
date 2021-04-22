@@ -14,3 +14,11 @@
 # limitations under the License.
 #
 from disdat.log import logger
+
+try:
+    from disdat.version import __version__
+except ImportError:  # pragma: no cover
+    __version__ = 'dev'
+
+
+

@@ -73,7 +73,7 @@ def _run_git_cmd(git_dir, git_cmd, get_output=False):
                 output = subprocess.check_output(cmd, stderr=null_file)
         except subprocess.CalledProcessError as e:
             _logger.debug("Unable to run git command {}: exit {}: likely no git repo, e.g., running in a container.".format(cmd, e.returncode))
-            return e.returncode
+            return None
     else:
         with open(os.devnull, 'w') as null_file:
             output = subprocess.call(cmd, stdout=null_file, stderr=null_file)
@@ -89,7 +89,6 @@ def determine_pipe_version(pipe_root):
     Given a pipe file path, return the repo status. If they are set, use the environment variables,
     otherwise run the git commands.
 
-
     Args:
         pipe_root: path to the root of the pipeline
 
@@ -99,6 +98,13 @@ def determine_pipe_version(pipe_root):
         which haven't been checked in yet.
     """
 
+    def _get_git_info_var(var_name, git_command):
+        thing = os.getenv(var_name)
+        if thing is None:
+            thing = _run_git_cmd(pipe_root, git_command,  get_output=True)
+        thing = _check_type_and_rstrip(thing, "unknown")
+        return thing
+
     def _check_type_and_rstrip(val, default):
         if isinstance(val, six.string_types):
             val = val.rstrip()
@@ -106,23 +112,11 @@ def determine_pipe_version(pipe_root):
             val = default
         return val
 
-    _logger.debug("PIPELINE_GIT_HASH = {}  cli hash = {}".format(os.environ.get('PIPELINE_GIT_HASH'),
-                                                                 _run_git_cmd(pipe_root, 'rev-parse --short HEAD', get_output=True)))
-    _logger.debug("git_branch = {os.environ.get('PIPELINE_GIT_BRANCH')}")
-
-    git_hash = os.getenv('PIPELINE_GIT_HASH', _run_git_cmd(pipe_root, 'rev-parse HEAD',  get_output=True))
-    git_hash = _check_type_and_rstrip(git_hash, "unknown")
-
-    git_branch = os.getenv('PIPELINE_GIT_BRANCH', _run_git_cmd(pipe_root, 'rev-parse --abbrev-ref HEAD',  get_output=True))
-    git_branch = _check_type_and_rstrip(git_branch, "unknown")
-
-    git_fetch_url = os.getenv('PIPELINE_GIT_FETCH_URL', _run_git_cmd(pipe_root, 'config --get remote.origin.url',  get_output=True))
-    git_fetch_url = _check_type_and_rstrip(git_fetch_url, "unknown")
-
-    git_timestamp = os.getenv('PIPELINE_GIT_TIMESTAMP', _run_git_cmd(pipe_root, 'log -1 --pretty=format:%aI',  get_output=True))
-    git_timestamp = _check_type_and_rstrip(git_timestamp, "unknown")
-
-    git_dirty = bool(os.getenv('GIT_DIRTY', _run_git_cmd(pipe_root, 'diff --name-only',  get_output=True)))
+    git_hash = _get_git_info_var('PIPELINE_GIT_HASH', 'rev-parse HEAD')
+    git_branch = _get_git_info_var('PIPELINE_GIT_BRANCH', 'rev-parse --abbrev-ref HEAD')
+    git_fetch_url = _get_git_info_var('PIPELINE_GIT_FETCH_URL', 'config --get remote.origin.url')
+    git_timestamp = _get_git_info_var('PIPELINE_GIT_TIMESTAMP', 'log -1 --pretty=format:%aI')
+    git_dirty = bool(_get_git_info_var('GIT_DIRTY', 'diff --name-only'))
 
     obj_version = CodeVersion(semver="0.1.0", hash=git_hash, tstamp=git_timestamp, branch=git_branch,
                               url=git_fetch_url, dirty=git_dirty)
