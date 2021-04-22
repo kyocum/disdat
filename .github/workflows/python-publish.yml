@@ -44,4 +44,4 @@ jobs:
         echo "Creating sdist with a copy of itself ..."
         python setup.py sdist
         echo "Uploading to PyPi ... (not yet)"
-        # twine upload dist/disdat-*.tar.gz
+        twine upload dist/disdat-*.tar.gz
