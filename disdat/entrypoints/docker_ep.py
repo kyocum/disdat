@@ -253,9 +253,7 @@ def run_disdat_container(args):
     sys.exit(os.EX_OK)
 
 
-def main():
-
-    input_args = sys.argv[1:]
+def argparse_and_run(input_args):
 
     # To simplify configuring and building pipeline images, we can keep
     # various default parameter values in the Docker image makefile,
@@ -376,6 +374,11 @@ def main():
     log.enable(level=log_level)  # TODO: Add configurable verbosity
 
     run_disdat_container(args)
+
+
+def main():
+    input_args = sys.argv[1:]
+    argparse_and_run(input_args)
 
 
 if __name__ == '__main__':
