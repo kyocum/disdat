@@ -14,8 +14,6 @@
 # limitations under the License.
 #
 from setuptools import setup, find_packages
-import os
-
 
 setup(
     use_scm_version={
@@ -25,7 +23,6 @@ setup(
     setup_requires=['setuptools_scm'],
 
     name='disdat',
-    version=find_version(),
     description='DisDat: versioned data science',
     author='Ken Yocum',
     author_email='kyocum@gmail.com',
