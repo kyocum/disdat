@@ -73,7 +73,7 @@ def _run_git_cmd(git_dir, git_cmd, get_output=False):
                 output = subprocess.check_output(cmd, stderr=null_file)
         except subprocess.CalledProcessError as e:
             _logger.debug("Unable to run git command {}: exit {}: likely no git repo, e.g., running in a container.".format(cmd, e.returncode))
-            return e.returncode
+            return None
     else:
         with open(os.devnull, 'w') as null_file:
             output = subprocess.call(cmd, stdout=null_file, stderr=null_file)
