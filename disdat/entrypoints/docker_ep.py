@@ -48,8 +48,8 @@ def _context_and_remote(context_name, remote=None):
     retval = disdat.api.context(context_name)
 
     if retval == 1: # branch exists
-        _logger.warn("Entrypoint found existing local context {} ".format(context_name))
-        _logger.warn("Entrypoint not switching and ignoring directive to change to remote context {}".format(remote))
+        _logger.warning("Entrypoint found existing local context {} ".format(context_name))
+        _logger.warning("Entrypoint not switching and ignoring directive to change to remote context {}".format(remote))
     elif retval == 0: # just made a new branch
         if remote is not None:
             _logger.info("Entrypoint made a new context {}, attaching remote {}".format(context_name, remote))

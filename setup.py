@@ -17,13 +17,6 @@ from setuptools import setup, find_packages
 import os
 
 
-def find_version():
-    here = os.path.abspath(os.path.dirname(__file__))
-    with open(os.path.join(here, 'disdat','VERSION')) as version_file:
-        version = version_file.read().strip()
-    return version
-
-
 setup(
     use_scm_version={
         'write_to': 'disdat/version.py',
@@ -124,7 +117,6 @@ setup(
             'pytest',
             'ipython',
             'mock',
-            'nose',
             'pylint',
             'coverage',
             'tox',
