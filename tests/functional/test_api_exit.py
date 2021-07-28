@@ -15,6 +15,7 @@
 #
 
 from disdat.pipe import PipeTask
+from disdat.common import ApplyError
 import disdat.api as api
 import luigi
 
@@ -41,11 +42,14 @@ def test():
 
     result = None
     try:
-        result = api.apply(TEST_CONTEXT, Root2, output_bundle='test_api_exit', params={}, force=True, workers=2)
+        result = api.apply(TEST_CONTEXT, Root, output_bundle='test_api_exit', params={}, force=True, workers=2)
+    except ApplyError as ae:
+        print ("Got exception {} result {}".format(ae, ae.result))
+        assert(ae.result['did_work'])
+        assert(not ae.result['success'])
     except Exception as e:
-        print ("Got exception {} result {} ".format(e, e.result))
-        assert(e.result['did_work'])
-        assert(not e.result['success'])
+        print ("Wrong exception (not ApplyError) {}".format(e))
+        raise e
     finally:
         print("API apply returned {}".format(result))
 
@@ -70,7 +74,7 @@ class FailBate(PipeTask):
         return
 
 
-class Root2(PipeTask):
+class Root(PipeTask):
     """
     Average scores of an upstream task
     """
@@ -86,4 +90,6 @@ class Root2(PipeTask):
 
 
 if __name__ == "__main__":
+    import multiprocessing as mp
+    mp.set_start_method('fork')
     test()

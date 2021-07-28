@@ -30,8 +30,8 @@ def test(run_test):
 
     1.) Run DataMaker which runs PreMaker
     2.) Assert that those ran, and remove PreMaker
-    3.) run Root_1 which needs DataMaker (external dep) and PreMaker
-    4.) assert that premaker re-ran and root ran successfully (getting external dependency)
+    3.) run Root which needs DataMaker (external dep) and PreMaker
+    4.) assert that premaker re-ran and Root ran successfully (getting external dependency)
 
     """
 
@@ -44,13 +44,13 @@ def test(run_test):
     pm_uuid = b.uuid
     b.rm()
 
-    api.apply(TEST_CONTEXT, Root_1)
+    api.apply(TEST_CONTEXT, Root)
 
     b = api.get(TEST_CONTEXT, 'PreMaker')
     assert(b is not None)
     assert(b.uuid != pm_uuid)
 
-    b = api.get(TEST_CONTEXT, 'Root_1')
+    b = api.get(TEST_CONTEXT, 'Root')
     assert(b is not None)
 
     api.delete_context(TEST_CONTEXT)
@@ -86,7 +86,7 @@ class PreMaker(PipeTask):
         return pd.DataFrame({'fark': np.random.randint(100, size=10), 'bark': np.random.randint(10, size=10)})
 
 
-class Root_1(PipeTask):
+class Root(PipeTask):
 
     def pipe_requires(self):
         self.add_dependency('premaker', PreMaker, params={})
