@@ -49,7 +49,7 @@ class DriverTask(luigi.WrapperTask, PipeBase):
     input_tags = luigi.DictParameter()
     output_tags = luigi.DictParameter()
     force = luigi.BoolParameter(default=False)
-    data_context = luigi.Parameter(significant=False)
+    data_context_name = luigi.Parameter(significant=False)
     incremental_push = luigi.BoolParameter(default=False, significant=False)
     incremental_pull = luigi.BoolParameter(default=False, significant=False)
 
@@ -81,7 +81,7 @@ class DriverTask(luigi.WrapperTask, PipeBase):
                        'driver_output_bundle': self.output_bundle,
                        'force': self.force,
                        'output_tags': self.output_tags,
-                       'data_context': self.data_context,
+                       'data_context_name': self.data_context_name,
                        'incremental_push': self.incremental_push,
                        'incremental_pull': self.incremental_pull
                        }
@@ -121,7 +121,7 @@ class DriverTask(luigi.WrapperTask, PipeBase):
 
             # Explore hyperframes contained in the next level
             if level >= curr_level:
-                for fr in next_hf.get_frames(self.data_context):
+                for fr in next_hf.get_frames(self.data_context_name):
                     if fr.is_hfr_frame():
                         for hfr in fr.get_hframes():  # making a copy from the pb in this frame
                             hf_frontier.appendleft(hfr)

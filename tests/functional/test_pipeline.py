@@ -113,3 +113,15 @@ def test_child_task_with_parameter():
     assert type(data) == int, 'Data is not path'
     assert len(api.search(TEST_CONTEXT)) == 5, 'Five bundles should be present'
 
+
+if __name__ == '__main__':
+    #import tempfile
+    #api.delete_context(TEST_CONTEXT)
+    #api.context(TEST_CONTEXT)
+    #from pickle import dump, dumps
+    #a = A()
+    #fp = tempfile.TemporaryFile()
+    #_ = dumps(a)
+    #_ = dump(a, fp)
+    pass
+    #api.apply(TEST_CONTEXT, A, workers=1)

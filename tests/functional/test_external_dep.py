@@ -19,6 +19,7 @@ import pytest
 
 from disdat.pipe import PipeTask
 import disdat.api as api
+from disdat.common import ApplyError
 from tests.functional.common import run_test, TEST_CONTEXT # autouse fixture to setup / tear down context
 
 EXT_BUNDLE_NAME='ext_bundle_human_name'
@@ -155,7 +156,7 @@ def test_ord_external_dependency_fail(run_test):
 
     try:
         result = api.apply(TEST_CONTEXT, PipelineA, params={'test_param': 'never run before'})
-    except AssertionError as ae:
+    except ApplyError as ae:
         print("ERROR: {}".format(ae))
         return
 
@@ -203,20 +204,20 @@ def test_name_external_dependency_fail(run_test):
 
 
 if __name__ == '__main__':
-    if False:
-        api.delete_context(context_name=TEST_CONTEXT)
-        api.context(context_name=TEST_CONTEXT)
+    if True:
+        #api.delete_context(context_name=TEST_CONTEXT)
+        #api.context(context_name=TEST_CONTEXT)
 
-        test_ord_external_dependency_fail(run_test)
+        #test_ord_external_dependency(run_test)
 
         api.delete_context(context_name=TEST_CONTEXT)
         api.context(context_name=TEST_CONTEXT)
 
         test_uuid_external_dependency_fail(run_test)
 
-        api.delete_context(context_name=TEST_CONTEXT)
-        api.context(context_name=TEST_CONTEXT)
+        #api.delete_context(context_name=TEST_CONTEXT)
+        #api.context(context_name=TEST_CONTEXT)
 
-        test_name_external_dependency_fail(run_test)
+        #test_name_external_dependency_fail(run_test)
     else:
         pytest.main([__file__])

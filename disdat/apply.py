@@ -31,6 +31,7 @@ import os
 import argparse
 
 from luigi import build, worker
+from luigi.execution_summary import LuigiStatusCode, _partition_tasks
 
 import disdat.common as common  # config, especially logging, before luigi ever loads
 import disdat.fs as fs
@@ -65,7 +66,7 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force, 
         incremental_pull (bool): Whether this job should localize bundles as needed from the remote (if configured)
 
     Returns:
-        bool: True if tasks needed to be run, False if no tasks (beyond wrapper task) executed.
+        bool: True if there were no failed tasks and no failed schedulings (missing external dependencies)
     """
 
     _logger.debug("driver {}".format(driver.DriverTask))
@@ -95,26 +96,18 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force, 
             return None
         data_context = pfs.curr_context
 
-    # Increment the reference count for this process
-    apply.reference_count += 1
-
-    def cleanup_pce():
-        """
-        After running, decrement our reference count (which tells how many simultaneous apply methods are
-        running nested in this process.  Once the last one completes, blow away our path cache and git hash.
-        Needed if we're run twice (from scratch) in the same process.
-        """
-        apply.reference_count -= 1
-        if not apply.reference_count:
-            fs.DisdatFS().clear_pipe_version()
-            PathCache.clear_path_cache()
+    # Only pass data_context name, not reference to the pipe class
+    # data contexts may have open sql connections and other state
+    # that is not ForingPickler safe.
+    data_context_name = data_context.get_local_name()
 
     # Re-execute logic -- make copy of task DAG
     # Creates a cache of {pipe:path_cache_entry} in the pipesFS object.
     # This "task_path_cache" is used throughout execution to find output bundles.
     reexecute_dag = driver.DriverTask(output_bundle, pipe_params,
                                       pipe_cls, input_tags, output_tags, force_all,
-                                      data_context, incremental_push, incremental_pull)
+                                      data_context_name,
+                                      incremental_push, incremental_pull)
 
     # Get version information for pipeline
     users_root_task = reexecute_dag.deps()[0]
@@ -124,14 +117,6 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force, 
     # If the user just wants to re-run this task, use mark_force
     if force:
         users_root_task.mark_force()
-
-    # Resolve bundles.  Calls requires.  User may throw exceptions.
-    # OK, but we have to clean up PCE.
-    try:
-        did_work = resolve_workflow_bundles(reexecute_dag, data_context)
-    except Exception as e:
-        cleanup_pce()
-        raise
 
     # At this point the path cache should be full of existing or new UUIDs.
     # we are going to replace the final pipe's UUID if the user has passed one in.
@@ -145,17 +130,17 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force, 
             del PathCache.path_cache()[users_root_task.processing_id()]  # remove the prior entry
             new_output_bundle(users_root_task, data_context, force_uuid=output_bundle_uuid)
 
-    success = build([reexecute_dag], local_scheduler=not central_scheduler, workers=workers)
-
-    cleanup_pce()
+    # Will be LuigiRunResult
+    status = build([reexecute_dag], local_scheduler=not central_scheduler, workers=workers, detailed_summary=True)
+    success = False
+    if status.status == LuigiStatusCode.SUCCESS:
+        success = True
+    task_sets = _partition_tasks(status.worker)
+    did_work = len(task_sets['completed']) > 0
 
     return {'success': success, 'did_work': did_work}
 
 
-# Add a reference count to apply, so we can determine when to clean up the path_cache
-apply.reference_count = 0
-
-        
 def topo_sort_tasks(root_task):
     """
     Return a stack with a valid topological sort of the task graph.
@@ -213,7 +198,7 @@ def resolve_workflow_bundles(root_task, data_context):
     # For each task in the sort order, figure out if we need a new bundle (re-run it)
     while len(stack) > 0:
         p = stack.pop()
-        if p.__class__.__name__ is 'DriverTask':
+        if p.__class__.__name__ == 'DriverTask':
             # DriverTask is a WrapperTask, it produces no bundles.
             continue
         if resolve_bundle(p, data_context):
@@ -261,7 +246,7 @@ def different_code_versions(code_version, lineage_obj):
 
     return False
 
-    
+
 def resolve_bundle(pipe, data_context):
     """
     Args:
@@ -278,7 +263,7 @@ def resolve_bundle(pipe, data_context):
     import disdat.api as api  # 3.7 allows us to put this import at the top, but not 3.6.8
 
     # These are constants
-    verbose = False
+    verbose = True
     use_bundle = True
     regen_bundle = False
 
