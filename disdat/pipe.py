@@ -130,7 +130,7 @@ class PipeTask(luigi.Task, PipeBase):
 
         input_bundles = {}
         for task in self.deps():
-            b = self.cached_output_bundle
+            b = task.cached_output_bundle
             assert b is not None
             input_bundles[task.user_arg_name] = b
         return input_bundles
@@ -295,8 +295,6 @@ class PipeTask(luigi.Task, PipeBase):
                 'incremental_pull': self.incremental_pull  # propagate the choice to incrementally pull data.
             })
             tasks[user_arg_name] = pipe_class(**params)
-            print("ADDING CLASS {}".format(tasks[user_arg_name]))
-            print("\tADDRESS {}".format(hex(id(tasks[user_arg_name]))))
 
         return tasks
 
@@ -862,7 +860,7 @@ class PipeTask(luigi.Task, PipeBase):
         Returns:
             Bundle: bundle to use. If open, new bundle, if closed, re-using
         """
-        verbose = True
+        verbose = False
 
         if verbose:
             print("resolve_bundle: looking up bundle {}".format(self.processing_id()))

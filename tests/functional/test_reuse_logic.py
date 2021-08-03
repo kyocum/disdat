@@ -77,14 +77,14 @@ def test_A2_A3(run_test):
     assert result['did_work'] is False
     second_A_uuid = api.get(TEST_CONTEXT, 'A').uuid
     assert first_A_uuid == second_A_uuid
-    assert len(api.search(TEST_CONTEXT, 'A')) is 1
+    assert len(api.search(TEST_CONTEXT, 'A')) == 1
 
     # Mod args, should re-run
     result = api.apply(TEST_CONTEXT, A, params={'a': 2,'b': 3})
     assert result['did_work'] is True
     next_A_uuid = api.get(TEST_CONTEXT, 'A').uuid
     assert next_A_uuid != second_A_uuid
-    assert len(api.search(TEST_CONTEXT, 'A')) is 2
+    assert len(api.search(TEST_CONTEXT, 'A')) == 2
 
 
 def test_AB4(run_test):
@@ -109,6 +109,8 @@ def test_AB5(run_test):
     """
     5.) Run A->B, re-run A (force), Run A->B, B should re-run.
     """
+    api.delete_context(TEST_CONTEXT)
+    api.context(TEST_CONTEXT)
 
     result = api.apply(TEST_CONTEXT, B)
     assert result['success'] is True
@@ -321,7 +323,7 @@ class C(PipeTask):
         return input_sum + self.b + self.a
 
 
-if __name__ is '__main__':
+if __name__ == '__main__':
     pytest.main([__file__])
 
 

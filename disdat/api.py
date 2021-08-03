@@ -142,8 +142,10 @@ class Bundle(HyperFrameRecord):
                 self.data_context = local_context
             elif isinstance(local_context, str):
                 self.data_context = self._fs.get_context(local_context)
+                if self.data_context is None:
+                    raise Exception("Unable to create Bundle: no context found with name[{}]".format(local_context))
             else:
-                raise Exception("Unable to create Bundle because no context found with name[{}]".format(local_context))
+                raise Exception("Unable to create Bundle: local_context is not str or DataContext")
         except Exception as e:
             _logger.error("Unable to allocate bundle in context: {} ".format(local_context, e))
             return
@@ -176,6 +178,39 @@ class Bundle(HyperFrameRecord):
             self.open()
             self.add_data(data)
             self.close()
+
+    def __getstate__(self):
+        """ Before pickling remove the reference to the cached bundle
+        The cached bundle has an object reference to the data_context
+         The data context can have an open DB connection, bad for pickling
+         But even if we remove that, pickling has an issue:
+         _pickle.PicklingError: Can't pickle <class 'hyperframe_pb2.HyperFrame'>: import of module 'hyperframe_pb2' failed
+         To avoid these issues, we're going to remove the cached reference
+         and force the deserialized task to re-aquire the cached bundle.
+         The right way is to cache the UUID and recreate the bundle when we
+         refer to the cached_output_bundle.
+         """
+        state = self.__dict__.copy()
+        # don't pickle the data context object.
+        state['data_context'] = self.data_context.get_local_name()
+        # don't pickle the FS object
+        del state['_fs']
+        # don't pickle the protobuf object
+        state['pb'] = self.pb.SerializeToString()
+        return state
+
+    def __setstate__(self, state):
+        """ we don't restore here. """
+        self.__dict__.update(state)
+        # Restore a pointer to DisdatFS
+        self._fs = _get_fs()
+        # Restore a pointer to the data context
+        assert isinstance(self.data_context, str)
+        self.data_context = self._fs.get_context(self.data_context)
+        # Restore pb object
+        pb = self._pb_type()
+        pb.ParseFromString(self.pb)
+        self.pb = pb
 
     def abandon(self):
         """ Remove on-disk state of the bundle if it is abandoned before it is closed.

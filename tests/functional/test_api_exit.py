@@ -15,6 +15,7 @@
 #
 
 from disdat.pipe import PipeTask
+from disdat.common import ApplyError
 import disdat.api as api
 import luigi
 
@@ -41,9 +42,9 @@ def test():
 
     result = None
     try:
-        result = api.apply(TEST_CONTEXT, Root2, output_bundle='test_api_exit', params={}, force=True, workers=2)
-    except Exception as e:
-        print ("Got exception {} result {} ".format(e, e.result))
+        result = api.apply(TEST_CONTEXT, Root, output_bundle='test_api_exit', params={}, force=True, workers=2)
+    except ApplyError as e:
+        print ("Got ApplyError exception {} result {} ".format(e, e.result))
         assert(e.result['did_work'])
         assert(not e.result['success'])
     finally:
@@ -70,7 +71,7 @@ class FailBate(PipeTask):
         return
 
 
-class Root2(PipeTask):
+class Root(PipeTask):
     """
     Average scores of an upstream task
     """
@@ -79,6 +80,7 @@ class Root2(PipeTask):
         """ Depend on GenData """
         self.add_dependency('task_succeeds', FailBate, {'unique': 0})
         self.add_dependency('task_fails', FailBate, {'unique': 1})
+        pass
 
     def pipe_run(self, **kwargs):
         """ Compute average and return as a dictionary """

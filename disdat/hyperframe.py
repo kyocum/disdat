@@ -1779,7 +1779,7 @@ class FrameRecord(PBObject):
             'big': hyperframe_pb2.BIG,
         }
 
-        if numpy_byteorder is '=':
+        if numpy_byteorder == '=':
             return system_endianness[sys.byteorder]
 
         return numpy_endianness[numpy_byteorder]
