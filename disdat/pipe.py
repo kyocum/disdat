@@ -41,12 +41,10 @@ import luigi
 from luigi import worker
 
 from disdat.pipe_base import PipeBase
-from disdat.driver import DriverTask
 from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PUSH_META, ExtDepError
 from disdat.hyperframe import HyperFrameRecord
 from disdat import logger as _logger
 from disdat.fs import DisdatFS
-from disdat.path_cache import PathCache
 import disdat.api as api
 from disdat.apply import different_code_versions
 
@@ -62,11 +60,10 @@ class PipeTask(luigi.Task, PipeBase):
     incremental_pull:
     """
     user_arg_name = luigi.Parameter(default=None, significant=False)  # what the outputs are referred to by downstreams
-    calling_task   = luigi.Parameter(default=None, significant=False) # Delete this field and put a boolean for root
+    is_root_task   = luigi.BoolParameter(default=None, significant=False)
 
-    # This is used for re-running in apply:resolve_bundle to manually see if
-    # we need to re-run the root task.
-    driver_output_bundle = luigi.Parameter(default='None', significant=False)
+    root_output_bundle_name = luigi.Parameter(default='None', significant=False)
+    forced_output_bundle_uuid = luigi.Parameter(default=None, significant=False)
 
     force = luigi.BoolParameter(default=False, significant=False)
     output_tags = luigi.DictParameter(default={}, significant=False)
@@ -142,7 +139,8 @@ class PipeTask(luigi.Task, PipeBase):
         then it should be legal to try to resolve the bundle.
         """
         if self._cached_output_bundle is None:
-            self._cached_output_bundle = self._resolve_bundle_dynamic(self.pfs.get_context(self.data_context_name))
+            self._cached_output_bundle = self._resolve_bundle(self.pfs.get_context(self.data_context_name),
+                                                              force_uuid=self.forced_output_bundle_uuid)
         return self._cached_output_bundle
 
     @property
@@ -222,8 +220,8 @@ class PipeTask(luigi.Task, PipeBase):
 
         """
 
-        if self.driver_output_bundle is not None:
-            return self.driver_output_bundle
+        if self.root_output_bundle_name is not None:
+            return self.root_output_bundle_name
         elif self.user_set_human_name is not None:
             return self.user_set_human_name
         else:
@@ -286,8 +284,8 @@ class PipeTask(luigi.Task, PipeBase):
             # we propagate the same inputs and the same output dir for every upstream task!
             params.update({
                 'user_arg_name': user_arg_name,
-                'calling_task': self,
-                'driver_output_bundle': None,  # allow intermediate tasks pipe_id to be independent of root task.
+                'is_root_task': False,
+                'root_output_bundle_name': None,  # allow intermediate tasks pipe_id to be independent of root task.
                 'force': self.force,
                 'output_tags': dict({}),  # do not pass output_tags up beyond root task
                 'data_context_name': self.data_context_name,  # all operations wrt this context
@@ -356,7 +354,7 @@ class PipeTask(luigi.Task, PipeBase):
                 self.user_tags.update(self.output_tags)
 
             # If this is the root_task, identify it as so in the tag dict
-            if isinstance(self.calling_task, DriverTask):
+            if self.is_root_task:
                 self.user_tags.update({'root_task': 'True'})
 
             """ if we have a pce, we have a new bundle that we need to add info to and close """
@@ -845,7 +843,7 @@ class PipeTask(luigi.Task, PipeBase):
         else:
             self.add_tags({BUNDLE_TAG_TRANSIENT: 'True'})
 
-    def _resolve_bundle_dynamic(self, data_context):
+    def _resolve_bundle(self, data_context, force_uuid=None):
         """
         Instead of resolving before we run, this resolve can be issued
         from within the pipe.output() function.  We remove the PathCache usage here
@@ -856,6 +854,7 @@ class PipeTask(luigi.Task, PipeBase):
         Args:
             self: the pipe to investigate
             data_context: the data context object from which we should resolve bundles.
+            force_uuid (str): If given, set the UUID of a new bundle to this string.
 
         Returns:
             Bundle: bundle to use. If open, new bundle, if closed, re-using
@@ -869,7 +868,7 @@ class PipeTask(luigi.Task, PipeBase):
             # Forcing recomputation through a manual annotation or --force directive, unless external
             _logger.debug("resolve_bundle: pipe.mark_force forcing a new output bundle.")
             if verbose: print("resolve_bundle: pipe.mark_force forcing a new output bundle.\n")
-            return api.Bundle(data_context).open()
+            return api.Bundle(data_context).open(force_uuid=force_uuid)
 
         if isinstance(self, ExternalDepTask):
             # NOTE: Even if add_external_dependency() fails to find the bundle we still succeed here.
@@ -887,7 +886,7 @@ class PipeTask(luigi.Task, PipeBase):
 
         if bndls is None or len(bndls) <= 0:
             if verbose: print("resolve_bundle: No bundle with proc_name {}, getting new output bundle.\n".format(self.processing_id()))
-            return api.Bundle(data_context).open()
+            return api.Bundle(data_context).open(force_uuid=force_uuid)
 
         bndl = bndls[0]  # our best guess is the most recent bundle with the same processing_id()
 
@@ -895,7 +894,7 @@ class PipeTask(luigi.Task, PipeBase):
         lng = bndl.get_lineage()
         if lng is None:
             if verbose: print("resolve_bundle: No lineage present, getting new output bundle.\n")
-            return api.Bundle(data_context).open()
+            return api.Bundle(data_context).open(force_uuid=force_uuid)
 
         # 3.) Lineage record exists -- if new code, re-run
         pipeline_path = os.path.dirname(sys.modules[self.__module__].__file__)
@@ -903,7 +902,7 @@ class PipeTask(luigi.Task, PipeBase):
 
         if different_code_versions(current_version, lng):
             if verbose: print("resolve_bundle: New code version, getting new output bundle.\n")
-            return api.Bundle(data_context).open()
+            return api.Bundle(data_context).open(force_uuid=force_uuid)
 
         # 3.5.) Have we changed the output human bundle name?  If so, re-run task.
         # Note: we need to go through all the bundle versions with that processing_id.
@@ -919,7 +918,7 @@ class PipeTask(luigi.Task, PipeBase):
         if not found:
             if verbose: print("resolve_bundle: New human name {} (prior {}), getting new output bundle.\n".format(
                 current_human_name, bndl.get_human_name()))
-            return api.Bundle(data_context).open()
+            return api.Bundle(data_context).open(force_uuid=force_uuid)
 
         # 4.) Check the inputs -- assumes we have processed upstream tasks already
         for task in self.deps():
@@ -956,7 +955,7 @@ class PipeTask(luigi.Task, PipeBase):
             else:
                 if task.is_new_output:
                     if verbose: print("Resolve_bundle: upstream task is being re-run, so rerun with new output bundle.\n")
-                    return api.Bundle(data_context).open()
+                    return api.Bundle(data_context).open(force_uuid=force_uuid)
 
                 # Upstream Task
                 # Resolve to a bundle, UUID and a processing name
@@ -985,7 +984,7 @@ class PipeTask(luigi.Task, PipeBase):
                             task.processing_id(),
                             tup.hframe_uuid,
                             upstream_dep_uuid))
-                        return api.Bundle(data_context).open()
+                        return api.Bundle(data_context).open(force_uuid=force_uuid)
 
         # 5.) Woot!  Reuse the found bundle.
         if verbose: print("resolve_bundle: reusing bundle\n")

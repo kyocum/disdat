@@ -26,12 +26,11 @@ author: Kenneth Yocum
 from __future__ import print_function
 
 import sys
-import collections
 import os
 import argparse
 
 import luigi.task_register
-from luigi import build, worker
+from luigi import build
 from luigi.execution_summary import LuigiStatusCode, _partition_tasks
 
 import disdat.common as common  # config, especially logging, before luigi ever loads
@@ -120,38 +119,20 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force, 
     # Re-execute logic -- make copy of task DAG
     # Creates a cache of {pipe:path_cache_entry} in the pipesFS object.
     # This "task_path_cache" is used throughout execution to find output bundles.
-    reexecute_dag = driver.DriverTask(output_bundle, pipe_params,
-                                      pipe_cls, input_tags, output_tags, force_all,
-                                      data_context_name,
-                                      incremental_push, incremental_pull)
+    dag = create_users_task(pipe_cls, pipe_params, output_bundle,
+                            output_bundle_uuid, force_all, output_tags,
+                            data_context_name, incremental_push, incremental_pull)
 
     # Get version information for pipeline
-    users_root_task = reexecute_dag.deps()[0]
-    pipeline_path = os.path.dirname(sys.modules[users_root_task.__module__].__file__)
+    pipeline_path = os.path.dirname(sys.modules[dag.__module__].__file__)
     fs.DisdatFS().get_pipe_version(pipeline_path)
 
     # If the user just wants to re-run this task, use mark_force
     if force:
-        users_root_task.mark_force()
-
-    # At this point the path cache should be full of existing or new UUIDs.
-    # we are going to replace the final pipe's UUID if the user has passed one in.
-    # this happens when we run the docker container.
-    # TODO: don't replace if it already exists.
-    if output_bundle_uuid is not None:
-        users_root_task = reexecute_dag.deps()[0]
-        pce = PathCache.get_path_cache(users_root_task)
-        if pce.rerun:  # if we have to re-run then replace it with our UUID
-            pce.bundle.abandon()  # clean up the opened but not closed bundle
-            del PathCache.path_cache()[users_root_task.processing_id()]  # remove the prior entry
-            new_output_bundle(users_root_task, data_context, force_uuid=output_bundle_uuid)
-
-    from pickle import dumps, loads
-    _ = dumps(users_root_task)
-    crap = loads(_)
+        dag.mark_force()
 
     # Will be LuigiRunResult
-    status = build([reexecute_dag], local_scheduler=not central_scheduler, workers=workers, detailed_summary=True)
+    status = build([dag], local_scheduler=not central_scheduler, workers=workers, detailed_summary=True)
     success = False
     if status.status == LuigiStatusCode.SUCCESS:
         success = True
@@ -165,6 +146,59 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force, 
 
 # Add a reference count to apply, so we can determine when to clean up the path_cache
 apply.reference_count = 0
+
+def create_users_task(pipe_cls,
+                      pipe_params,
+                      root_bundle_name,
+                      forced_output_bundle_uuid,
+                      force,
+                      output_tags,
+                      data_context_name,
+                      incremental_push,
+                      incremental_pull):
+    """
+    Create the users task
+
+    Every apply or run is logically a single execution and produces a set of outputs.  Each
+    task produces a single bundle represented as a hyperframe internally.
+
+    Args:
+        pipe_cls (disdat.Pipe): The user's Pipe class
+        pipe_params: parameters for this pipeline
+        root_bundle_name (str): user set output bundle name for last task
+        forced_output_bundle_uuid (str): user set output bundle uuid for last task, else None
+        force (bool): force re-run of entire pipeline
+        output_tags (dict):  str,str tag dict
+        data_context_name (str): name in which pipe will run
+        incremental_push (bool): push bundle when pipe finishes
+        incremental_pull (bool): pull non-localized bundles before execution
+
+    Returns:
+        `disdat.Pipe`
+    """
+
+    # Force root task to take an explicit bundle name?
+    if root_bundle_name == '-':
+        root_bundle_name = None
+
+    task_params = {'is_root_task':  True,
+                   'root_output_bundle_name': root_bundle_name,
+                   'forced_output_bundle_uuid': forced_output_bundle_uuid,
+                   'force': force,
+                   'output_tags': output_tags,
+                   'data_context_name': data_context_name,
+                   'incremental_push': incremental_push,
+                   'incremental_pull': incremental_pull
+                   }
+
+    # Get user pipeline parameters for this Pipe / Luigi Task
+    if pipe_params:
+        task_params.update(pipe_params)
+
+    # Instantiate and return the class directly with the parameters
+    # Instance caching is taken care of automatically by luigi
+    return pipe_cls(**task_params)
+
 
 def different_code_versions(code_version, lineage_obj):
     """
