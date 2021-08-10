@@ -1445,6 +1445,10 @@ class LineageRecord(PBObject):
         return s
 
     @staticmethod
+    def dependency_count(lineage_pb):
+        return len(lineage_pb.depends_on)
+
+    @staticmethod
     def add_deps_to_lr(lineage_pb, depends_on):
         _ = [lineage_pb.depends_on.add(hframe_proc_name=tup[0],
                                     hframe_uuid=tup[1],

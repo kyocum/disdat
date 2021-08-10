@@ -399,19 +399,20 @@ class Bundle(HyperFrameRecord):
 
         Args:
             bundles (Union[list `api.Bundle`, `api.Bundle`]): Another bundle that may have been used to produce this one
-            arg_names (list[str]): argument names of the dependencies.  Optional, otherwise default 'arg_<i>' used.
+            arg_names (Union[list str, str]): Optional argument names of the dependencies.  Default 'arg_<i>' used.
 
         Returns:
             self
         """
         self._check_open()
+        curr_count = LineageRecord.dependency_count(self.pb.lineage)
         if isinstance(bundles, collections.Iterable):
             if arg_names is None:
-                arg_names = ['_arg_{}'.format(i) for i in range(0, len(bundles))]
+                arg_names = ['_arg_{}'.format(i) for i in range(0+curr_count, len(bundles)+curr_count)]
             LineageRecord.add_deps_to_lr(self.pb.lineage, [(b.processing_name, b.uuid, an) for an, b in zip(arg_names, bundles)])
         else:
             if arg_names is None:
-                arg_names = '_arg_0'
+                arg_names = '_arg_{}'.format(curr_count)
             LineageRecord.add_deps_to_lr(self.pb.lineage, [(bundles.processing_name, bundles.uuid, arg_names)])
         return self
 
@@ -534,7 +535,7 @@ class Bundle(HyperFrameRecord):
             force_uuid (str): DEPRECATING - do not use.  Force to open a bundle with a specific bundle.
 
         Returns:
-            None
+            Bundle
         """
         if self._closed:
             _logger.error("Bundle is closed -- unable to re-open.")

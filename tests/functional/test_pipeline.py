@@ -115,13 +115,4 @@ def test_child_task_with_parameter():
 
 
 if __name__ == '__main__':
-    #import tempfile
-    #api.delete_context(TEST_CONTEXT)
-    #api.context(TEST_CONTEXT)
-    #from pickle import dump, dumps
-    #a = A()
-    #fp = tempfile.TemporaryFile()
-    #_ = dumps(a)
-    #_ = dump(a, fp)
-    pass
-    #api.apply(TEST_CONTEXT, A, workers=1)
+    api.apply(TEST_CONTEXT, A, workers=1)

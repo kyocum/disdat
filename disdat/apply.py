@@ -35,8 +35,6 @@ from luigi.execution_summary import LuigiStatusCode, _partition_tasks
 
 import disdat.common as common  # config, especially logging, before luigi ever loads
 import disdat.fs as fs
-from disdat.path_cache import PathCache
-import disdat.driver as driver
 from disdat import logger as _logger
 
 
@@ -69,7 +67,6 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force, 
         bool: True if there were no failed tasks and no failed schedulings (missing external dependencies)
     """
 
-    _logger.debug("driver {}".format(driver.DriverTask))
     _logger.debug("pipe_cls {}".format(pipe_cls))
     _logger.debug("pipe params: {}".format(pipe_params))
     _logger.debug("force: {}".format(force))

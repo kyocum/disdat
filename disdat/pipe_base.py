@@ -47,7 +47,7 @@ class PipeBase(object):
         return DisdatFS()
 
     @abstractmethod
-    def bundle_output(self):
+    def output_bundle(self):
         """
         Given this pipe, return the set of bundles created by this pipe.
         Mirrors Luigi task.outputs()
@@ -58,7 +58,7 @@ class PipeBase(object):
         pass
 
     @abstractmethod
-    def bundle_inputs(self):
+    def input_bundles(self):
         """
         Given this pipe, return the set of bundles created by the input pipes.
         Mirrors Luigi task.inputs()
