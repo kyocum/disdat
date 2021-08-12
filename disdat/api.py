@@ -217,7 +217,7 @@ class Bundle(HyperFrameRecord):
          a forked child process might have closed their copy while the parent deletes theirs.
          """
         self._check_open()
-        _logger.debug(f"Disdat api clean_abandoned removing bundle obj [{id(self)}] process[{os.getpid()}")
+        _logger.debug(f"Disdat api abandon bundle obj [{id(self)}] process[{os.getpid()}] uuid[{self.uuid}]")
         PipeBase.rm_bundle_dir(self._local_dir, self.uuid)
 
     def _check_open(self):

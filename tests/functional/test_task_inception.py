@@ -44,7 +44,7 @@ class B(A):
 
 class Root(PipeTask):
     """
-    Call another pipeline internally. 
+    Call another pipeline internally.
     """
     n = luigi.IntParameter(default=0)
     workers = luigi.IntParameter(default=1)
@@ -90,5 +90,5 @@ def test_inception_3_3():
 if __name__ == '__main__':
     api.delete_context(TEST_CONTEXT)
     api.context(TEST_CONTEXT)
-    test_inception_3_1()
+    test_inception_3_3()
     #api.apply(TEST_CONTEXT, A, params={'n': 1})

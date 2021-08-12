@@ -168,7 +168,11 @@ class PipeTask(luigi.Task, PipeBase):
                 possible_output = self._resolve_bundle(self.pfs.get_context(self.data_context_name))
                 # <------- RACE ------->   between not closed and check, i.e., not thread safe.
                 if possible_output.closed:
-                    self._cached_output_bundle.abandon()
+                    if possible_output.uuid == self._cached_output_bundle.uuid:
+                        # Note, we cannot "clean up" the bundle if we GC one. See Bundle.abandon()
+                        del self._cached_output_bundle
+                    else:
+                        self._cached_output_bundle.abandon()
                     self._cached_output_bundle = possible_output
 
         return self._cached_output_bundle

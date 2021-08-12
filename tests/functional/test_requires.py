@@ -52,4 +52,7 @@ def test_requires(run_test):
 
 
 if __name__ == '__main__':
-    pytest.main([__file__])
+    api.delete_context(TEST_CONTEXT)
+    api.context(TEST_CONTEXT)
+    test_requires(run_test)
+    #pytest.main([__file__])

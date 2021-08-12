@@ -28,6 +28,7 @@ from __future__ import print_function
 import sys
 import os
 import argparse
+import multiprocessing
 
 import luigi.task_register
 from luigi import build
@@ -95,6 +96,14 @@ def apply(output_bundle, pipe_params, pipe_cls, input_tags, output_tags, force, 
 
     # Increment the reference count for this process
     apply.reference_count += 1
+
+    # If we are using Fork, we cannot have internal apply's with workers > 1
+    # otherwise luigi loops forever with "There are no more tasks to run" and "<some task> is currently run by worker"
+    # This happens with Vanilla luigi in fork mode.   In <=P37, MP fork for OS X is the default
+    # in >=P38, Spawn is the default.
+    if apply.reference_count > 1:
+        if multiprocessing.get_start_method() == 'fork':
+            workers = 1
 
     def cleanup_cached_state():
         """

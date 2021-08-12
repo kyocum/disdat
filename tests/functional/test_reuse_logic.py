@@ -63,8 +63,7 @@ from tests.functional.common import run_test, TEST_CONTEXT, setup
    
  """
 
-WORKERS = 1
-
+WORKERS = 2
 
 def test_A2_A3(run_test):
     """
