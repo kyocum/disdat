@@ -113,3 +113,6 @@ def test_child_task_with_parameter():
     assert type(data) == int, 'Data is not path'
     assert len(api.search(TEST_CONTEXT)) == 5, 'Five bundles should be present'
 
+
+if __name__ == '__main__':
+    api.apply(TEST_CONTEXT, A, workers=1)

@@ -63,5 +63,6 @@ def test_cat(run_test):
     finally:
         shutil.rmtree(tmpdir)
 
+
 if __name__ == '__main__':
     pytest.main([__file__])

@@ -63,6 +63,7 @@ from tests.functional.common import run_test, TEST_CONTEXT, setup
    
  """
 
+WORKERS = 2
 
 def test_A2_A3(run_test):
     """
@@ -70,21 +71,21 @@ def test_A2_A3(run_test):
     3.) Run A, Run A*, should re-run
     """
 
-    result = api.apply(TEST_CONTEXT, A)
+    result = api.apply(TEST_CONTEXT, A, workers=WORKERS)
     assert result['did_work'] is True
     first_A_uuid = api.get(TEST_CONTEXT, 'A').uuid
-    result = api.apply(TEST_CONTEXT, A)
+    result = api.apply(TEST_CONTEXT, A, workers=WORKERS)
     assert result['did_work'] is False
     second_A_uuid = api.get(TEST_CONTEXT, 'A').uuid
     assert first_A_uuid == second_A_uuid
-    assert len(api.search(TEST_CONTEXT, 'A')) is 1
+    assert len(api.search(TEST_CONTEXT, 'A')) == 1
 
     # Mod args, should re-run
-    result = api.apply(TEST_CONTEXT, A, params={'a': 2,'b': 3})
+    result = api.apply(TEST_CONTEXT, A, params={'a': 2,'b': 3}, workers=WORKERS)
     assert result['did_work'] is True
     next_A_uuid = api.get(TEST_CONTEXT, 'A').uuid
     assert next_A_uuid != second_A_uuid
-    assert len(api.search(TEST_CONTEXT, 'A')) is 2
+    assert len(api.search(TEST_CONTEXT, 'A')) == 2
 
 
 def test_AB4(run_test):
@@ -92,15 +93,15 @@ def test_AB4(run_test):
     4.) Run A->B, Re-run A*.  Run A->B, nothing should run.
     """
 
-    result = api.apply(TEST_CONTEXT, B)
+    result = api.apply(TEST_CONTEXT, B, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is True
 
-    result = api.apply(TEST_CONTEXT, A, params={'a':2, 'b':3})
+    result = api.apply(TEST_CONTEXT, A, params={'a':2, 'b':3}, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is True
 
-    result = api.apply(TEST_CONTEXT, B)
+    result = api.apply(TEST_CONTEXT, B, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is False
 
@@ -109,16 +110,18 @@ def test_AB5(run_test):
     """
     5.) Run A->B, re-run A (force), Run A->B, B should re-run.
     """
+    api.delete_context(TEST_CONTEXT)
+    api.context(TEST_CONTEXT)
 
-    result = api.apply(TEST_CONTEXT, B)
+    result = api.apply(TEST_CONTEXT, B, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is True
 
-    result = api.apply(TEST_CONTEXT, A, force=True)
+    result = api.apply(TEST_CONTEXT, A, force=True, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is True
 
-    result = api.apply(TEST_CONTEXT, B)
+    result = api.apply(TEST_CONTEXT, B, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is True
 
@@ -134,12 +137,12 @@ def test_AB6(run_test):
 
     """
 
-    result = api.apply(TEST_CONTEXT, B)
+    result = api.apply(TEST_CONTEXT, B, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is True
     B_uuid = api.get(TEST_CONTEXT, 'B').uuid
 
-    result = api.apply(TEST_CONTEXT, APrime)
+    result = api.apply(TEST_CONTEXT, APrime, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is True
     APrime_uuid = api.get(TEST_CONTEXT, 'APrime').uuid
@@ -150,7 +153,7 @@ def test_AB6(run_test):
     old_requires = B.pipe_requires
     B.pipe_requires = custom_B_requires
 
-    result = api.apply(TEST_CONTEXT, B)
+    result = api.apply(TEST_CONTEXT, B, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is True
     assert APrime_uuid == api.get(TEST_CONTEXT, 'APrime').uuid
@@ -170,7 +173,7 @@ def test_ABC7(run_test):
 
     """
 
-    result = api.apply(TEST_CONTEXT, C)
+    result = api.apply(TEST_CONTEXT, C, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is True
     B_uuid = api.get(TEST_CONTEXT, 'B').uuid
@@ -181,14 +184,14 @@ def test_ABC7(run_test):
     old_requires = B.pipe_requires
     B.pipe_requires = custom_B_requires
 
-    result = api.apply(TEST_CONTEXT, B)
+    result = api.apply(TEST_CONTEXT, B, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is True
     assert B_uuid != api.get(TEST_CONTEXT, 'B').uuid  # should have a new B
 
     B.pipe_requires = old_requires
 
-    result = api.apply(TEST_CONTEXT, C)
+    result = api.apply(TEST_CONTEXT, C, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is False
 
@@ -204,7 +207,7 @@ def test_ABC8(run_test):
 
     """
 
-    result = api.apply(TEST_CONTEXT, C)
+    result = api.apply(TEST_CONTEXT, C, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is True
     B_uuid = api.get(TEST_CONTEXT, 'B').uuid
@@ -215,14 +218,14 @@ def test_ABC8(run_test):
     old_requires = B.pipe_requires
     B.pipe_requires = custom_B_requires
 
-    result = api.apply(TEST_CONTEXT, B)
+    result = api.apply(TEST_CONTEXT, B, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is True
     assert B_uuid != api.get(TEST_CONTEXT, 'B').uuid  # should have a new B
     B_uuid = api.get(TEST_CONTEXT, 'B').uuid
     APrime_uuid = api.get(TEST_CONTEXT, 'APrime').uuid
 
-    result = api.apply(TEST_CONTEXT, C)
+    result = api.apply(TEST_CONTEXT, C, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is True
     assert B_uuid == api.get(TEST_CONTEXT, 'B').uuid
@@ -249,7 +252,7 @@ def test_bundle_depsABC9(run_test):
     old_requires = C.pipe_requires
     C.pipe_requires = custom_C_requires
 
-    result = api.apply(TEST_CONTEXT, C)
+    result = api.apply(TEST_CONTEXT, C, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is True
     A_uuid = api.get(TEST_CONTEXT, 'A').uuid
@@ -262,7 +265,7 @@ def test_bundle_depsABC9(run_test):
 
     C.pipe_requires = custom_C_requires_swap
 
-    result = api.apply(TEST_CONTEXT, C)
+    result = api.apply(TEST_CONTEXT, C, workers=WORKERS)
     assert result['success'] is True
     assert result['did_work'] is True
     assert A_uuid == api.get(TEST_CONTEXT, 'A').uuid
@@ -321,7 +324,7 @@ class C(PipeTask):
         return input_sum + self.b + self.a
 
 
-if __name__ is '__main__':
+if __name__ == '__main__':
     pytest.main([__file__])
 
 

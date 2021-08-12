@@ -26,28 +26,23 @@ from disdat.fs import DisdatFS
 from disdat.data_context import DataContext
 from disdat.hyperframe import HyperFrameRecord, FrameRecord
 import disdat.hyperframe_pb2 as hyperframe_pb2
-from disdat.path_cache import PathCache
 from disdat import logger as _logger
 
 
 CodeVersion = collections.namedtuple('CodeVersion', 'semver hash tstamp branch url dirty')
 
+MISSING_EXT_DEP_UUID = 'UnresolvedExternalDep'
+YIELD_PIPETASK_ARG_NAME = "YieldArgName"
 
 class PipeBase(object):
     __metaclass__ = ABCMeta
-
-    BUNDLE_META = 'bundle_meta'
-    BUNDLE_LINEAGE = 'bundle_lineage'
-    HFRAME = 'hframe'
-    FRAME = 'frame'
-    AUTH = 'auth'
 
     @property
     def pfs(self):
         return DisdatFS()
 
     @abstractmethod
-    def bundle_output(self):
+    def output_bundle(self):
         """
         Given this pipe, return the set of bundles created by this pipe.
         Mirrors Luigi task.outputs()
@@ -58,7 +53,7 @@ class PipeBase(object):
         pass
 
     @abstractmethod
-    def bundle_inputs(self):
+    def input_bundles(self):
         """
         Given this pipe, return the set of bundles created by the input pipes.
         Mirrors Luigi task.inputs()
@@ -88,37 +83,6 @@ class PipeBase(object):
         Bundle Tag:   Used to fill in bundle.bundle_name
         """
         pass
-
-    @staticmethod
-    def add_bundle_meta_files(pipe_task):
-        """
-        Given a pipe or driver task, create the bundle metaoutput files and Luigi
-        output targets for them.
-
-        Use the pipe_task (or driver task) to get the name of the bundle.
-        Use the name of the bundle to look up the output path in the pipe cache in the
-        PipeFS class object.
-
-        Create an hframe.  The individual frame records have to be written out before hand.
-
-        Args:
-            pipe_task: The pipe task that will use these outputs
-
-        Returns:
-            [ luigi output for meta file, luigi output for lineage file ]
-
-        """
-        pce = PathCache.get_path_cache(pipe_task)
-
-        if pce is None:
-            # This can happen when the pipe has been created with non-deterministic parameters
-            _logger.error("add_bundle_meta_files: could not find pce for task {}".format(pipe_task.processing_id()))
-            _logger.error("It is possible one of your tasks is parameterized in a non-deterministic fashion.")
-            raise Exception("add_bundle_meta_files: Unable to find pce for task {}".format(pipe_task.processing_id()))
-
-        hframe = {PipeBase.HFRAME: luigi.LocalTarget(os.path.join(pce.path, HyperFrameRecord.make_filename(pce.uuid)))}
-
-        return hframe
 
     @staticmethod
     def _interpret_scheme(full_path):
@@ -250,7 +214,7 @@ class PipeBase(object):
 
         elif isinstance(val, HyperFrameRecord):
             presentation = hyperframe_pb2.HF
-            frames.append(FrameRecord.make_hframe_frame(hfid, pipe.human_id(), [val]))
+            frames.append(FrameRecord.make_hframe_frame(hfid, common.DEFAULT_FRAME_NAME + ':0', [val]))
 
         elif isinstance(val, np.ndarray) or isinstance(val, list):
             presentation = hyperframe_pb2.TENSOR
@@ -283,4 +247,3 @@ class PipeBase(object):
             frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
 
         return presentation, frames
-

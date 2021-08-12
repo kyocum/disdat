@@ -28,6 +28,7 @@ still need to get the input in the downstream task.  See git issue
  https://github.com/kyocum/disdat/issues/31
  """
 
+WORKERS = 2
 
 class a(PipeTask):
     def pipe_requires(self):
@@ -47,8 +48,11 @@ class b(PipeTask):
 
 
 def test_requires(run_test):
-    api.apply(TEST_CONTEXT, b, params={})
+    api.apply(TEST_CONTEXT, b, params={}, workers=WORKERS)
 
 
 if __name__ == '__main__':
-    pytest.main([__file__])
+    api.delete_context(TEST_CONTEXT)
+    api.context(TEST_CONTEXT)
+    test_requires(run_test)
+    #pytest.main([__file__])

@@ -411,7 +411,7 @@ def ls_s3_url_keys(s3_url, is_object_directory=False):
     Returns:
         list (str): list of keys under the bucket in the s3_path
     """
-    if s3_url[-1] is not '/':
+    if s3_url[-1] != '/':
         s3_url += '/'
 
     bucket, s3_path = split_s3_url(s3_url)
@@ -459,7 +459,7 @@ def ls_s3_url_objects(s3_url):
     Returns:
         list (str): list of s3 objects under the bucket in the s3_path
     """
-    if s3_url[-1] is not '/':
+    if s3_url[-1] != '/':
         s3_url += '/'
 
     bucket, s3_path = split_s3_url(s3_url)
