@@ -36,16 +36,18 @@ import os
 import sys
 import time
 import hashlib
+from types import GeneratorType
 
 import luigi
+from luigi import worker
 
-from disdat.pipe_base import PipeBase
-from disdat.driver import DriverTask
+from disdat.pipe_base import PipeBase, YIELD_PIPETASK_ARG_NAME, MISSING_EXT_DEP_UUID
 from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PUSH_META, ExtDepError
+from disdat.hyperframe import HyperFrameRecord
 from disdat import logger as _logger
 from disdat.fs import DisdatFS
-from disdat.path_cache import PathCache
 import disdat.api as api
+from disdat.apply import different_code_versions
 
 
 class PipeTask(luigi.Task, PipeBase):
@@ -59,17 +61,16 @@ class PipeTask(luigi.Task, PipeBase):
     incremental_pull:
     """
     user_arg_name = luigi.Parameter(default=None, significant=False)  # what the outputs are referred to by downstreams
-    calling_task   = luigi.Parameter(default=None, significant=False)
+    is_root_task   = luigi.BoolParameter(default=None, significant=False)
 
-    # This is used for re-running in apply:resolve_bundle to manually see if
-    # we need to re-run the root task.
-    driver_output_bundle = luigi.Parameter(default='None', significant=False)
+    root_output_bundle_name = luigi.Parameter(default=None, significant=False)
+    forced_output_bundle_uuid = luigi.Parameter(default=None, significant=False)
 
     force = luigi.BoolParameter(default=False, significant=False)
     output_tags = luigi.DictParameter(default={}, significant=False)
 
     # Each pipeline executes wrt a data context.
-    data_context = luigi.Parameter(default=None, significant=False)
+    data_context_name = luigi.Parameter(default=None, significant=False)
 
     # Each pipeline can be configured to commit and push intermediate values to the remote
     incremental_push = luigi.BoolParameter(default=False, significant=False)
@@ -89,27 +90,27 @@ class PipeTask(luigi.Task, PipeBase):
 
         super(PipeTask, self).__init__(*args, **kwargs)
 
+        # Luigi may copy the task by first serializing an existing task using task.to_str_params()
+        # This forces string parameters set to None to 'None'
+        if self.root_output_bundle_name == 'None':
+            self.root_output_bundle_name = None
+        if self.forced_output_bundle_uuid == 'None':
+            self.forced_output_bundle_uuid = None
+
         self._cached_processing_id = None
+        self._cached_output_bundle = None  # refers to either a new bundle or existing bundle: b.uuid and b.local_dir
+        self._is_new_output = None
 
         # Instance variables to track various user wishes
         self.user_set_human_name = None  # self.set_bundle_name()
         self.user_tags = {}              # self.add_tags()
         self.add_deps = {}               # self.add(_external)_dependency()
+        self.yield_deps = {}             # self.yield_dependency()
         self._input_tags = {}            # self.get_tags() of upstream tasks
         self._input_bundle_uuids = {}    # self.get_bundle_uuid() of upstream tasks
         self._mark_force = False         # self.mark_force()
 
-    def bundle_output(self):
-        """
-        Return the bundle being made or re-used by this task.
-        NOTE: Currently un-used.  Consider removing.
-        Returns:
-            (dict): <user_arg_name>:<bundle>
-        """
-        pce = PathCache.get_path_cache(self)
-        return {self.user_arg_name: pce.b}
-
-    def bundle_inputs(self):
+    def input_bundles(self):
         """
         Given this pipe, return the set of bundles that this task used as input.
         Return a list of tuples that contain (processing_name, uuid, arg_name)
@@ -125,13 +126,67 @@ class PipeTask(luigi.Task, PipeBase):
 
         input_bundles = {}
         for task in self.deps():
-            if isinstance(task, ExternalDepTask):
-                b = api.get(self.data_context.get_local_name(), None, uuid=task.uuid)
-            else:
-                b = PathCache.get_path_cache(task).bundle
+            b = task.output_bundle
             assert b is not None
             input_bundles[task.user_arg_name] = b
         return input_bundles
+
+    @property
+    def output_bundle(self):
+        """ Resolve this task to an existing bundle or get a new bundle.
+
+        If this is a new bundle (a bundle does not yet exist for this processing name)
+        then we will create an output directory and cache a pointer to this bundle in this object.
+        Otherwise cache the closed bundle with the result.
+
+        However, in the case of yielded tasks, Luigi re-creates the task by serializing the parameters and
+        deserializing them during task creation, often creating a new object.  Now we have another task
+        that represents this same data (and processing name), but when the original asks for its output bundle it
+        doesn't have the *same* uuid that the new task has.   Yikes!
+
+        So we need a remote db to store the processingname -> bundle uuid binding.  It's the data context (and
+        the sqlite db).  But we only push to the db on bundle write (it's either closed / on disk / in db, or nothing).
+        So storing an additional bundle state would require some changes to the db.
+
+        In lieu of that, we adopt the following slightly more expensive policy:
+        * if cache empty: cache returned bundle from resolve.
+        * if cached and closed: return bundle
+        * if cached and open:  call resolve.  [Did an identical task write this logical bundle (by processing name)?]
+        *     if new_bundle is closed:  set cached to closed bundle
+        *     elif new_bundle is open: abondon bundle.
+        *      if closed: return cached closed bundle.  There should be no situation where resolve returns a different bundle.
+
+        It is possible that two tasks do the same work and write to two different bundles with the same processing name.
+        This won't be incorrect, just inefficient.   Future fix would be to synchronize on the DB vis-a-vis above.
+        """
+        if self._cached_output_bundle is None:
+            self._cached_output_bundle = self._resolve_bundle(self.pfs.get_context(self.data_context_name))
+            if not self._cached_output_bundle.closed:
+                self._cached_output_bundle.open(force_uuid=self.forced_output_bundle_uuid)
+        else:
+            if not self._cached_output_bundle.closed:
+                possible_output = self._resolve_bundle(self.pfs.get_context(self.data_context_name))
+                # <------- RACE ------->   between not closed and check, i.e., not thread safe.
+                if possible_output.closed:
+                    if possible_output.uuid == self._cached_output_bundle.uuid:
+                        # Note, we cannot "clean up" the bundle if we GC one. See Bundle.abandon()
+                        del self._cached_output_bundle
+                    else:
+                        self._cached_output_bundle.abandon()
+                    self._cached_output_bundle = possible_output
+
+        return self._cached_output_bundle
+
+    @property
+    def pipe_output(self):
+        """ Return the data in the bundle presented as the Python type with which it was stored """
+        return self.output_bundle.data
+
+    @property
+    def is_new_output(self):
+        if self._is_new_output is None:
+            self._is_new_output = not self.output_bundle.closed
+        return self._is_new_output
 
     def processing_id(self):
         """
@@ -204,8 +259,8 @@ class PipeTask(luigi.Task, PipeBase):
 
         """
 
-        if self.driver_output_bundle is not None:
-            return self.driver_output_bundle
+        if self.root_output_bundle_name is not None:
+            return self.root_output_bundle_name
         elif self.user_set_human_name is not None:
             return self.user_set_human_name
         else:
@@ -218,11 +273,7 @@ class PipeTask(luigi.Task, PipeBase):
         Returns:
             hframe_uuid (str): The unique identifier for this task's hyperframe
         """
-
-        pce = PathCache.get_path_cache(self)
-        assert (pce is not None)
-
-        return pce.uuid
+        return self.output_bundle.uuid
 
     def upstream_hframes(self):
         """ Convert upstream tasks to hyperframes, return list of hyperframes
@@ -235,7 +286,7 @@ class PipeTask(luigi.Task, PipeBase):
         hfrs = []
         for t in tasks:
             hfid = t.get_hframe_uuid()
-            hfrs.append(self.pfs.get_hframe_by_uuid(hfid, data_context=self.data_context))
+            hfrs.append(self.pfs.get_hframe_by_uuid(hfid, data_context=self.pfs.get_context(self.data_context_name)))
 
         return hfrs
 
@@ -266,35 +317,60 @@ class PipeTask(luigi.Task, PipeBase):
 
         for user_arg_name, cls_and_params in rslt.items():
             pipe_class, params = cls_and_params[0], cls_and_params[1]
-
             assert isinstance(pipe_class, luigi.task_register.Register)
-
-            # we propagate the same inputs and the same output dir for every upstream task!
-            params.update({
-                'user_arg_name': user_arg_name,
-                'calling_task': self,
-                'driver_output_bundle': None,  # allow intermediate tasks pipe_id to be independent of root task.
-                'force': self.force,
-                'output_tags': dict({}),  # do not pass output_tags up beyond root task
-                'data_context': self.data_context,  # all operations wrt this context
-                'incremental_push': self.incremental_push,  # propagate the choice to push incremental data.
-                'incremental_pull': self.incremental_pull  # propagate the choice to incrementally pull data.
-            })
+            self._update_dependency_pipe_params(params, user_arg_name)
             tasks[user_arg_name] = pipe_class(**params)
 
         return tasks
+
+    def _update_dependency_pipe_params(self, params, user_arg_name):
+        """
+        Given a parameter dictionary, update with PipeTask parameters
+        Never called on the user's root task.  It's important to delete
+        root_output_bundle_name and forced_output_bundle_uuid b/c if someone
+        yields a PipeTask, Luigi doesn't take the instance, they make a new one
+        and the parameter serializer replaces None with 'None' for string params.
+
+        Args:
+            params (dict): a dictionary of str: arg for a new PipeTask class
+            user_arg_name (str): The user's name of the resulting task output
+
+        Returns:
+            (dict)
+        """
+        # we propagate the same inputs and the same output dir for every upstream task!
+        params.update({
+            'user_arg_name': user_arg_name,
+            'is_root_task': False,
+            'force': self.force,
+            'output_tags': dict({}),  # do not pass output_tags up beyond root task
+            'data_context_name': self.data_context_name,  # all operations wrt this context
+            'incremental_push': self.incremental_push,  # propagate the choice to push incremental data.
+            'incremental_pull': self.incremental_pull  # propagate the choice to incrementally pull data.
+        })
+
+        return params
 
     def output(self):
         """
         This is the *only* output function for all pipes.  It declares the creation of the
         one HyperFrameRecord pb and that's it.  Remember, has to be idempotent.
 
+        Note: By checking self.output_bundle we are implicitly also looking up our output bundle.
+
         Return:
             (list:str):
 
         """
+        if self.output_bundle is None:
+            assert(self.uuid == MISSING_EXT_DEP_UUID)  # only reason we should be here.
+            output_path = DisdatFS().get_context(self.data_context_name).get_object_dir()
+            output_uuid = "this_file_should_not_exist"  # look for a file that should not exist
+        else:
+            output_path = self.output_bundle.local_dir
+            output_uuid = self.output_bundle.uuid
 
-        return PipeBase.add_bundle_meta_files(self)
+        return luigi.LocalTarget(os.path.join(output_path, HyperFrameRecord.make_filename(output_uuid)))
 
     def run(self):
         """
@@ -307,23 +383,35 @@ class PipeTask(luigi.Task, PipeBase):
             None
         """
         kwargs = self.prepare_pipe_kwargs(for_run=True)
-        pce = PathCache.get_path_cache(self)
-        assert(pce is not None)
+        bundle = self.output_bundle
+        assert(bundle is not None)
 
         """ NOTE: If a user changes a task param in run(), and that param parameterizes a dependency in requires(), 
         then running requires() post run() will give different tasks.  To be safe we record the inputs before run() 
         """
-        cached_bundle_inputs = self.bundle_inputs()
+        add_dep_bundle_inputs = self.input_bundles()
 
         try:
             start = time.time()  # P3 datetime.now().timestamp()
             user_rtn_val = self.pipe_run(**kwargs)
+            if isinstance(user_rtn_val, GeneratorType):
+                try:
+                    while True:  # while the user's task is yielding
+                        task_list = next(user_rtn_val)
+                        if not isinstance(task_list, list): task_list = [task_list]
+                        # have we been here before?  If so, don't yield.
+                        if all(task.complete() for task in task_list):
+                            pass
+                        else:
+                            yield task_list  # yield the task or list of tasks
+                except StopIteration as si:
+                    user_rtn_val = si.value # we always have a return value, it is in si.value
             stop = time.time()  # P3 datetime.now().timestamp()
         except Exception as error:
             """ If user's pipe fails for any reason, remove bundle dir and raise """
             try:
                 _logger.error("User pipe_run encountered exception: {}".format(error))
-                pce.bundle.abandon()
+                bundle.abandon()
             except OSError as ose:
                 _logger.error("User pipe_run encountered error, and error on remove bundle: {}".format(ose))
             raise
@@ -334,40 +422,44 @@ class PipeTask(luigi.Task, PipeBase):
                 self.user_tags.update(self.output_tags)
 
             # If this is the root_task, identify it as so in the tag dict
-            if isinstance(self.calling_task, DriverTask):
+            if self.is_root_task:
                 self.user_tags.update({'root_task': 'True'})
 
             """ if we have a pce, we have a new bundle that we need to add info to and close """
-            pce.bundle.add_data(user_rtn_val)
+            bundle.add_data(user_rtn_val)
 
-            pce.bundle.add_timing(start, stop)
+            bundle.add_timing(start, stop)
 
-            pce.bundle.add_dependencies(cached_bundle_inputs.values(), cached_bundle_inputs.keys())
+            bundle.add_dependencies(add_dep_bundle_inputs.values(), add_dep_bundle_inputs.keys())
 
-            pce.bundle.name = self.human_id()
+            yield_output_bundles = [t.output_bundle for t in self.yield_deps.values()]
+            yield_output_names = self.yield_deps.keys()
+            bundle.add_dependencies(yield_output_bundles, yield_output_names)
 
-            pce.bundle.processing_name = self.processing_id()
+            bundle.name = self.human_id()
 
-            pce.bundle.add_params(self._get_subcls_params())
+            bundle.processing_name = self.processing_id()
 
-            pce.bundle.add_tags(self.user_tags)
+            bundle.add_params(self._get_subcls_params())
 
-            pce.bundle.add_code_ref('{}.{}'.format(self.__class__.__module__, self.__class__.__name__))
+            bundle.add_tags(self.user_tags)
+
+            bundle.add_code_ref('{}.{}'.format(self.__class__.__module__, self.__class__.__name__))
 
             pipeline_path = os.path.dirname(sys.modules[self.__class__.__module__].__file__)
             cv = DisdatFS.get_pipe_version(pipeline_path)
-            pce.bundle.add_git_info(cv.url, cv.hash, cv.branch)
+            bundle.add_git_info(cv.url, cv.hash, cv.branch)
 
-            pce.bundle.close()  # Write out the bundle
+            bundle.close()  # Write out the bundle
 
             """ Incrementally push the completed bundle """
-            if self.incremental_push and (BUNDLE_TAG_TRANSIENT not in pce.bundle.tags):
-                self.pfs.commit(None, None, uuid=pce.bundle.uuid, data_context=self.data_context)
-                self.pfs.push(uuid=pce.uuid, data_context=self.data_context)
+            if self.incremental_push and (BUNDLE_TAG_TRANSIENT not in bundle.tags):
+                self.pfs.commit(None, None, uuid=bundle.uuid, data_context=self.pfs.get_context(self.data_context_name))
+                self.pfs.push(uuid=bundle.uuid, data_context=self.pfs.get_context(self.data_context_name))
 
         except Exception as error:
             """ If we fail for any reason, remove bundle dir and raise """
-            pce.bundle.abandon()
+            bundle.abandon()
             raise
 
         return None
@@ -440,22 +532,20 @@ class PipeTask(luigi.Task, PipeBase):
             self._input_tags = {}
             self._input_bundle_uuids = {}
 
-            upstream_tasks = [(t.user_arg_name, PathCache.get_path_cache(t)) for t in self.deps()]
-            for user_arg_name, pce in [u for u in upstream_tasks if u[1] is not None]:
+            upstream_tasks = [(t.user_arg_name, t.output_bundle) for t in self.deps()]
 
-                b = api.get(self.data_context.get_local_name(), None, uuid=pce.uuid)
+            for user_arg_name, b in [u for u in upstream_tasks if u[1] is not None]:
                 assert b.is_presentable
 
-                # Download data that is not local (the linked files are not present).
-                # This is the default behavior when running in a container.
+                # Download data that is not local (the linked files not present). Default when running in container.
                 if self.incremental_pull:
                     b.pull(localize=True)
 
-                if pce.instance.user_arg_name in kwargs:
-                    _logger.warning('Task human name {} reused when naming task dependencies: Dependency hyperframe shadowed'.format(pce.instance.user_arg_name))
+                if user_arg_name in kwargs:
+                    _logger.warning('Task human name {} reused when naming task dependencies'.format(user_arg_name))
 
                 self._input_tags[user_arg_name] = b.tags
-                self._input_bundle_uuids[user_arg_name] = pce.uuid
+                self._input_bundle_uuids[user_arg_name] = b.uuid
                 kwargs[user_arg_name] = b.data
 
         return kwargs
@@ -494,7 +584,48 @@ class PipeTask(luigi.Task, PipeBase):
         """
         raise NotImplementedError()
 
-    def add_dependency(self, param_name, task_class, params):
+    def yield_dependency(self, pipe_class, params):
+        """
+        Disdat Pipe API Function
+
+        Use this function to dynamically yield dependencies in the pipe_run function.  Access these dependency
+        results by retaining a reference to the PipeTask and calling PipeTask.pipe_output.
+        ``
+        def pipe_run(self, some_arg=None):
+            pipe = self.yield_dependency(IsFish, params=None)
+            yield pipe
+            if pipe.pipe_output is True:
+              print("It's a fish.")
+        ``
+
+        Args:
+            pipe_class (object):  Class name of upstream task if looking for external bundle by processing_id.
+            params (dict):  Dictionary of parameters if looking for external bundle by processing_id.
+
+        Returns:
+            `disdat.PipeTask`
+        """
+        if not isinstance(params, dict):
+            error = "yield_dependency: params argument must be a dictionary"
+            raise Exception(error)
+
+        assert isinstance(pipe_class, luigi.task_register.Register)
+
+        # Note: we instantiate a new class each time to get the Luigi Task.task_id.  we don't need the
+        # PipeTask.processing_name because we only need tasks that are unique to this parent task (the one yielding).
+        # But we can't just use yielded task order to name them if the task yields in different orders.
+        self._update_dependency_pipe_params(params, YIELD_PIPETASK_ARG_NAME)
+        to_yield = pipe_class(**params)
+        id = to_yield.task_id
+
+        if id not in self.yield_deps:
+            self.yield_deps[id] = to_yield
+        else:
+            if self.yield_deps[id] is not to_yield: del to_yield
+
+        return self.yield_deps[id]
+
+    def add_dependency(self, param_name, pipe_class, params):
         """
         Disdat Pipe API Function
 
@@ -502,7 +633,7 @@ class PipeTask(luigi.Task, PipeBase):
 
         Args:
             param_name (str): The parameter name this bundle assumes when passed to Pipe.run
-            task_class (object):  Class name of upstream task if looking for external bundle by processing_id.
+            pipe_class (object):  Class name of upstream task if looking for external bundle by processing_id.
             params (dict):  Dictionary of parameters if looking for external bundle by processing_id.
 
         Returns:
@@ -514,11 +645,11 @@ class PipeTask(luigi.Task, PipeBase):
             raise Exception(error)
 
         assert (param_name not in self.add_deps)
-        self.add_deps[param_name] = (task_class, params)
+        self.add_deps[param_name] = (pipe_class, params)
 
         return
 
-    def add_external_dependency(self, param_name, task_class, params, human_name=None, uuid=None):
+    def add_external_dependency(self, param_name, pipe_class, params, human_name=None, uuid=None):
         """
         Disdat Pipe API Function
 
@@ -548,7 +679,7 @@ class PipeTask(luigi.Task, PipeBase):
 
         Args:
             param_name (str): The parameter name this bundle assumes when passed to Pipe.run
-            task_class (object):  Class name of upstream task if looking for external bundle by processing_id.
+            pipe_class (object):  Class name of upstream task if looking for external bundle by processing_id.
             params (dict):  Dictionary of parameters if looking for external bundle by processing_id.
             human_name (str): Resolve dependency by human_name, return the latest bundle with that humman_name.  Trumps task_class and params.
             uuid (str): Resolve dependency by explicit UUID, trumps task_class, params and human_name.
@@ -559,7 +690,7 @@ class PipeTask(luigi.Task, PipeBase):
         """
         import disdat.api as api
 
-        if task_class is not None and not isinstance(params, dict):
+        if pipe_class is not None and not isinstance(params, dict):
             error = "add_external_dependency requires parameter dictionary"
             raise Exception(error)
 
@@ -567,26 +698,26 @@ class PipeTask(luigi.Task, PipeBase):
 
         try:
             if uuid is not None:
-                hfr = self.pfs.get_hframe_by_uuid(uuid, data_context=self.data_context)
+                hfr = self.pfs.get_hframe_by_uuid(uuid, data_context=self.pfs.get_context(self.data_context_name))
             elif human_name is not None:
-                hfr = self.pfs.get_latest_hframe(human_name, data_context=self.data_context)
+                hfr = self.pfs.get_latest_hframe(human_name, data_context=self.pfs.get_context(self.data_context_name))
             else:
                 # we propagate the same inputs and the same output dir for every upstream task!
                 params.update({
                     'user_arg_name': param_name,
-                    'data_context': self.data_context
+                    'data_context_name': self.data_context_name
                 })
-                p = task_class(**params)
-                hfr = self.pfs.get_hframe_by_proc(p.processing_id(), data_context=self.data_context)
+                p = pipe_class(**params)
+                hfr = self.pfs.get_hframe_by_proc(p.processing_id(), data_context=self.pfs.get_context(self.data_context_name))
 
             if hfr is None:
-                error_str = "Disdat can't resolve external bundle from class[{}] params[{}] name[{}] uuid[{}]".format(task_class,
-                                                                                                                   params,
-                                                                                                                   human_name,
-                                                                                                                   uuid)
+                error_str = "Disdat can't resolve external bundle from class[{}] params[{}] name[{}] uuid[{}]".format(pipe_class,
+                                                                                                                      params,
+                                                                                                                      human_name,
+                                                                                                                      uuid)
                 raise ExtDepError(error_str)
 
-            bundle = api.Bundle(self.data_context.get_local_name()).fill_from_hfr(hfr)
+            bundle = api.Bundle(self.data_context_name).fill_from_hfr(hfr)
 
         except ExtDepError as error:  # Swallow and allow Luigi to determine task is not available.
             _logger.error(error_str)
@@ -598,9 +729,16 @@ class PipeTask(luigi.Task, PipeBase):
 
         finally:
             if bundle is None:
-                self.add_deps[param_name] = (luigi.task.externalize(ExternalDepTask), {'uuid': 'None',
+                self.add_deps[param_name] = (luigi.task.externalize(ExternalDepTask), {'uuid': MISSING_EXT_DEP_UUID,
                                                                                        'processing_name': 'None'})
             else:
+                # When a task requires an external dep, this can be called multiple times.  And then
+                # we return to the pipe.run which creates the class.  Note that calling task.deps() will cause
+                # the requires() to be called.  But calling deps() doesn't mean that task.output() will be called
+                # And that means is that tasks that have been required might not have their task.cached_output_bundle
+                # set by calling resolve_bundle.  Now, in this case, because we are calling luigi.task.externalize,
+                # we are actually creating *copies* of the class object and so luigi object caching isn't going to work.
+                # This means that resolve_bundle must be called when using the cached_output_bundle field.
                 self.add_deps[param_name] = (luigi.task.externalize(ExternalDepTask), {'uuid': bundle.uuid,
                                                                                        'processing_name': bundle.processing_name})
 
@@ -618,10 +756,8 @@ class PipeTask(luigi.Task, PipeBase):
         Returns:
             (`luigi.LocalTarget`): Singleton, list, or dictionary of Luigi Target objects.
         """
+        output_dir = self.output_bundle.local_dir
 
-        pce = PathCache.get_path_cache(self)
-        assert (pce is not None)
-        output_dir = pce.path
         return self.filename_to_luigi_targets(output_dir, filename)
 
     def create_remote_output_file(self, filename):
@@ -640,8 +776,6 @@ class PipeTask(luigi.Task, PipeBase):
             (`luigi.contrib.s3.S3Target`): Singleton, list, or dictionary of Luigi Target objects.
 
         """
-        pce = PathCache.get_path_cache(self)
-        assert (pce is not None)
         output_dir = self.get_remote_output_dir()
         return self.filename_to_luigi_targets(output_dir, filename)
 
@@ -700,9 +834,7 @@ class PipeTask(luigi.Task, PipeBase):
             output_dir (str):  The bundle's output directory
 
         """
-        pce = PathCache.get_path_cache(self)
-        assert(pce is not None)
-        return pce.path
+        return self.output_bundle.local_dir
 
     def get_remote_output_dir(self):
         """
@@ -715,10 +847,11 @@ class PipeTask(luigi.Task, PipeBase):
             output_dir (str):  The bundle's output directory on S3
 
         """
-        pce = PathCache.get_path_cache(self)
-        assert(pce is not None)
-        if self.data_context.remote_ctxt_url and self.incremental_push:
-            output_dir = os.path.join(self.data_context.get_remote_object_dir(), pce.uuid)
+        uuid = self.output_bundle.uuid
+
+        data_context = self.pfs.get_context(self.data_context_name)
+        if data_context.remote_ctxt_url and self.incremental_push:
+            output_dir = os.path.join(data_context.get_remote_object_dir(), uuid)
         else:
             raise Exception('Managed S3 path creation needs a) remote context and b) incremental push to be set')
         return output_dir
@@ -822,6 +955,155 @@ class PipeTask(luigi.Task, PipeBase):
         else:
             self.add_tags({BUNDLE_TAG_TRANSIENT: 'True'})
 
+    def _resolve_bundle(self, data_context):
+        """
+        Instead of resolving before we run, this resolve can be issued
+        from within the pipe.output() function.
+
+        Note: Only returns None with an unfound external dependency
+
+        Note: If returning a new bundle, we do *not* open it in this function. Bundle.open()
+        creates the output directory.  Only do that if we know we're going to actually use the
+        bundle in pipe.output().
+
+        Args:
+            self: the pipe to investigate
+            data_context: the data context object from which we should resolve bundles.
+
+        Returns:
+            Bundle: bundle to use. If open, new bundle, if closed, re-using
+        """
+        verbose = False
+
+        if verbose:
+            print("resolve_bundle: looking up bundle {}".format(self.processing_id()))
+
+        if (self._mark_force or self.force) and not isinstance(self, ExternalDepTask):
+            # Forcing recomputation through a manual annotation or --force directive, unless external
+            _logger.debug("resolve_bundle: pipe.mark_force forcing a new output bundle.")
+            if verbose: print("resolve_bundle: pipe.mark_force forcing a new output bundle.\n")
+            return api.Bundle(data_context)
+
+        if isinstance(self, ExternalDepTask):
+            # NOTE: Even if add_external_dependency() fails to find the bundle we still succeed here.
+            # Thus it can look like we reuse a bundle, when in fact we don't.  We error either
+            # within the user's requires, add_external_dependency(), or when Luigi can't find the task (current approach)
+            assert worker._is_external(self)
+            b = api.get(data_context.get_local_name(), None, uuid=str(self.uuid))
+            if b is not None:
+                if verbose: print("resolve_bundle: found ExternalDepTask re-using bundle with UUID[{}].\n".format(self.uuid))
+            else:
+                if verbose: print("resolve_bundle: No ExternalDepTask found with UUID[{}].\n".format(self.uuid))
+            return b
+
+        bndls = api.search(data_context.get_local_name(), processing_name=self.processing_id())
+
+        if bndls is None or len(bndls) <= 0:
+            if verbose: print("resolve_bundle: No bundle with proc_name {}, getting new output bundle.\n".format(self.processing_id()))
+            return api.Bundle(data_context)
+
+        bndl = bndls[0]  # our best guess is the most recent bundle with the same processing_id()
+
+        # 2.) Bundle exists - lineage object tells us input bundles.
+        lng = bndl.get_lineage()
+        if lng is None:
+            if verbose: print("resolve_bundle: No lineage present, getting new output bundle.\n")
+            return api.Bundle(data_context)
+
+        # 3.) Lineage record exists -- if new code, re-run
+        pipeline_path = os.path.dirname(sys.modules[self.__module__].__file__)
+        current_version = DisdatFS().get_pipe_version(pipeline_path)
+
+        if different_code_versions(current_version, lng):
+            if verbose: print("resolve_bundle: New code version, getting new output bundle.\n")
+            return api.Bundle(data_context)
+
+        # 3.5.) Have we changed the output human bundle name?  If so, re-run task.
+        # Note: we need to go through all the bundle versions with that processing_id.
+        # because, at the moment, we make new bundles when we change name.  When in some sense
+        # it's just a tag set that should include other names and the data should be the same.
+
+        current_human_name = self.human_id()
+        found = False
+        for bndl in bndls:
+            if current_human_name == bndl.get_human_name():
+                found = True
+                break
+        if not found:
+            if verbose: print("resolve_bundle: New human name {} (prior {}), getting new output bundle.\n".format(
+                current_human_name, bndl.get_human_name()))
+            return api.Bundle(data_context)
+
+        # 4.) Check the inputs -- assumes we have processed upstream tasks already
+        for task in self.deps():
+            """ Are we re-running an upstream input?
+            Look through its *current* list of possible upstream tasks, not the ones it had
+            on its prior run.   If the UUID has changed relative to lineage, then we need to re-run.
+            
+            In general, the only reason we should re-run an upstream is b/c of a code change.  And that change
+            did not change the tasks parameters.  So it looks the same, but it is actually different.  OR someone 
+            deletes and re-runs (maybe sql query result changes though parameters are the same).
+            
+            But if an output exists and we want to ignore code version and ignore data changes then
+            while we do this, we should re-use our bundle independent of whether an upstream needs to re-run 
+            or whether one of our inputs is out of date. 
+            
+            So one option is to ignore upstreams that need to be re-run.  Re-use blindly.  Like Luigi.  
+            
+            Another option is that anytime we don't have an input bundle, we attempt to read it not just
+            locally, but remotely as well.               
+            """
+            LUIGI_RERUN = False
+
+            if LUIGI_RERUN:
+                # Ignore whether upstreams had to be re-run b/c they didn't have bundles.
+                # Ignore whether this has to be re-run because existing inputs are newer
+                continue
+
+            if task.output_bundle is None:
+                # this can happen with bundles created by other pipelines.
+                # still surface the warning, but no longer raise exception
+                _logger.info(
+                    "Resolve bundles: this pipe's dep {} has no input bundle. Likely an externally produced bundle".format(
+                        task.processing_id()))
+            else:
+                if task.is_new_output:
+                    if verbose: print("Resolve_bundle: upstream task is being re-run, so rerun with new output bundle.\n")
+                    return api.Bundle(data_context)
+
+                # Upstream Task
+                # Resolve to a bundle, UUID and a processing name
+                # If it is an ordinary task in a workflow, we resolve via the processing name
+                if worker._is_external(task) and isinstance(task, ExternalDepTask):
+                    upstream_dep_uuid = task.uuid
+                    upstream_dep_processing_name = task.processing_name
+                else:
+                    found = api.search(data_context.get_local_name(), processing_name=task.processing_id())
+                    assert len(found) > 0
+                    local_bundle = found[0]  # the most recent with this processing_name
+                    upstream_dep_uuid = local_bundle.pb.uuid
+                    upstream_dep_processing_name = local_bundle.pb.processing_name
+                    assert(upstream_dep_processing_name == task.processing_id())
+
+                """ Now we need to check if we should re-run this task because an upstream input exists and has been updated        
+                Go through each of the inputs used for this current task.  
+                POLICY
+                1.) if the date is more recent, it is "new" data.
+                2.) if it is older, we should require force (but currently do not and re-run).
+                XXX TODO: Add date to the depends_on pb data structure to enforce 2 XXX
+                """
+                for tup in lng.pb.depends_on:
+                    if tup.hframe_proc_name == upstream_dep_processing_name and tup.hframe_uuid != upstream_dep_uuid:
+                        if verbose: print("Resolve_bundle: prior input bundle {} uuid {} has new uuid {}\n".format(
+                            task.processing_id(),
+                            tup.hframe_uuid,
+                            upstream_dep_uuid))
+                        return api.Bundle(data_context)
+
+        # 5.) Woot!  Reuse the found bundle.
+        if verbose: print("resolve_bundle: reusing bundle\n")
+        return bndl
+
 
 class ExternalDepTask(PipeTask):
     """ This task is only here as a shell.
@@ -837,12 +1119,7 @@ class ExternalDepTask(PipeTask):
     uuid = luigi.Parameter(default=None)
     processing_name = luigi.Parameter(default=None)
 
-    def bundle_output(self):
-        """ External bundles have no outputs
-        """
-        return None
-
-    def bundle_inputs(self):
+    def input_bundles(self):
         """ External bundles output are in lineage.
         Note: this is only called in apply for now.  And this task can never
         be called by apply directly.

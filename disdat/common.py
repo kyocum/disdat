@@ -101,7 +101,7 @@ def apply_handle_result(apply_result, raise_not_exit=False):
         else:
             sys.exit(None) # None yields exit value of 0
     else:
-        error_str = "Disdat Apply ran, but one or more tasks failed."
+        error_str = "Disdat Apply ran, but one or more tasks failed or missing dependencies."
         if raise_not_exit:
             raise ApplyError(error_str, apply_result)
         else:

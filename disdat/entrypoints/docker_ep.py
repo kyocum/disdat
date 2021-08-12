@@ -227,13 +227,12 @@ def run_disdat_container(args):
                     to_push = disdat.api.search(args.branch, is_committed=False, find_intermediates=True)
                     for b in to_push:
                         _commit_and_push(b)
-                if result['did_work']:
+                b = disdat.api.get(None, uuid=args.output_bundle_uuid)
+                if b is not None:
                     _logger.info("Pipeline ran.  Committing and pushing output bundle UUID {}.".format(args.output_bundle_uuid))
-                    b = disdat.api.get(None, uuid=args.output_bundle_uuid)
-                    assert(b is not None)
                     _commit_and_push(b)
                 else:
-                    _logger.info("Pipeline ran but did no useful work (output bundle exists).")
+                    _logger.info("Pipeline ran but did not finish final task.")
             else:
                 _logger.info("Pipeline ran but user specified not to push any bundles to remote context.")
         else:

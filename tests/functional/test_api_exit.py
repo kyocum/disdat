@@ -43,13 +43,10 @@ def test():
     result = None
     try:
         result = api.apply(TEST_CONTEXT, Root, output_bundle='test_api_exit', params={}, force=True, workers=2)
-    except ApplyError as ae:
-        print ("Got exception {} result {}".format(ae, ae.result))
-        assert(ae.result['did_work'])
-        assert(not ae.result['success'])
-    except Exception as e:
-        print ("Wrong exception (not ApplyError) {}".format(e))
-        raise e
+    except ApplyError as e:
+        print ("Got ApplyError exception {} result {} ".format(e, e.result))
+        assert(e.result['did_work'])
+        assert(not e.result['success'])
     finally:
         print("API apply returned {}".format(result))
 
@@ -83,6 +80,7 @@ class Root(PipeTask):
         """ Depend on GenData """
         self.add_dependency('task_succeeds', FailBate, {'unique': 0})
         self.add_dependency('task_fails', FailBate, {'unique': 1})
+        pass
 
     def pipe_run(self, **kwargs):
         """ Compute average and return as a dictionary """
