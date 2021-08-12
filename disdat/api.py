@@ -180,27 +180,23 @@ class Bundle(HyperFrameRecord):
             self.close()
 
     def __getstate__(self):
-        """ Before pickling remove the reference to the cached bundle
-        The cached bundle has an object reference to the data_context
-         The data context can have an open DB connection, bad for pickling
-         But even if we remove that, pickling has an issue:
-         _pickle.PicklingError: Can't pickle <class 'hyperframe_pb2.HyperFrame'>: import of module 'hyperframe_pb2' failed
-         To avoid these issues, we're going to remove the cached reference
-         and force the deserialized task to re-aquire the cached bundle.
-         The right way is to cache the UUID and recreate the bundle when we
-         refer to the cached_output_bundle.
+        """ Manual serialization for pickling bundles
+        We need to remove references to the data context, the DisdatFS, and
+        underlying protobuf.  Data contexts have DB connections, DisdatFS points
+        to the current data context, and protobufs should be serialized to string using
+        the protobuf serializer.
          """
         state = self.__dict__.copy()
-        # don't pickle the data context object.
+        # convert the data context object to a name
         state['data_context'] = self.data_context.get_local_name()
-        # don't pickle the FS object
+        # no need to carry around the fs
         del state['_fs']
-        # don't pickle the protobuf object
+        # convert underlying pb to a string
         state['pb'] = self.pb.SerializeToString()
         return state
 
     def __setstate__(self, state):
-        """ we don't restore here. """
+        """ Deserialize the context, fs, and pb fields  """
         self.__dict__.update(state)
         # Restore a pointer to DisdatFS
         self._fs = _get_fs()

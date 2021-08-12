@@ -31,16 +31,11 @@ from disdat import logger as _logger
 
 CodeVersion = collections.namedtuple('CodeVersion', 'semver hash tstamp branch url dirty')
 
+MISSING_EXT_DEP_UUID = 'UnresolvedExternalDep'
+YIELD_PIPETASK_ARG_NAME = "YieldArgName"
 
 class PipeBase(object):
     __metaclass__ = ABCMeta
-
-    BUNDLE_META = 'bundle_meta'
-    BUNDLE_LINEAGE = 'bundle_lineage'
-    HFRAME = 'hframe'
-    FRAME = 'frame'
-    AUTH = 'auth'
-    MISSING_EXT_DEP_UUID = 'UnresolvedExternalDep'
 
     @property
     def pfs(self):

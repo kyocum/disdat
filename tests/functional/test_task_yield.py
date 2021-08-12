@@ -45,8 +45,7 @@ class Static(PipeTask):
 
     def pipe_run(self):
         if self.dyn_yield:
-            result = self.yield_dependency("shark", Yielded, params={'n': self.n,
-                                                                     'source': "Static{}Source".format(self.n)})
+            result = self.yield_dependency(Yielded, params={'n': self.n, 'source': "Static{}Source".format(self.n)})
             yield result
         return self.n * 2
 
@@ -61,8 +60,7 @@ class Yielded(PipeTask):
 
     def pipe_run(self, pipeline_input=None):
         if self.dyn_yield:
-            result = self.yield_dependency("catfish", Yielded, params={'n': self.n,
-                                                                       'source': "Yielded{}Source".format(self.n)})
+            result = self.yield_dependency(Yielded, params={'n': self.n, 'source': "Yielded{}Source".format(self.n)})
             yield result
         return self.n
 
@@ -84,7 +82,7 @@ class Root(PipeTask):
     def pipe_run(self, a=None, b=None):
         results = []
         for i in range(self.n):
-            results.append(self.yield_dependency('{}'.format(i), Yielded, params={'n': i}))
+            results.append(self.yield_dependency(Yielded, params={'n': i}))
             yield results[-1]
 
         print (sum(d.pipe_output for d in results))
@@ -95,7 +93,7 @@ class RootYieldList(Root):
     def pipe_run(self, a=None, b=None):
         results = []
         for i in range(self.n):
-            results.append(self.yield_dependency('{}'.format(i), Yielded, params={'n': i}))
+            results.append(self.yield_dependency(Yielded, params={'n': i}))
         yield results
         print (sum(d.pipe_output for d in results))
         return sum(d.pipe_output for d in results)

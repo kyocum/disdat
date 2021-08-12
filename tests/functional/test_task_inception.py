@@ -90,5 +90,5 @@ def test_inception_3_3():
 if __name__ == '__main__':
     api.delete_context(TEST_CONTEXT)
     api.context(TEST_CONTEXT)
-    test_inception_3_3()
+    test_inception_3_1()
     #api.apply(TEST_CONTEXT, A, params={'n': 1})

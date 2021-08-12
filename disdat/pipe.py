@@ -41,7 +41,7 @@ from types import GeneratorType
 import luigi
 from luigi import worker
 
-from disdat.pipe_base import PipeBase
+from disdat.pipe_base import PipeBase, YIELD_PIPETASK_ARG_NAME, MISSING_EXT_DEP_UUID
 from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PUSH_META, ExtDepError
 from disdat.hyperframe import HyperFrameRecord
 from disdat import logger as _logger
@@ -146,9 +146,9 @@ class PipeTask(luigi.Task, PipeBase):
 
         So we need a remote db to store the processingname -> bundle uuid binding.  It's the data context (and
         the sqlite db).  But we only push to the db on bundle write (it's either closed / on disk / in db, or nothing).
-        So adding an additional state would require work.
+        So storing an additional bundle state would require some changes to the db.
 
-        In lieu of that, we adopt the following slight more expensive policy:
+        In lieu of that, we adopt the following slightly more expensive policy:
         * if cache empty: cache returned bundle from resolve.
         * if cached and closed: return bundle
         * if cached and open:  call resolve.  [Did an identical task write this logical bundle (by processing name)?]
@@ -157,8 +157,7 @@ class PipeTask(luigi.Task, PipeBase):
         *      if closed: return cached closed bundle.  There should be no situation where resolve returns a different bundle.
 
         It is possible that two tasks do the same work and write to two different bundles with the same processing name.
-        This won't be incorrect, just inefficient.   Future fix would be to synchronize on the DB for procname::bundle
-        open.
+        This won't be incorrect, just inefficient.   Future fix would be to synchronize on the DB vis-a-vis above.
         """
         if self._cached_output_bundle is None:
             self._cached_output_bundle = self._resolve_bundle(self.pfs.get_context(self.data_context_name))
@@ -360,15 +359,14 @@ class PipeTask(luigi.Task, PipeBase):
 
         """
         if self.output_bundle is None:
-            assert(self.uuid == PipeBase.MISSING_EXT_DEP_UUID)  # only reason we should be here.
+            assert(self.uuid == MISSING_EXT_DEP_UUID)  # only reason we should be here.
             output_path = DisdatFS().get_context(self.data_context_name).get_object_dir()
             output_uuid = "this_file_should_not_exist"  # look for a file that should not exist
         else:
             output_path = self.output_bundle.local_dir
             output_uuid = self.output_bundle.uuid
 
-        hframe = {PipeBase.HFRAME: luigi.LocalTarget(os.path.join(output_path, HyperFrameRecord.make_filename(output_uuid)))}
-        return hframe
+        return luigi.LocalTarget(os.path.join(output_path, HyperFrameRecord.make_filename(output_uuid)))
 
     def run(self):
         """
@@ -398,7 +396,6 @@ class PipeTask(luigi.Task, PipeBase):
                         task_list = next(user_rtn_val)
                         if not isinstance(task_list, list): task_list = [task_list]
                         # have we been here before?  If so, don't yield.
-                        #for task in task_list:
                         if all(task.complete() for task in task_list):
                             pass
                         else:
@@ -583,45 +580,46 @@ class PipeTask(luigi.Task, PipeBase):
         """
         raise NotImplementedError()
 
-    def yield_dependency(self, param_name, pipe_class, params):
+    def yield_dependency(self, pipe_class, params):
         """
         Disdat Pipe API Function
 
-        Use this function to dynamically yield dependencies
-        in the pipe_run function.   It should be used like
+        Use this function to dynamically yield dependencies in the pipe_run function.  Access these dependency
+        results by retaining a reference to the PipeTask and calling PipeTask.pipe_output.
         ``
         def pipe_run(self, some_arg=None):
-            pipe = self.yield_dependency(result_name, IsFish, params=None)
+            pipe = self.yield_dependency(IsFish, params=None)
             yield pipe
-            if pipe.output is True:
+            if pipe.pipe_output is True:
               print("It's a fish.")
         ``
 
         Args:
-            param_name (str): The parameter name this bundle assumes when passed to Pipe.run
             pipe_class (object):  Class name of upstream task if looking for external bundle by processing_id.
             params (dict):  Dictionary of parameters if looking for external bundle by processing_id.
 
         Returns:
             `disdat.PipeTask`
-
         """
         if not isinstance(params, dict):
             error = "yield_dependency: params argument must be a dictionary"
             raise Exception(error)
 
-        # While Luigi re-starts the run function from scratch, we do not.
-        # We act like a normal yield, so inserting a yielded task twice shouldn't happen.
-        if param_name not in self.yield_deps:
-            assert isinstance(pipe_class, luigi.task_register.Register)
-            self._update_dependency_pipe_params(params, param_name)
-            self.yield_deps[param_name] = pipe_class(**params)
-        else:
-            pass
-            # above is not true, we end up coming through here multiple times
-            #assert False, "yield_dependency: there is already a dependency with param_name {}".format(param_name)
+        assert isinstance(pipe_class, luigi.task_register.Register)
 
-        return self.yield_deps[param_name]
+        # Note: we instantiate a new class each time to get the Luigi Task.task_id.  we don't need the
+        # PipeTask.processing_name because we only need tasks that are unique to this parent task (the one yielding).
+        # But we can't just use yielded task order to name them if the task yields in different orders.
+        self._update_dependency_pipe_params(params, YIELD_PIPETASK_ARG_NAME)
+        to_yield = pipe_class(**params)
+        id = to_yield.task_id
+
+        if id not in self.yield_deps:
+            self.yield_deps[id] = to_yield
+        else:
+            if self.yield_deps[id] is not to_yield: del to_yield
+
+        return self.yield_deps[id]
 
     def add_dependency(self, param_name, pipe_class, params):
         """
@@ -727,7 +725,7 @@ class PipeTask(luigi.Task, PipeBase):
 
         finally:
             if bundle is None:
-                self.add_deps[param_name] = (luigi.task.externalize(ExternalDepTask), {'uuid': self.MISSING_EXT_DEP_UUID,
+                self.add_deps[param_name] = (luigi.task.externalize(ExternalDepTask), {'uuid': MISSING_EXT_DEP_UUID,
                                                                                        'processing_name': 'None'})
             else:
                 # When a task requires an external dep, this can be called multiple times.  And then
