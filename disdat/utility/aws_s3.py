@@ -36,7 +36,9 @@ from disdat import logger as _logger
 
 S3_LS_USE_MP_THRESH = 4000  # the threshold after which we should use MP to look up bundles on s3
 
-# Use forkserver unless this environment variable is set (hopefully to fork, used by testing)
+# Set to available MP contexts, such as forkserver, spawn, or fork.
+# We also support "singleprocess" -- in which case Disdat will not use MP
+SINGLE_PROCESS_MP_TYPE = "singleprocess"
 MP_CONTEXT_TYPE = os.environ.get('MP_CONTEXT_TYPE', 'forkserver')
 MAX_TASKS_PER_CHILD = 100       # Force the pool to kill workers when they've done 100 tasks.
 
@@ -420,7 +422,7 @@ def ls_s3_url_keys(s3_url, is_object_directory=False):
 
     results = []
 
-    if is_object_directory:
+    if is_object_directory and MP_CONTEXT_TYPE != SINGLE_PROCESS_MP_TYPE:
         prefixes = [f'{c}{d}' for c in hexes for d in hexes]
         multiple_results = []
         mp_ctxt = get_context(MP_CONTEXT_TYPE)
@@ -509,18 +511,23 @@ def delete_s3_dir_many(s3_urls):
         number objects deleted (int)
 
     """
-    mp_ctxt = get_context(MP_CONTEXT_TYPE)  # Using forkserver here causes moto / pytest failures
-    with mp_ctxt.Pool(
-        processes=disdat_cpu_count(),
-        maxtasksperchild=MAX_TASKS_PER_CHILD,
-        initializer=get_s3_resource,
-    ) as pool:
-        multiple_results = []
+    if MP_CONTEXT_TYPE == SINGLE_PROCESS_MP_TYPE:
         results = []
         for s3_url in s3_urls:
-            multiple_results.append(pool.apply_async(delete_s3_dir, (s3_url,), callback=results.append))
-        pool.close()
-        pool.join()
+            results.append(delete_s3_dir(s3_url))
+    else:
+        mp_ctxt = get_context(MP_CONTEXT_TYPE)  # Using forkserver here causes moto / pytest failures
+        with mp_ctxt.Pool(
+            processes=disdat_cpu_count(),
+            maxtasksperchild=MAX_TASKS_PER_CHILD,
+            initializer=get_s3_resource,
+        ) as pool:
+            multiple_results = []
+            results = []
+            for s3_url in s3_urls:
+                multiple_results.append(pool.apply_async(delete_s3_dir, (s3_url,), callback=results.append))
+            pool.close()
+            pool.join()
 
     return sum([1 if r > 0 else 0 for r in results])
 
@@ -638,23 +645,28 @@ def put_s3_key_many(bucket_key_file_tuples):
         list: list of destination s3 paths
 
     """
-    mp_ctxt = get_context(MP_CONTEXT_TYPE)
-    est_cpu_count = disdat_cpu_count()
-    _logger.debug("put_s3_key_many using MP with cpu_count {}".format(est_cpu_count))
-    with mp_ctxt.Pool(
-            processes=est_cpu_count,
-            maxtasksperchild=MAX_TASKS_PER_CHILD,
-            initializer=get_s3_resource,
-    ) as pool:
-        multiple_results = []
+
+    if MP_CONTEXT_TYPE == SINGLE_PROCESS_MP_TYPE:
         results = []
         for local_object_path, s3_path in bucket_key_file_tuples:
-            multiple_results.append(pool.apply_async(cp_local_to_s3_file,
-                                                     (local_object_path, s3_path),
-                                                     callback=results.append))
-
-        pool.close()
-        pool.join()
+            results.append(cp_local_to_s3_file(local_object_path, s3_path))
+    else:
+        mp_ctxt = get_context(MP_CONTEXT_TYPE)
+        est_cpu_count = disdat_cpu_count()
+        _logger.debug("put_s3_key_many using MP with cpu_count {}".format(est_cpu_count))
+        with mp_ctxt.Pool(
+                processes=est_cpu_count,
+                maxtasksperchild=MAX_TASKS_PER_CHILD,
+                initializer=get_s3_resource,
+        ) as pool:
+            multiple_results = []
+            results = []
+            for local_object_path, s3_path in bucket_key_file_tuples:
+                multiple_results.append(pool.apply_async(cp_local_to_s3_file,
+                                                         (local_object_path, s3_path),
+                                                         callback=results.append))
+            pool.close()
+            pool.join()
     return results
 
 
@@ -714,23 +726,27 @@ def get_s3_key_many(bucket_key_file_tuples):
         filenames (list): list of filenames
 
     """
-    mp_ctxt = get_context(MP_CONTEXT_TYPE)  # Using forkserver here causes moto / pytest failures
-    est_cpu_count = disdat_cpu_count()
-    _logger.debug("get_s3_key_many using MP with cpu_count {}".format(est_cpu_count))
-    with mp_ctxt.Pool(
-            processes=est_cpu_count,
-            maxtasksperchild=MAX_TASKS_PER_CHILD,
-            initializer=get_s3_resource,
-    ) as pool:
-        multiple_results = []
+    if MP_CONTEXT_TYPE == SINGLE_PROCESS_MP_TYPE:
         results = []
         for s3_bucket, s3_key, local_object_path in bucket_key_file_tuples:
-            multiple_results.append(pool.apply_async(get_s3_key,
-                                                     (s3_bucket, s3_key, local_object_path),
-                                                     callback=results.append))
-
-        pool.close()
-        pool.join()
+            results.append(get_s3_key(s3_bucket, s3_key, local_object_path))
+    else:
+        mp_ctxt = get_context(MP_CONTEXT_TYPE)  # Using forkserver here causes moto / pytest failures
+        est_cpu_count = disdat_cpu_count()
+        _logger.debug("get_s3_key_many using MP with cpu_count {}".format(est_cpu_count))
+        with mp_ctxt.Pool(
+                processes=est_cpu_count,
+                maxtasksperchild=MAX_TASKS_PER_CHILD,
+                initializer=get_s3_resource,
+        ) as pool:
+            multiple_results = []
+            results = []
+            for s3_bucket, s3_key, local_object_path in bucket_key_file_tuples:
+                multiple_results.append(pool.apply_async(get_s3_key,
+                                                         (s3_bucket, s3_key, local_object_path),
+                                                         callback=results.append))
+            pool.close()
+            pool.join()
     return results
 
 
