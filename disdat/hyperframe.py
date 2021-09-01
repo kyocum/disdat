@@ -28,29 +28,28 @@ Frame      -- contains data literals and links.                 Has a Table stor
   Link       -- contains link literals and pointer to LinkAuth.   No table, no PB on disk
 LinkAuth   -- contains auth creds.                              Has a Table storing PB, and PB on disk
 
-**question design decision.  Might have lineage table.  Might not store frame pb in db.
-
 Each Python object is called <Thing>Record
 Each PB object is called <Thing>
 
 HyperFrame contains UUIDs of Frames.  Supports downloading HyperFrames without downloading all contained data.
-It may be stored in an HFrame table as a byte blob and re-inflated without worry that it will be
- excessively large.
+
+Note: as of this time LinkAuths are not used
 
 """
 from __future__ import print_function
 
 import sys
 from collections import namedtuple, defaultdict
+from collections.abc import Sequence
 import hashlib
 import time
 import os
 import tempfile
 from datetime import datetime
+import importlib
 
 import numpy as np
 import pandas as pd
-import luigi
 import six
 import enum
 from sqlalchemy import Table, Column, String, MetaData, BLOB, Text, Enum, UniqueConstraint, DateTime
@@ -58,7 +57,6 @@ from sqlalchemy.sql import text
 from sqlalchemy.exc import IntegrityError
 
 import disdat.common as common
-from disdat.db_link import DBLink
 from disdat import hyperframe_pb2
 from disdat.utility.aws_s3 import s3_path_exists
 from disdat import logger as _logger
@@ -646,6 +644,95 @@ def strip_file_prefix(series):
         series[i] = series[i][7:]
 
 
+def parse_return_val(hfid, val, data_context):
+    """
+    Interpret the return values and create an HFrame to wrap them.
+    This means setting the correct presentation bit in the HFrame so that
+    we call downstream tasks with parameters as the author intended.
+
+    POLICY / NOTE:  An non-HF output is a Presentable.
+    NOTE: For now, a task output is *always* presentable.
+    NOTE: No other code should set presentation in a HyperFrame.
+
+    The mirror to this function (that unpacks a presentable is disdat.fs.present_hfr()
+
+    Args:
+        hfid (str): UUID
+        val (object): A scalar, dict, tuple, list, dataframe
+        data_context (DataContext): The data context into which to place this value
+
+    Returns:
+        (presentation, frames[])
+
+    """
+
+    possible_scalar_types = (
+        int,
+        float,
+        str,
+        bool,
+        np.bool_,
+        np.int8,
+        np.int16,
+        np.int32,
+        np.int64,
+        np.uint8,
+        np.uint16,
+        np.uint32,
+        np.uint64,
+        np.float16,
+        np.float32,
+        np.float64,
+        six.binary_type,
+        six.text_type,
+        np.unicode_,
+        np.string_
+    )
+
+    frames = []
+
+    if val is None:
+        """ None's stored as json.dumps([None]) or '[null]' """
+        presentation = hyperframe_pb2.JSON
+        frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
+
+    elif isinstance(val, HyperFrameRecord):
+        presentation = hyperframe_pb2.HF
+        frames.append(FrameRecord.make_hframe_frame(hfid, common.DEFAULT_FRAME_NAME + ':0', [val]))
+
+    elif isinstance(val, np.ndarray) or isinstance(val, list):
+        presentation = hyperframe_pb2.TENSOR
+        if isinstance(val, list):
+            val = np.array(val)
+        frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
+
+    elif isinstance(val, tuple):
+        presentation = hyperframe_pb2.ROW
+        val = np.array(val)
+        frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
+
+    elif isinstance(val, dict):
+        presentation = hyperframe_pb2.ROW
+        for k, v in val.items():
+            if not isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, Sequence)):
+                # assuming this is a scalar
+                assert isinstance(v, possible_scalar_types), 'Disdat requires dictionary values to be one of {} not {}'.format(possible_scalar_types, type(v))
+                frames.append(data_context.convert_scalar2frame(hfid, k, v))
+            else:
+                assert isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, Sequence))
+                frames.append(data_context.convert_serieslike2frame(hfid, k, v))
+
+    elif isinstance(val, pd.DataFrame):
+        presentation = hyperframe_pb2.DF
+        frames.extend(data_context.convert_df2frames(hfid, val))
+
+    else:
+        presentation = hyperframe_pb2.SCALAR
+        frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
+
+    return presentation, frames
+
+
 class PBObject(object):
     """
     Most objects mirror PB objects.
@@ -926,7 +1013,6 @@ class HyperFrameRecord(PBObject):
     def is_presentable(self):
         """
         Whether or not this HyperFrame is a presentable.
-        All HF's made by individual Luigi Tasks are presentable.
 
         Returns:
             (bool)
@@ -1688,21 +1774,16 @@ class FrameRecord(PBObject):
             (bool): Whether the series | ndarray appears to be a link column
         """
 
-        # Welcome to duck typing.   Get the first element of
-        # the series and check to see if it is some kind of recognizable
+        # Get the first element of the series and check to see if it is some kind of recognizable
         # file element. If we get a TypeError (does not implement
         # __getitem__) or an attribute error (not a string) then we
         # definitely do not have a link series.
         try:
             tester = series_like[0]
-            if isinstance(tester, luigi.Target):
-                return True
-            elif isinstance(tester, DBLink):
-                return True
-            elif (tester.startswith('file:///') or
-                  tester.startswith('s3://') or
-                  tester.startswith('db://')
-                  ):
+
+            if (tester.startswith('file:///') or
+                tester.startswith('s3://') or
+                tester.startswith('db://')):
                 return True
             else:
                 return False
@@ -1747,19 +1828,6 @@ class FrameRecord(PBObject):
         assert(len(self.pb.links) > 0)
         link_pb = self.pb.links[0]
         return link_pb.WhichOneof('link') == 's3'
-
-    def is_db_link_frame(self):
-        """
-        Whether this frame contains db links
-
-        Returns:
-            (bool):
-        """
-        if not self.is_link_frame():
-            return False
-        assert(len(self.pb.links) > 0)
-        link_pb = self.pb.links[0]
-        return link_pb.WhichOneof('link') == 'database'
 
     def is_hfr_frame(self):
         """
@@ -2024,7 +2092,7 @@ class FrameRecord(PBObject):
 
     @staticmethod
     def make_link_frame(hfid, name, file_paths, local_managed_path, remote_managed_path):
-        """ Create link frame from file paths (file, s3, or db) or luigi.Target objects.
+        """ Create link frame from file paths (file, s3, or db)
 
         Assumes file_paths are 'file:///' or 's3://' or 'db://'
         Assumes that the files are already copied into the bundle directory.
@@ -2036,7 +2104,7 @@ class FrameRecord(PBObject):
         Args:
             hfid: hyperframe id
             name: column name
-            file_paths (:list:str): array of paths or luigi.Target objects
+            file_paths (:list:str): array of paths
             local_managed_path (str): The current local directory structure
             remote_managed_path (str): The current remote directory structure
 
@@ -2044,14 +2112,11 @@ class FrameRecord(PBObject):
             (FrameRecord)
         """
 
-        if isinstance(file_paths[0], luigi.LocalTarget):
-            file_paths = ['file://{}'.format(lt.path) if lt.path.startswith('/') else lt.path for lt in file_paths]
-
         if file_paths[0].startswith('file:///'):
             link_type = FileLinkRecord
         elif file_paths[0].startswith('s3://'):
             link_type = S3LinkRecord
-        elif file_paths[0].startswith('db://') or isinstance(file_paths[0], DBLink):
+        elif file_paths[0].startswith('db://'):
             _logger.error("Found database reference[{}], DBLinks deprecated in 0.9.3 ".format(file_paths[0]))
             raise Exception("hyperframe:make_link_frame: error trying to use a database reference.")
         else:

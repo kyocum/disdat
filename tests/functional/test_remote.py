@@ -18,7 +18,6 @@ import boto3
 import moto
 import pytest
 
-from disdat.pipe import PipeTask
 import disdat.api as api
 from tests.functional.common import run_test, TEST_CONTEXT
 
@@ -27,18 +26,10 @@ TEST_BUCKET = 'test-bucket'
 TEST_BUCKET_URL = "s3://{}".format(TEST_BUCKET)
 
 
-class RemoteTest(PipeTask):
-    def pipe_requires(self, pipeline_input=None):
-        self.set_bundle_name('remote_test')
-
-    def pipe_run(self, pipeline_input=None):
-        return 'Hello'
-
-
 @moto.mock_s3
 def test_push(run_test):
     s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name='us-east-1')
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
     bucket = s3_resource.Bucket(TEST_BUCKET)
 
@@ -48,7 +39,7 @@ def test_push(run_test):
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
     api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
 
-    api.apply(TEST_CONTEXT, RemoteTest)
+    _ = api.Bundle(TEST_CONTEXT, name='remote_test', data='Hello')
     bundle = api.get(TEST_CONTEXT, 'remote_test')
 
     assert bundle.data == 'Hello'
@@ -67,7 +58,7 @@ def test_push(run_test):
 @moto.mock_s3
 def test_pull(run_test):
     s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name='us-east-1')
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
     bucket = s3_resource.Bucket(TEST_BUCKET)
 
@@ -77,7 +68,7 @@ def test_pull(run_test):
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
     api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
 
-    api.apply(TEST_CONTEXT, RemoteTest)
+    _ = api.Bundle(TEST_CONTEXT, name='remote_test', data='Hello')
     bundle = api.get(TEST_CONTEXT, 'remote_test')
 
     assert bundle.data == 'Hello'
@@ -95,8 +86,8 @@ def test_pull(run_test):
     api.pull(TEST_CONTEXT)
 
     pulled_bundles = api.search(TEST_CONTEXT)
-    assert len(pulled_bundles) > 0, 'Pulled bundles down'
-    assert pulled_bundles[0].data == 'Hello', 'Bundle contains correct data'
+    assert len(pulled_bundles) > 0, 'No bundles were pulled'
+    assert pulled_bundles[0].data == 'Hello', 'Bundle contains incorrect data'
 
     bucket.objects.all().delete()
     bucket.delete()

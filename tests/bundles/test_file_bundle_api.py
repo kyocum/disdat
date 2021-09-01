@@ -29,14 +29,6 @@ TEST_REMOTE = '__test_remote_context__'
 TEST_BUCKET = 'test-bucket'
 TEST_BUCKET_URL = "s3://{}".format(TEST_BUCKET)
 
-
-# Setup moto s3 resources
-
-# Make sure bucket is empty
-#objects = s3_client.list_objects(Bucket=TEST_BUCKET)
-#assert 'Contents' not in objects, 'Bucket should be empty'
-
-
 def md5_file(fname):
     hash_md5 = hashlib.md5()
     with open(fname, "rb") as f:
@@ -92,7 +84,7 @@ def test_copy_in_s3_file(run_test):
     The file should be copied into the local context
     """
 
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name="us-east-1")
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
 
     # Copy a local file to moto s3 bucket
@@ -119,7 +111,7 @@ def test_copy_in_s3_file_with_remote(run_test):
     The file should be copied into the remote context
     """
 
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name="us-east-1")
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
 
     api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
@@ -142,7 +134,7 @@ def test_copy_in_s3_file_with_remote(run_test):
 @moto.mock_s3
 def test_zero_copy_s3_file(run_test):
     """ Test managed path in local file """
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name="us-east-1")
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
 
     api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)

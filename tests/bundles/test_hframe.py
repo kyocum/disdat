@@ -13,6 +13,7 @@ import hashlib
 import tempfile
 import uuid
 import numpy as np
+import pytest
 
 
 def _make_linkauth_records():
@@ -365,5 +366,7 @@ def test_link_rw_db():
     assert (s3_hash == s3_hash2)
 
 
+if __name__ == "__main__":
+    pytest.main([__file__])
 
 

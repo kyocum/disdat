@@ -2,24 +2,10 @@
 
 echo "Building Disdat package for local installation or PyPi . . ."
 
-# Bump version up -- Can use release or patch or major or minor
-# bumpversion --dry-run --verbose release disdat/VERSION
-
-# Now bump version for real
-# and git commit -am "<version>"
+# Use git to tag the release with the semver you wish
 # git tag <version>
 
-# Remove the prior tar ball from the context.template
-rm -rf  disdat/infrastructure/dockerizer/context.template/disdat-*.tar.gz
-rm -rf  dist/disdat-*.tar.gz
-
 # Create a new sdist
-python setup.py sdist
-
-# Copy over to the context.template.
-cp dist/disdat-*.tar.gz disdat/infrastructure/dockerizer/context.template/.
-
-# Create a new sdist that will have that tar.gz in the template
 python setup.py sdist
 
 # publish to test pypi

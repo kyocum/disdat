@@ -91,7 +91,7 @@ def create_remote_file_bundle(name):
      b.) a managed s3 path
      c.) a managed s3 path with a directory
      """
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name='us-east-1')
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
 
     # Copy a local file to moto s3 bucket
@@ -125,7 +125,7 @@ def _setup(remote=True):
 
     # Setup moto s3 resources
     s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name='us-east-1')
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
 
     # Make sure bucket is empty

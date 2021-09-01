@@ -25,7 +25,6 @@ import importlib
 import subprocess
 import uuid
 
-import luigi
 from six.moves import urllib
 from six.moves import configparser
 import six
@@ -38,7 +37,6 @@ from disdat import logger as _logger
 SYSTEM_CONFIG_DIR = '~/.config/disdat'
 PACKAGE_CONFIG_DIR = 'disdat'
 LOGGING_FILE = 'logging.conf'
-LUIGI_FILE = 'luigi.cfg'
 CFG_FILE = 'disdat.cfg'
 META_DIR = '.disdat'
 DISDAT_CONTEXT_DIR = 'context'  # ~/.disdat/context/<local_context_name>
@@ -134,7 +132,7 @@ class DisdatConfig(object):
 
         Args:
             meta_dir_root (str): Optional place to store disdat contexts. Default `~/`
-            config_dir (str): Optional directory from which to get disdat.cfg and luigi.cfg.  Default SYSTEM_CONFIG_DIR
+            config_dir (str): Optional directory from which to get disdat.cfg and (optionally) luigi.cfg.  Default SYSTEM_CONFIG_DIR
         """
 
         # Find configuration directory
@@ -149,16 +147,14 @@ class DisdatConfig(object):
                 'Call "dsdt init" to initialize Disdat.'
             )
 
-        # Extract individual configuration files
         disdat_cfg = os.path.join(config_dir, CFG_FILE)
-        luigi_cfg = os.path.join(config_dir, LUIGI_FILE)
 
         if meta_dir_root:
             self.meta_dir_root = meta_dir_root
         else:
             self.meta_dir_root = '~/'
         self.logging_config = None
-        self.parser = self._read_configuration_file(disdat_cfg, luigi_cfg)
+        self.parser = self._read_configuration_file(disdat_cfg)
 
     @staticmethod
     def instance(meta_dir_root=None, config_dir=None):
@@ -167,7 +163,7 @@ class DisdatConfig(object):
 
         Args:
             meta_dir_root (str): Optional place to store disdat contexts. Default `~/`
-            config_dir (str): Optional directory from which to get disdat.cfg and luigi.cfg.  Default SYSTEM_CONFIG_DIR
+            config_dir (str): Optional directory from which to get disdat.cfg and (optional) luigi.cfg.  Default SYSTEM_CONFIG_DIR
         """
         if DisdatConfig._instance is None:
             DisdatConfig._instance = DisdatConfig(meta_dir_root=meta_dir_root, config_dir=config_dir)
@@ -179,9 +175,9 @@ class DisdatConfig(object):
             return os.path.join(os.path.dirname(config_file), to_fix_path)
         return to_fix_path
 
-    def _read_configuration_file(self, disdat_config_file, luigi_config_file):
+    def _read_configuration_file(self, disdat_config_file):
         """
-        Check for environment varialbe 'DISDAT_CONFIG_PATH' -- should point to disdat.cfg
+        Check for environment variable 'DISDAT_CONFIG_PATH' -- should point to disdat.cfg
         Paths in the config might be relative.  If so, add the prefix to them.
         Next, see if there is a disdat.cfg in cwd.  Then configure disdat and (re)configure logging.
         """
@@ -192,13 +188,10 @@ class DisdatConfig(object):
         self.meta_dir_root = DisdatConfig._fix_relative_path(disdat_config_file, self.meta_dir_root)
         self.ignore_code_version = config.getboolean('core', 'ignore_code_version')
 
-        # Set up luigi configuration
-        luigi.configuration.get_config().read(luigi_config_file)
-
         # Tell everything to push warnings through the logging infrastructure
         logging.captureWarnings(True)
 
-        # unfortunately that's not enough -- kill all luigi (and disdat) warnings
+        # unfortunately that's not enough -- kill all warnings
         import warnings
         warnings.filterwarnings("ignore")
 
@@ -237,13 +230,6 @@ class DisdatConfig(object):
         src = resource.filename(disdat.config, PACKAGE_CONFIG_DIR)
         dst = directory
         shutil.copytree(src, dst)
-
-        # Make sure paths are absolute in luigi config
-        luigi_dir = os.path.join(directory, LUIGI_FILE)
-        config = configparser.ConfigParser()
-        config.read(luigi_dir)
-        with open(luigi_dir, 'w') as handle:
-            config.write(handle)
 
 #
 # subprocess wrapper
@@ -473,64 +459,6 @@ def parse_args_tags(args_tag, to='dict'):
             tag_thing = {k: v for k, v in [kv[0].split(':') for kv in args_tag]}
 
     return tag_thing
-
-
-def parse_params(cls, params):
-    """
-    Create a dictionary of str->str arguments to str->python objects deser'd by Luigi Parameters
-
-    Input is the string "--arg value --arg2 value2"
-
-    Convert to dict {'arg':str,'arg2':str2}
-
-    then
-
-    Convert to dict {'arg':luigi.Parameter.value,'arg2':luigi.Parameter.value2}
-
-    Args:
-        cls (type[disdat.pipe.PipeTask]):
-        params: from argparse
-
-    Returns:
-         dict {'arg':value,'arg2':value2}
-    """
-
-    params_str_dict = {k.lstrip('--'): v for k, v in zip(params[::2], params[1::2])}
-
-    return convert_str_params(cls, params_str_dict)
-
-
-def convert_str_params(cls, params_str):
-    """
-    This is similar to Luigi.Task.from_str_params(cls, params_str)
-    But we don't create the class here, and we outer loop through our params (not the classes
-    params).  We just want to convert each of the params that are in the class and in this dictionary
-    into the deserialized form.
-
-    NOTE:  This is somewhat dangerous and could break if Luigi changes around
-    this code.  The alternative is to use Luigi.load_task() but then we have to ensure
-    all the input parameters are "strings" and we have to then put special code
-    inside of apply to know when to create a class normally, or create it from the CLI.
-
-    Parameters:
-        params_str (dict): dict of str->str.  param name -> value .
-    """
-    kwargs = {}
-
-    cls_params = {n: p for n, p in cls.get_params()}  # get_params() returns [ (name, param), ... ]
-
-    for param_name, param_str in params_str.items():
-        if param_name in cls_params:
-            param = cls_params[param_name]
-            if isinstance(param_str, list):
-                kwargs[param_name] = param._parse_list(param_str)
-            else:
-                kwargs[param_name] = param.parse(param_str)
-        else:
-            _logger.error("Parameter {} is not defined in class {}.".format(param_name, cls.__name__))
-            raise ValueError("Parameter {} is not defined in class {}.".format(param_name, cls.__name__))
-
-    return kwargs
 
 
 def get_local_file_path(url):

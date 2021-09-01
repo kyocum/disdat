@@ -23,7 +23,7 @@ setup(
     setup_requires=['setuptools_scm'],
 
     name='disdat',
-    description='DisDat: versioned data science',
+    description='Disdat: data versioning',
     author='Ken Yocum',
     author_email='kyocum@gmail.com',
     url='https://github.com/kyocum/disdat',
@@ -47,7 +47,6 @@ setup(
 
         # Specify the Python versions you support here. In particular, ensure
         # that you indicate whether you support Python 2, Python 3 or both.
-        'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3.6',
         'Operating System :: OS Independent',
         'Natural Language :: English',
@@ -55,8 +54,7 @@ setup(
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
-    packages=find_packages(exclude=['tests*',
-                                    'infrastructure.tests*']),
+    packages=find_packages(exclude=['tests*']),
 
     # Include non-python files found in each package in the install, if in your MANIFEST.in
     include_package_data=True,
@@ -70,19 +68,11 @@ setup(
         'disdat': [
             'config/disdat/*',
             'VERSION',
-        ],
-        'infrastructure': [
-            'Dockerfiles/hyperframe_def/*'
-            'dockerizer/Makefile',
-            'dockerizer/Dockerfiles/*',
-            'dockerizer/kickstart/bin/*',
-            'dockerizer/kickstart/etc/*',
-        ],
+        ]
     },
 
     exclude_package_data={
         'disdat': [
-            'dockerizer/kickstart/bin/*.pyc',
         ]
     },
 
@@ -93,10 +83,8 @@ setup(
     # If <= means higher versions broke something.
 
     install_requires=[
-        'luigi>=2.8.11,<3.0',
         'boto3>=1.14.49,<2.0',
         'termcolor>=1.1.0,<2.0',
-        'docker>=4.1.0,<4.4.0',
         'pandas>=0.25.3,<=1.2.0',
         'numpy>=1.18.1,<=1.21.1',
         'sqlalchemy>=1.3.13,<1.4',
@@ -117,7 +105,7 @@ setup(
             'pylint',
             'coverage',
             'tox',
-            'moto',
+            'moto==2.2.13', # same as tox.ini
             's3fs<=0.4.2' # 0.5.0 breaks with aiobotocore and missing AWS headers
         ],
         'rel': [
@@ -128,7 +116,6 @@ setup(
     entry_points={
         'console_scripts': [
             'dsdt = disdat.entrypoints.cli_ep:main',
-            'dsdt_docker = disdat.entrypoints.docker_ep:main'
         ],
         'distutils.commands': [
             "dsdt_distname = disdat.infrastructure.dockerizer.setup_tools_commands:DistributionName",

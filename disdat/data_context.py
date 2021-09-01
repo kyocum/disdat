@@ -24,8 +24,6 @@ import shutil
 from sqlalchemy import create_engine
 import pandas as pd
 import numpy as np
-import luigi
-from luigi.contrib.s3 import S3Target
 import urllib
 import boto3
 
@@ -35,7 +33,6 @@ import disdat.hyperframe as hyperframe
 import disdat.common as common
 import disdat.utility.aws_s3 as aws_s3
 from disdat.common import DisdatConfig
-from disdat.db_link import DBLink
 from disdat import logger as _logger
 
 
@@ -974,10 +971,10 @@ class DataContext(object):
 
             copied_in_series_like = []
             for src in series_like:
-                if isinstance(src, S3Target):
-                    src = src.path
-                elif isinstance(src, luigi.LocalTarget):
-                    src = urllib.parse.urljoin('file:', src.path)
+                #if isinstance(src, S3Target):
+                #    src = src.path
+                #elif isinstance(src, luigi.LocalTarget):
+                #    src = urllib.parse.urljoin('file:', src.path)
 
                 if urllib.parse.urlparse(src).scheme == 's3':
                     if remote_managed_path is not None:
@@ -1087,8 +1084,8 @@ class DataContext(object):
             src_files = [src_files]
 
         for src_path in src_files:
-            if isinstance(src_path, luigi.LocalTarget) or isinstance(src_path, S3Target):
-                src_path = src_path.path
+            #if isinstance(src_path, luigi.LocalTarget) or isinstance(src_path, S3Target):
+            #    src_path = src_path.path
 
             src_urlparse = urllib.parse.urlparse(src_path)
 
@@ -1179,21 +1176,16 @@ class DataContext(object):
         """
         file_set = []
 
-        if not (fr.is_local_fs_link_frame() or fr.is_s3_link_frame() or fr.is_db_link_frame()):
+        if not (fr.is_local_fs_link_frame() or fr.is_s3_link_frame()):
             _logger.error("actualize_link_urls called on non-link frame.")
             raise ValueError("actualize_link_urls called on non-link frame.")
 
         urls = fr.get_link_urls()
 
-        if fr.is_db_link_frame():
-            """ No-Op with db links """
-            return urls
-        else:
-            """ Must be s3 or local file links.  All the files in the link must be present """
-            assert urllib.parse.urlparse(urls[0]).scheme == common.BUNDLE_URI_SCHEME.replace('://', '')
-            local_dir = self.get_object_dir()
-            local_file_set = [os.path.join(local_dir, fr.hframe_uuid, f.replace(common.BUNDLE_URI_SCHEME, '')) for f in
-                              urls]
+        """ Must be s3 or local file links.  All the files in the link must be present """
+        assert urllib.parse.urlparse(urls[0]).scheme == common.BUNDLE_URI_SCHEME.replace('://', '')
+        local_dir = self.get_object_dir()
+        local_file_set = [os.path.join(local_dir, fr.hframe_uuid, f.replace(common.BUNDLE_URI_SCHEME, '')) for f in urls]
 
         # Check to see which files are present and which must stay remote
         # This can now happen with individual link localize and delocalize.
@@ -1234,7 +1226,7 @@ class DataContext(object):
         frames = hfr.get_frames(self)
         columns = []
         for fr in frames:
-            if fr.is_local_fs_link_frame() or fr.is_s3_link_frame() or fr.is_db_link_frame():
+            if fr.is_local_fs_link_frame() or fr.is_s3_link_frame():
                 src_paths = self.actualize_link_urls(fr, strip_file_scheme=True)
                 columns.append(pd.Series(data=src_paths, name=fr.pb.name))
             else:
@@ -1260,7 +1252,7 @@ class DataContext(object):
         assert len(frames) == 1
         fr = frames[0]
 
-        if fr.is_local_fs_link_frame() or fr.is_s3_link_frame() or fr.is_db_link_frame():
+        if fr.is_local_fs_link_frame() or fr.is_s3_link_frame():
             src_paths = self.actualize_link_urls(fr, strip_file_scheme=True)
             nda = np.array(src_paths)
         else:
@@ -1283,8 +1275,7 @@ class DataContext(object):
         assert len(frames) == 1
         fr = frames[0]
 
-        assert not (fr.is_local_fs_link_frame() or fr.is_s3_link_frame() or fr.is_db_link_frame()), \
-            "hfr2json, failed since this is a link frame. "
+        assert not (fr.is_local_fs_link_frame() or fr.is_s3_link_frame()), "hfr2json, failed since frame has links."
 
         nda = fr.to_ndarray()
 
@@ -1303,7 +1294,7 @@ class DataContext(object):
         assert len(frames) == 1
         fr = frames[0]
 
-        if fr.is_local_fs_link_frame() or fr.is_s3_link_frame() or fr.is_db_link_frame():
+        if fr.is_local_fs_link_frame() or fr.is_s3_link_frame():
             src_paths = self.actualize_link_urls(fr, strip_file_scheme=True)
             return np.array(src_paths)
         else:
@@ -1324,7 +1315,7 @@ class DataContext(object):
         frames = hfr.get_frames(self)
         row = []
         for fr in frames:
-            if fr.is_local_fs_link_frame() or fr.is_s3_link_frame() or fr.is_db_link_frame():
+            if fr.is_local_fs_link_frame() or fr.is_s3_link_frame():
                 src_paths = self.actualize_link_urls(fr, strip_file_scheme=True)
                 if len(src_paths) == 1:
                     row.append((fr.pb.name, src_paths[0]))
