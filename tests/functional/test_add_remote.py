@@ -40,7 +40,7 @@ def test_add_remote():
 
     # Setup moto s3 resources
     s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name='us-east-1')
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
 
     # Make sure bucket is empty
@@ -78,7 +78,7 @@ def test_add_remote_fail():
 
     # Setup moto s3 resources
     s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name='us-east-1')
 
     # Bind remote context with just bucket
     try:

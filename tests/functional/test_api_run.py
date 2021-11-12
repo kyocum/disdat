@@ -114,7 +114,7 @@ def manual_test_run_aws_batch(run_test, build_container_setup_only):
     """
 
     # Setup moto s3 resources
-    #s3_resource = boto3.resource('s3')
+    #s3_resource = boto3.resource('s3', region_name='us-east-1')
     #s3_resource.create_bucket(Bucket=TEST_BUCKET)
 
     # Add a remote.   Pull and Push!

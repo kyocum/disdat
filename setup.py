@@ -117,7 +117,7 @@ setup(
             'pylint',
             'coverage',
             'tox',
-            'moto',
+            'moto==2.2.13', # same as tox.ini
             's3fs<=0.4.2' # 0.5.0 breaks with aiobotocore and missing AWS headers
         ],
         'rel': [

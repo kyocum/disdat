@@ -38,7 +38,7 @@ class RemoteTest(PipeTask):
 @moto.mock_s3
 def test_push(run_test):
     s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name='us-east-1')
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
     bucket = s3_resource.Bucket(TEST_BUCKET)
 
@@ -67,7 +67,7 @@ def test_push(run_test):
 @moto.mock_s3
 def test_pull(run_test):
     s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name='us-east-1')
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
     bucket = s3_resource.Bucket(TEST_BUCKET)
 

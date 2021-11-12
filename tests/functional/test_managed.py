@@ -140,7 +140,7 @@ def test_remote_push_managed_s3():
 
     # Setup moto s3 resources
     s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name='us-east-1')
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
 
     # Make sure bucket is empty
@@ -173,7 +173,7 @@ def test_remote_push_non_managed_s3():
 
     # Setup moto s3 resources
     s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name='us-east-1')
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
     s3_resource.create_bucket(Bucket=TEST_BUCKET_OTHER)
 
@@ -213,7 +213,7 @@ def test_remote_no_push_managed_s3():
 
     # Setup moto s3 resources
     s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name='us-east-1')
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
 
     # Make sure bucket is empty
@@ -234,7 +234,7 @@ def test_remote_no_push_non_managed_s3():
 
     # Setup moto s3 resources
     s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name='us-east-1')
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
     s3_resource.create_bucket(Bucket=TEST_BUCKET_OTHER)
 
@@ -274,7 +274,7 @@ def test_no_remote_push_non_managed_s3():
 
     # Setup moto s3 resources
     s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name='us-east-1')
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
     s3_resource.create_bucket(Bucket=TEST_BUCKET_OTHER)
 
@@ -309,7 +309,7 @@ def test_no_remote_no_push_non_managed_s3():
 
     # Setup moto s3 resources
     s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3')
+    s3_resource = boto3.resource('s3', region_name='us-east-1')
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
     s3_resource.create_bucket(Bucket=TEST_BUCKET_OTHER)
 
