@@ -87,7 +87,7 @@ class Bundle(HyperFrameRecord):
         There are three ways to create bundles:
 
         1.) Create a bundle with a single call.  Must include a data field!
-        b = api.Bundle('examples', name='propensity_model',owner='kyocum',data='/Users/kyocum/model.tgz')
+        b = api.Bundle('examples', name='propensity_model',owner='fred',data='/Users/fred/model.tgz')
 
         2.) Create a bundle using a context manager.  The initial call requires only a context.
         with api.Bundle('examples') as b:
