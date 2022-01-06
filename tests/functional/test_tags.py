@@ -36,7 +36,7 @@ def context():
 
     try:
         print('ensuring disdat is initialized')
-        common.DisdatConfig.init()
+        common.DisdatLuigiConfig.init()
     except:
         print('disdat already initialized, no worries...')
 

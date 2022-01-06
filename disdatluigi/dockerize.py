@@ -128,7 +128,7 @@ def dockerize(pipeline_root,
 
     """
 
-    disdat_config = disdat.common.DisdatConfig.instance()
+    disdat_config = disdat.common.DisdatLuigiConfig.instance()
 
     # Get configuration parameters
     image_os_type = os_type if os_type is not None else disdat_config.parser.get(_MODULE_NAME, 'os_type')

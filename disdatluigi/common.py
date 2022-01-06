@@ -21,7 +21,6 @@ import sys
 import shutil
 import importlib
 import subprocess
-import uuid
 
 import luigi
 from six.moves import urllib
@@ -31,22 +30,13 @@ import six
 from disdat import resource
 import disdat.config
 from disdat import logger as _logger
+import disdat.common
 
-
-SYSTEM_CONFIG_DIR = '~/.config/disdat'
-PACKAGE_CONFIG_DIR = 'disdat'
+SYSTEM_CONFIG_DIR = '~/.config/disdatluigi'
+PACKAGE_CONFIG_DIR = 'disdatluigi'
 LOGGING_FILE = 'logging.conf'
 LUIGI_FILE = 'luigi.cfg'
 CFG_FILE = 'disdatluigi.cfg'
-META_DIR = '.disdat'
-DISDAT_CONTEXT_DIR = 'context'  # ~/.disdat/context/<local_context_name>
-DEFAULT_FRAME_NAME = 'unnamed'
-BUNDLE_URI_SCHEME = 'bundle://'
-
-# Some tags in bundles are special.  They are prefixed with '__'
-BUNDLE_TAG_PARAMS_PREFIX = '__param.'
-BUNDLE_TAG_TRANSIENT = '__transient'
-BUNDLE_TAG_PUSH_META = '__push_meta'
 
 LOCAL_EXECUTION = 'LOCAL_EXECUTION'  # Docker endpoint env variable if we're running a container locally
 
@@ -63,16 +53,6 @@ class ApplyError(Exception):
 class ExtDepError(Exception):
     def __init__(self, message):
         super(ExtDepError, self).__init__(message)
-
-
-class CatNoBundleError(Exception):
-    def __init__(self, message):
-        super(CatNoBundleError, self).__init__(message)
-
-
-class BadLinkError(Exception):
-    def __init__(self, message):
-        super(BadLinkError, self).__init__(message)
 
 
 def error(msg, *args, **kwargs):
@@ -106,32 +86,12 @@ def apply_handle_result(apply_result, raise_not_exit=False):
             sys.exit(error_str)
 
 
-class SingletonType(type):
-    def __call__(self, *args, **kwargs):
-        try:
-            return self.__instance
-        except AttributeError:
-            self.__instance = super(SingletonType, self).__call__(*args, **kwargs)
-            return self.__instance
-
-
-class MySingleton(object):
-    __metaclass__ = SingletonType
-
-
-class DisdatConfig(object):
-    """
-    Configure Disdat.  Configure logging.
-    Note: This configures root logging with 'basicConfig', which should be idempotent.
-    """
-
+class DisdatLuigiConfig(object):
     _instance = None
 
-    def __init__(self, meta_dir_root=None, config_dir=None):
+    def __init__(self, config_dir=None):
         """
-
         Args:
-            meta_dir_root (str): Optional place to store disdat contexts. Default `~/`
             config_dir (str): Optional directory from which to get disdatluigi.cfg and luigi.cfg.  Default SYSTEM_CONFIG_DIR
         """
 
@@ -143,33 +103,28 @@ class DisdatConfig(object):
 
         if not os.path.exists(config_dir):
             error(
-                'Did not find Disdat configuration. '
-                'Call "dsdt init" to initialize Disdat.'
+                'Did not find Disdat-Luigi configuration. '
+                'Call "dsdt luigi init" to initialize Disdat-Luigi.'
             )
 
         # Extract individual configuration files
         disdat_cfg = os.path.join(config_dir, CFG_FILE)
         luigi_cfg = os.path.join(config_dir, LUIGI_FILE)
 
-        if meta_dir_root:
-            self.meta_dir_root = meta_dir_root
-        else:
-            self.meta_dir_root = '~/'
         self.logging_config = None
         self.parser = self._read_configuration_file(disdat_cfg, luigi_cfg)
 
     @staticmethod
-    def instance(meta_dir_root=None, config_dir=None):
+    def instance(config_dir=None):
         """
         Singleton getter
 
         Args:
-            meta_dir_root (str): Optional place to store disdat contexts. Default `~/`
             config_dir (str): Optional directory from which to get disdatluigi.cfg and luigi.cfg.  Default SYSTEM_CONFIG_DIR
         """
-        if DisdatConfig._instance is None:
-            DisdatConfig._instance = DisdatConfig(meta_dir_root=meta_dir_root, config_dir=config_dir)
-        return DisdatConfig._instance
+        if DisdatLuigiConfig._instance is None:
+            DisdatLuigiConfig._instance = DisdatLuigiConfig(config_dir=config_dir)
+        return DisdatLuigiConfig._instance
 
     @staticmethod
     def _fix_relative_path(config_file, to_fix_path):
@@ -179,15 +134,12 @@ class DisdatConfig(object):
 
     def _read_configuration_file(self, disdat_config_file, luigi_config_file):
         """
-        Check for environment varialbe 'DISDAT_CONFIG_PATH' -- should point to disdatluigi.cfg
         Paths in the config might be relative.  If so, add the prefix to them.
-        Next, see if there is a disdatluigi.cfg in cwd.  Then configure disdat and (re)configure logging.
+        See if there is a disdatluigi.cfg in cwd.  Then configure disdat and (re)configure logging.
         """
         # _logger.debug("Loading config file [{}]".format(disdat_config_file))
-        config = configparser.ConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
+        config = configparser.ConfigParser({'ignore_code_version': 'False'})
         config.read(disdat_config_file)
-        self.meta_dir_root = os.path.expanduser(config.get('core', 'meta_dir_root'))
-        self.meta_dir_root = DisdatConfig._fix_relative_path(disdat_config_file, self.meta_dir_root)
         self.ignore_code_version = config.getboolean('core', 'ignore_code_version')
 
         # Set up luigi configuration
@@ -200,17 +152,7 @@ class DisdatConfig(object):
         import warnings
         warnings.filterwarnings("ignore")
 
-        meta_dir = os.path.join(self.meta_dir_root, META_DIR)
-        if not os.path.exists(meta_dir):
-            os.makedirs(meta_dir)
-
         return config
-
-    def get_meta_dir(self):
-        return os.path.join(self.meta_dir_root, META_DIR)
-
-    def get_context_dir(self):
-        return os.path.join(self.get_meta_dir(), DISDAT_CONTEXT_DIR)
 
     @staticmethod
     def init():
@@ -223,7 +165,7 @@ class DisdatConfig(object):
         # Make sure disdat has not already been initialized
         if os.path.exists(directory):
             error(
-                'DisDat already initialized in {}.'.format(directory)
+                'Disdat-Luigi already initialized in {}.'.format(directory)
             )
 
         # Create outer folder if the system does not have it yet
@@ -289,20 +231,6 @@ def do_subprocess_with_output(cmd):
         return output
     except subprocess.CalledProcessError as cpe:
         raise
-
-#
-# One place to update all the uuid's made by Disdat
-#
-
-def create_uuid():
-    """
-    Note: We had been using uuid1, but found duplicate uuid's when using multiprocessing
-
-    Returns:
-        str: byte string of the 128bit UUID
-
-    """
-    return str(uuid.uuid4())
 
 
 #
@@ -371,7 +299,7 @@ def make_sagemaker_project_repository_name(docker_repository_prefix, setup_file_
 def get_run_command_parameters(pfs):
     remote = pfs.curr_context.remote_ctxt_url
     if remote is not None:
-        remote = remote.replace('/{}'.format(DISDAT_CONTEXT_DIR), '')
+        remote = remote.replace('/{}'.format(disdat.common.DISDAT_CONTEXT_DIR), '')
         local_ctxt = "{}/{}".format(pfs.curr_context.remote_ctxt, pfs.curr_context.local_ctxt)
     else:
         local_ctxt = "{}".format(pfs.curr_context.local_ctxt)
@@ -448,31 +376,6 @@ def make_run_command(
     return [x.strip() for x in args + pipeline_params]
 
 
-def parse_args_tags(args_tag, to='dict'):
-    """ parse argument string of tags 'tag:value tag:value'
-    into a dictionary.
-
-    Args:
-        args_tag (str): tags in string format 'tag:value tag:value'
-        to (str): Make a 'list' or 'dict' (default)
-    Returns:
-        (list(str) or dict(str)):
-    """
-
-    if to == 'list':
-        tag_thing = []
-    else:
-        tag_thing = {}
-
-    if args_tag:
-        if to == 'list':
-            tag_thing = ['{}'.format(kv[0]) for kv in args_tag]
-        if to == 'dict':
-            tag_thing = {k: v for k, v in [kv[0].split(':') for kv in args_tag]}
-
-    return tag_thing
-
-
 def parse_params(cls, params):
     """
     Create a dictionary of str->str arguments to str->python objects deser'd by Luigi Parameters
@@ -529,50 +432,6 @@ def convert_str_params(cls, params_str):
             raise ValueError("Parameter {} is not defined in class {}.".format(param_name, cls.__name__))
 
     return kwargs
-
-
-def get_local_file_path(url):
-    """
-    Get a local file path from a file:// URL.
-
-    Args:
-        url: A `file` scheme URL or an empty (default) scheme URL
-
-    Returns:
-        A path into the local file system
-
-    Raises:
-        TypeError if the URL is not a file URL
-    """
-    parsed_url = urllib.parse.urlparse(url)
-    if parsed_url.scheme != 'file' and parsed_url.scheme != '':
-        raise TypeError('Expected file scheme in URL, got {}'.format(parsed_url.scheme))
-    return parsed_url.path
-
-
-def slicezip(a, b):
-    """
-    Fast method of zip + flatten with same-sized lists.
-    Args:
-        a: list one
-        b: list two
-
-    Returns:
-        [ a[0], b[0], ..., a[n], b[n] ]
-    """
-    result = [0]*(len(a)+len(b))
-    result[::2] = a
-    result[1::2] = b
-    return result
-
-
-def setup_exists(fqp_setup):
-    """ Check if file exists
-    """
-    if not os.path.exists(fqp_setup):
-        print ("No setup.py found at {}.".format(fqp_setup))
-        return False
-    return True
 
 
 def load_class(class_path):

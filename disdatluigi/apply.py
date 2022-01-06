@@ -12,17 +12,6 @@
 # limitations under the License.
 #
 
-"""
-apply
-
-API for executing a pipe
-
-pipes apply output_bundle pipes_cls
-
-author: Kenneth Yocum
-"""
-from __future__ import print_function
-
 import sys
 import os
 import argparse
@@ -202,77 +191,6 @@ def create_users_task(pipe_cls,
     # Instantiate and return the class directly with the parameters
     # Instance caching is taken care of automatically by luigi
     return pipe_cls(**task_params)
-
-
-def different_code_versions(code_version, lineage_obj):
-    """
-    Given the current version, see if it is different than found_version
-    Note, if either version is dirty, we are forced to say they are different
-
-    Typically we get the code_version from the pipe and the lineage object from the
-    bundle.   We then see if the current code == the information in lineage object.
-
-    Args:
-        current_version (CodeVersion) :
-        lineage_obj (LineageObject):
-
-    Returns:
-
-    """
-
-    conf = common.DisdatConfig.instance()
-
-    if conf.ignore_code_version:
-        return False
-
-    # If there were uncommitted changes, then we have to re-run, mark as different
-    if code_version.dirty:
-        return True
-
-    if code_version.semver != lineage_obj.pb.code_semver:
-        return True
-
-    if code_version.hash != lineage_obj.pb.code_hash:
-        return True
-
-    ## Currently ignoring tstamp, branch, url
-    ## CodeVersion = collections.namedtuple('CodeVersion', 'semver hash tstamp branch url dirty')
-
-    return False
-
-
-def new_output_bundle(pipe, data_context, force_uuid=None):
-    """
-    This proposes a new output bundle
-    1.) Create a new UUID
-    2.) Create the directory in the context
-    3.) Add this to the path cache
-
-    Note: We don't add to context's db yet.  The job or pipe hasn't run yet.  So it
-    hasn't made all of its outputs.  If it fails, by definition it won't right out the
-    hframe to the context's directory.   On rebuild / restart we will delete the directory.
-    However, the path_cache will hold on to this directory in memory.
-
-    Args:
-        pipe (`disdat.pipe.PipeTask`):  The task generating this output
-        data_context (`disdat.data_context.DataContext`): Place output in this context
-        force_uuid (str): Override uuid chosen by Disdat Bundle API
-
-    Returns:
-        None
-    """
-    import disdat.api as api  # 3.7 allows us to put this import at the top, but not 3.6.8
-    pce = PathCache.get_path_cache(pipe)
-
-    if pce is None:
-        _logger.debug("new_output_bundle: Adding a new (unseen) task to the path cache.")
-    else:
-        _logger.debug("new_output_bundle: Found a task in our dag already in the path cache: reusing!")
-        return
-
-    b = api.Bundle(data_context).open(force_uuid=force_uuid)
-
-    PathCache.put_path_cache(pipe, b, b.uuid, b.local_dir, True)
 
 
 def cli_apply(args):
