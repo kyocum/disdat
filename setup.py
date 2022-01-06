@@ -17,16 +17,16 @@ from setuptools import setup, find_packages
 
 setup(
     use_scm_version={
-        'write_to': 'disdat/version.py',
+        'write_to': 'disdatluigi/version.py',
         'write_to_template': '__version__ = "{version}"'
     },
     setup_requires=['setuptools_scm'],
 
-    name='disdat',
-    description='DisDat: versioned data science',
+    name='disdat-luigi',
+    description='Disdat-Luigi: Data-versioned Luigi Workflows',
     author='Ken Yocum',
     author_email='kyocum@gmail.com',
-    url='https://github.com/kyocum/disdat',
+    url='https://github.com/kyocum/disdat-luigi',
 
     # Choose your license
     license='Apache License, version 2.0',
@@ -36,7 +36,7 @@ setup(
         #   3 - Alpha
         #   4 - Beta
         #   5 - Production/Stable
-        'Development Status :: 4 - Beta',
+        'Development Status :: 5 - Production/Stable',
 
         # Indicate who your project is intended for
         'Intended Audience :: Science/Research',
@@ -47,8 +47,8 @@ setup(
 
         # Specify the Python versions you support here. In particular, ensure
         # that you indicate whether you support Python 2, Python 3 or both.
-        'Programming Language :: Python :: 2.7',
-        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
         'Operating System :: OS Independent',
         'Natural Language :: English',
     ],
@@ -67,8 +67,8 @@ setup(
     # Otherwise only MANIFEST.in actually works, and then only if include_package_data=True
     package_data={
         '': ['*.json'],
-        'disdat': [
-            'config/disdat/*',
+        'disdatluigi': [
+            'config/disdatluigi/*',
             'VERSION',
         ],
         'infrastructure': [
@@ -81,7 +81,7 @@ setup(
     },
 
     exclude_package_data={
-        'disdat': [
+        'disdatluigi': [
             'dockerizer/kickstart/bin/*.pyc',
         ]
     },
@@ -93,16 +93,10 @@ setup(
     # If <= means higher versions broke something.
 
     install_requires=[
+        'disdat>=1.0',
         'luigi>=3.0,<=3.1',
         'boto3>=1.14.49,<2.0',
-        'termcolor>=1.1.0,<2.0',
         'docker>=4.1.0,<4.4.0',
-        'pandas>=0.25.3,<=1.2.0',
-        'numpy>=1.18.1,<=1.21.1',
-        'sqlalchemy>=1.3.13,<1.4',
-        'protobuf>=3.11.2,<4.0',
-        'six>=1.13.0,<=1.15',
-        'docutils<0.16,>=0.10'
     ],
 
     # List additional groups of dependencies here (e.g. development
@@ -127,7 +121,6 @@ setup(
 
     entry_points={
         'console_scripts': [
-            'dsdt = disdat.entrypoints.cli_ep:main',
             'dsdt_docker = disdat.entrypoints.docker_ep:main'
         ],
         'distutils.commands': [

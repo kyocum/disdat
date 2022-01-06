@@ -1,0 +1,5 @@
+Disdat-Luigi
+Copyright 2018 - 2022 Kenneth Yocum  All Rights Reserved.
+
+The Initial Developer of some parts of this framework is Human Longevity, Inc.
+Copyright 2015 - 2017 Human Longevity, Inc.  All Rights Reserved.
