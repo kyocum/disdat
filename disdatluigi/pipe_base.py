@@ -1,13 +1,16 @@
-"""
-pipe_base.py
-
-Unify DriverTask and PipeTask with one abstract base class.
-
-"""
-
-# Using print as a function makes it easier to switch between printing
-# during development and using logging.{debug, info, ...} in production.
-from __future__ import print_function
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 
 from abc import ABCMeta, abstractmethod
 import os
@@ -26,10 +29,9 @@ from disdat.fs import DisdatFS
 from disdat.data_context import DataContext
 from disdat.hyperframe import HyperFrameRecord, FrameRecord
 import disdat.hyperframe_pb2 as hyperframe_pb2
-from disdat import logger as _logger
 
+from disdatluigi import logger as _logger
 
-CodeVersion = collections.namedtuple('CodeVersion', 'semver hash tstamp branch url dirty')
 
 MISSING_EXT_DEP_UUID = 'UnresolvedExternalDep'
 YIELD_PIPETASK_ARG_NAME = "YieldArgName"

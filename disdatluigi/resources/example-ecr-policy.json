@@ -1,0 +1,20 @@
+{
+  "Version": "2008-10-17",
+  "Statement": [
+    {
+      "Sid": "IMAccessRole",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::<SOMETHING>
+          "arn:aws:iam::<SOMETHING>
+        ]
+      },
+      "Action": [
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage",
+        "ecr:BatchCheckLayerAvailability"
+      ]
+    }
+  ]
+}

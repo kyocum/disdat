@@ -11,23 +11,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-from __future__ import print_function
 
-# Built-in imports
 import inspect
 import logging
 import os
 import tempfile
 import shutil
 
-# Third-party imports
-import disdat.common
-import disdat.resources
-import disdat.utility.aws_s3 as aws
-from disdat.infrastructure import dockerizer
-from disdat.fs import determine_pipe_version
-
 import docker
+import disdat.utility.aws_s3 as aws
+from disdat.utility.bundle_helpers import determine_pipe_version
+
+import disdatluigi.resources
+from disdatluigi.infrastructure import dockerizer
+from disdatluigi.common import do_subprocess, make_project_image_name, make_project_repository_name
+from disdatluigi.common import DisdatLuigiConfig, setup_exists, make_sagemaker_project_repository_name, make_sagemaker_project_image_name
+
 
 _MODULE_NAME = inspect.getmodulename(__file__)
 
@@ -64,7 +63,7 @@ def _copy_in_dot_file(disdat_config, docker_context, dot_file_name, option_name,
             'touch',
             dot_file_path
         ]
-        retval = disdat.common.do_subprocess(touch_command, cli)
+        retval = do_subprocess(touch_command, cli)
 
     return retval
 
@@ -82,7 +81,7 @@ def latest_container_id(pipeline_root, cli):
 
     """
     setup_file = os.path.join(pipeline_root, 'setup.py')
-    pipeline_image_name = disdat.common.make_project_image_name(setup_file)
+    pipeline_image_name = make_project_image_name(setup_file)
     docker_client = docker.from_env()
 
     try:
@@ -128,7 +127,7 @@ def dockerize(pipeline_root,
 
     """
 
-    disdat_config = disdat.common.DisdatLuigiConfig.instance()
+    disdat_config = DisdatLuigiConfig.instance()
 
     # Get configuration parameters
     image_os_type = os_type if os_type is not None else disdat_config.parser.get(_MODULE_NAME, 'os_type')
@@ -150,7 +149,7 @@ def dockerize(pipeline_root,
         docker_context,
     ]
 
-    retval = disdat.common.do_subprocess(rsync_command, cli)
+    retval = do_subprocess(rsync_command, cli)
     if retval: return retval
 
     # PIP: Overwrite pip.conf in the context.template in your repo if they have set the option,
@@ -167,12 +166,12 @@ def dockerize(pipeline_root,
 
     setup_file = os.path.join(pipeline_root, 'setup.py')
 
-    if not disdat.common.setup_exists(setup_file):
+    if not setup_exists(setup_file):
         return 1
 
-    pipeline_image_name = disdat.common.make_project_image_name(setup_file)
+    pipeline_image_name = make_project_image_name(setup_file)
 
-    DEFAULT_DISDAT_HOME = os.path.join('/', *os.path.dirname(disdat.dockerize.__file__).split('/')[:-1])
+    DEFAULT_DISDAT_HOME = os.path.join('/', *os.path.dirname(disdatluigi.dockerize.__file__).split('/')[:-1])
     DISDAT_HOME = os.getenv('DISDAT_HOME', DEFAULT_DISDAT_HOME)
 
     if build:
@@ -198,9 +197,9 @@ def dockerize(pipeline_root,
         if config_dir is not None:
             build_command.append('CONFIG_ROOT={}'.format(config_dir))
         if sagemaker:
-            build_command.append('SAGEMAKER_TRAIN_IMAGE_NAME={}'.format(disdat.common.make_sagemaker_project_image_name(setup_file)))
+            build_command.append('SAGEMAKER_TRAIN_IMAGE_NAME={}'.format(make_sagemaker_project_image_name(setup_file)))
             build_command.append('sagemaker')
-        retval = disdat.common.do_subprocess(build_command, cli)
+        retval = do_subprocess(build_command, cli)
         if retval: return retval
 
     if push:
@@ -211,14 +210,14 @@ def dockerize(pipeline_root,
         if disdat_config.parser.has_option('docker', 'repository_prefix'):
             repository_name_prefix = disdat_config.parser.get('docker', 'repository_prefix')
         if sagemaker:
-            repository_name = disdat.common.make_sagemaker_project_repository_name(repository_name_prefix, setup_file)
-            pipeline_image_name = disdat.common.make_sagemaker_project_image_name(setup_file)
+            repository_name = make_sagemaker_project_repository_name(repository_name_prefix, setup_file)
+            pipeline_image_name = make_sagemaker_project_image_name(setup_file)
         else:
-            repository_name = disdat.common.make_project_repository_name(repository_name_prefix, setup_file)
+            repository_name = make_project_repository_name(repository_name_prefix, setup_file)
 
         # Figure out the fully-qualified repository name, i.e., the name
         # including the registry.
-        if disdat_config.parser.has_option('docker','registry'):
+        if disdat_config.parser.has_option('docker', 'registry'):
             registry_name = disdat_config.parser.get('docker', 'registry').strip('/')
             if registry_name == '*ECR*':
                 policy_resource_name = None
@@ -226,7 +225,7 @@ def dockerize(pipeline_root,
                     policy_resource_name = disdat_config.parser.get('docker', 'ecr_policy')
                 fq_repository_name = aws.ecr_create_fq_respository_name(
                     repository_name,
-                    policy_resource_package=disdat.resources,
+                    policy_resource_package=disdatluigi.resources,
                     policy_resource_name=policy_resource_name
                 )
             else:
@@ -331,5 +330,4 @@ def dockerize_entry(cli=False, **kwargs):
 
 if __name__ == "__main__":
     import api
-
     api.dockerize('/Users/kyocum/Code/anomaly-detection-service/anomaly', 'pipeline.pipeline.Train', push=True)

@@ -23,14 +23,15 @@ import importlib
 import subprocess
 
 import luigi
-from six.moves import urllib
 from six.moves import configparser
 import six
 
-from disdat import resource
-import disdat.config
-from disdat import logger as _logger
 import disdat.common
+
+from disdatluigi import resource
+import disdatluigi.config
+from disdatluigi import logger as _logger
+
 
 SYSTEM_CONFIG_DIR = '~/.config/disdatluigi'
 PACKAGE_CONFIG_DIR = 'disdatluigi'
@@ -174,7 +175,7 @@ class DisdatLuigiConfig(object):
             os.mkdir(path)
 
         # Copy over default configurations
-        src = resource.filename(disdat.config, PACKAGE_CONFIG_DIR)
+        src = resource.filename(disdatluigi.config, PACKAGE_CONFIG_DIR)
         dst = directory
         shutil.copytree(src, dst)
 
@@ -295,6 +296,7 @@ def make_sagemaker_project_repository_name(docker_repository_prefix, setup_file_
 #
 # Make run commands
 #
+
 
 def get_run_command_parameters(pfs):
     remote = pfs.curr_context.remote_ctxt_url

@@ -15,18 +15,17 @@
 A PipeTask is a wrapper around a Luigi Task
 
 It simplifies the Luigi Task interface in a couple of ways.
-requires():
+1.) requires():
   luigi.Task.requires() becomes disdat_luigi.PipeTask.pipe_requires
   In Disdat-Luigi, you call self.add_dependency() and self.add_external_dependency()
   to add upstream tasks.
-run():
+2.) run():
   luigi.Task.run() becomes disdat_luigi.PipeTask.pipe_run()
   In Disdat-Luigi, pipe_run() receives a parameter list of the objects returned by
   the upstream tasks.   Those parameter names are set via the self.add_dependency calls in pipe_requires().
   Thus the return value matters in pipe_run().
   See https://disdat.gitbook.io/disdat-documentation/basic-concepts/bundles/untitled
-
-
+3.) Users no longer need to specify an output() function in their task.
 """
 
 import os
@@ -41,10 +40,11 @@ from luigi import worker
 from disdat.pipe_base import PipeBase, YIELD_PIPETASK_ARG_NAME, MISSING_EXT_DEP_UUID
 from disdat.common import BUNDLE_TAG_TRANSIENT, BUNDLE_TAG_PUSH_META, ExtDepError
 from disdat.hyperframe import HyperFrameRecord
-from disdat import logger as _logger
 from disdat.fs import DisdatFS
+from disdat.utility.bundle_helpers import different_code_versions
 import disdat.api as api
-from disdat.apply import different_code_versions
+
+from disdatluigi import logger as _logger
 
 
 class PipeTask(luigi.Task, PipeBase):
@@ -115,7 +115,7 @@ class PipeTask(luigi.Task, PipeBase):
         NOTE: Calls task.deps which calls task._requires which calls task.requires()
 
         Args:
-            self (disdat.PipeTask):  The pipe task in question
+            self (disdatluigi.PipeTask):  The pipe task in question
 
         Returns:
             (dict(str:`disdat.api.Bundle`)):  {arg_name: bundle, ...}
@@ -600,7 +600,7 @@ class PipeTask(luigi.Task, PipeBase):
             params (dict):  Dictionary of parameters if looking for external bundle by processing_id.
 
         Returns:
-            `disdat.PipeTask`
+            `disdatluigi.PipeTask`
         """
         if not isinstance(params, dict):
             error = "yield_dependency: params argument must be a dictionary"
