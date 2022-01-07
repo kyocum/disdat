@@ -657,6 +657,30 @@ class DataContext(object):
 
         return local_dir, _provided_uuid, remote_dir
 
+    @staticmethod
+    def rm_bundle_dir(output_path, uuid):
+        """
+        We created a directory (managed path) to hold the bundle and any files.   The files have been
+        copied in.   Removing the directory removes any created files.
+
+        ASSUMES:  That we haven't actually updated the local DB with information on this bundle.
+
+        Args:
+            output_path (str):
+            uuid (str):
+            db_targets (list(DBTarget)):
+        Returns:
+            None
+        """
+        try:
+            shutil.rmtree(output_path, ignore_errors=True)
+            os.rmdir(output_path)
+            # TODO: if people create s3 files, s3 file targets, inside of an s3 context,
+            # TODO: then we will have to clean those up as well.
+        except IOError as why:
+            _logger.error("Removal of hyperframe directory {} failed with error {}. Continuing removal...".format(
+                uuid, why))
+
     def rm_hframe(self, hfr_uuid):
         """
         Given a hfr_uuid, remove the hyperframe from the context.
@@ -796,7 +820,6 @@ class DataContext(object):
                 aws_s3.put_s3_file(f, remote_object_dir)
 
         return [(src, dst) for src, dst in zip(to_copy_files, dst_files)]
-
 
     def atomic_update_hframe(self, hfr):
         """
