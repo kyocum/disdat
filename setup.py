@@ -1,6 +1,4 @@
 #
-# Copyright 2015, 2016  Human Longevity, Inc.
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -93,7 +91,7 @@ setup(
     # If <= means higher versions broke something.
 
     install_requires=[
-        'disdat>=1.0',
+        'disdat>0.10',
         'luigi>=3.0,<=3.1',
         'boto3>=1.14.49,<2.0',
         'docker>=4.1.0,<4.4.0',

@@ -14,21 +14,12 @@
 
 from abc import ABCMeta, abstractmethod
 import os
-import shutil
-import collections
 
 import luigi
 from luigi.contrib.s3 import S3Target
-import six
 from six.moves import urllib
-import numpy as np
-import pandas as pd
 
-import disdat.common as common
 from disdat.fs import DisdatFS
-from disdat.data_context import DataContext
-from disdat.hyperframe import HyperFrameRecord, FrameRecord
-import disdat.hyperframe_pb2 as hyperframe_pb2
 
 from disdatluigi import logger as _logger
 
@@ -131,121 +122,3 @@ class PipeBase(object):
             luigi_outputs = PipeBase._interpret_scheme(full_path)
 
         return luigi_outputs
-
-    @staticmethod
-    def rm_bundle_dir(output_path, uuid):
-        """
-        We created a directory (managed path) to hold the bundle and any files.   The files have been
-        copied in.   Removing the directory removes any created files.  If the user has told us about
-        any DBTargets, also call rm() on those.
-
-        TODO: Integrate with data_context bundle remove.   That deals with information already
-        stored in the local DB.
-
-        ASSUMES:  That we haven't actually updated the local DB with information on this bundle.
-
-        Args:
-            output_path (str):
-            uuid (str):
-            db_targets (list(DBTarget)):
-
-        Returns:
-            None
-        """
-        try:
-            shutil.rmtree(output_path, ignore_errors=True)
-            os.rmdir(output_path)
-            # TODO: if people create s3 files, s3 file targets, inside of an s3 context,
-            # TODO: then we will have to clean those up as well.
-        except IOError as why:
-            _logger.error("Removal of hyperframe directory {} failed with error {}. Continuing removal...".format(
-                uuid, why))
-
-    @staticmethod
-    def parse_return_val(hfid, val, data_context):
-        """
-        Interpret the return values and create an HFrame to wrap them.
-        This means setting the correct presentation bit in the HFrame so that
-        we call downstream tasks with parameters as the author intended.
-
-        POLICY / NOTE:  An non-HF output is a Presentable.
-        NOTE: For now, a task output is *always* presentable.
-        NOTE: No other code should set presentation in a HyperFrame.
-
-        The mirror to this function (that unpacks a presentable is disdat.fs.present_hfr()
-
-        Args:
-            hfid (str): UUID
-            val (object): A scalar, dict, tuple, list, dataframe
-            data_context (DataContext): The data context into which to place this value
-
-        Returns:
-            (presentation, frames[])
-
-        """
-
-        possible_scalar_types = (
-            int,
-            float,
-            str,
-            bool,
-            np.bool_,
-            np.int8,
-            np.int16,
-            np.int32,
-            np.int64,
-            np.uint8,
-            np.uint16,
-            np.uint32,
-            np.uint64,
-            np.float16,
-            np.float32,
-            np.float64,
-            six.binary_type,
-            six.text_type,
-            np.unicode_,
-            np.string_
-        )
-
-        frames = []
-
-        if val is None:
-            """ None's stored as json.dumps([None]) or '[null]' """
-            presentation = hyperframe_pb2.JSON
-            frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
-
-        elif isinstance(val, HyperFrameRecord):
-            presentation = hyperframe_pb2.HF
-            frames.append(FrameRecord.make_hframe_frame(hfid, common.DEFAULT_FRAME_NAME + ':0', [val]))
-
-        elif isinstance(val, np.ndarray) or isinstance(val, list):
-            presentation = hyperframe_pb2.TENSOR
-            if isinstance(val, list):
-                val = np.array(val)
-            frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
-
-        elif isinstance(val, tuple):
-            presentation = hyperframe_pb2.ROW
-            val = np.array(val)
-            frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
-
-        elif isinstance(val, dict):
-            presentation = hyperframe_pb2.ROW
-            for k, v in val.items():
-                if not isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, collections.Sequence)):
-                    # assuming this is a scalar
-                    assert isinstance(v, possible_scalar_types), 'Disdat requires dictionary values to be one of {} not {}'.format(possible_scalar_types, type(v))
-                    frames.append(data_context.convert_scalar2frame(hfid, k, v))
-                else:
-                    assert isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, collections.Sequence))
-                    frames.append(data_context.convert_serieslike2frame(hfid, k, v))
-
-        elif isinstance(val, pd.DataFrame):
-            presentation = hyperframe_pb2.DF
-            frames.extend(data_context.convert_df2frames(hfid, val))
-
-        else:
-            presentation = hyperframe_pb2.SCALAR
-            frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
-
-        return presentation, frames

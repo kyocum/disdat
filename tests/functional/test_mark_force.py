@@ -1,6 +1,4 @@
 #
-# Copyright 2017 Human Longevity, Inc.
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -15,7 +13,7 @@
 #
 
 import luigi
-from disdat.pipe import PipeTask
+from disdatluigi.pipe import PipeTask
 import disdat.api as api
 from tests.functional.common import run_test, TEST_CONTEXT
 

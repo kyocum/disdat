@@ -1,6 +1,4 @@
 #
-# Copyright 2015, 2016, 2017  Human Longevity, Inc.
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -17,20 +15,11 @@
 """
 Run dockerized version of this pipe
 
-Run differs from apply.  Apply will run the transform locally / natively.
-Run executes the most recently built container.   By default it will
-first run it locally.   Containers can be built for different backends.
-Backends do things in different ways.
+Run differs from apply.  Apply will run the transform as a Python process.
+Run executes the most recently built container.   By default it will run it locally via Docker.
+Otherwise containers can be submitted to different backends: AWS Batch, AWS Sagemaker.
 
-1.) Entrypoint arguments.  They might customize endpoints based on the arguments.  E.g, -d <train> or <test>
-
-2.) Entrypoint long vs. short-lived.  They might run a web-server in the container, e.g., to serve a model.
-
-
-author: Kenneth Yocum
 """
-from __future__ import print_function
-
 import argparse
 import inspect
 import os

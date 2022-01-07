@@ -1,4 +1,7 @@
 Disdat-Luigi
+
+The creation of the core Disdat API, using it to instrument Luigi, improved instrumentation to support dynamic dependencies,
+new features for managing Disdat-Luigi tasks and workflows, and myriad other improvements are all post 2017.
 Copyright 2018 - 2022 Kenneth Yocum  All Rights Reserved.
 
 The Initial Developer of some parts of this framework is Human Longevity, Inc.
