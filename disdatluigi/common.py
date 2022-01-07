@@ -434,6 +434,15 @@ def convert_str_params(cls, params_str):
     return kwargs
 
 
+def setup_exists(fqp_setup):
+    """ Check if file exists
+    """
+    if not os.path.exists(fqp_setup):
+        print ("No setup.py found at {}.".format(fqp_setup))
+        return False
+    return True
+
+
 def load_class(class_path):
     """
     Given a fully-qualified [pkg.mod.sub.classname] class name,
