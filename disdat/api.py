@@ -1,6 +1,4 @@
 #
-# Copyright 2015, 2016, ... Human Longevity, Inc.
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -14,17 +12,14 @@
 # limitations under the License.
 #
 
-
 """
 A Disdat API for creating, publishing, and finding bundles.
 
-These calls are not thread safe.  If they operate on a context, they
-require the user to specify the context.   This is unlike the CLI that maintains state on disk
-that keeps track of your current context between calls.   The API won't change the CLI's context and vice versa.
+These calls are not thread safe.  If they operate on a context, they require the user to specify the context.
+This is unlike the CLI that maintains state on disk that keeps track of your current context between calls.
+The API won't change the CLI's context and vice versa.
 
-Author: Kenneth Yocum
 """
-from __future__ import print_function
 
 import os
 import shutil
@@ -33,7 +28,6 @@ import errno
 import hashlib
 import collections
 import urllib
-
 
 import disdat.fs
 import disdat.common as common

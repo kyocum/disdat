@@ -1,6 +1,4 @@
 #
-# Copyright 2015, 2016  Human Longevity, Inc.
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -36,7 +34,6 @@ HyperFrame contains UUIDs of Frames.  Supports downloading HyperFrames without d
 Note: as of this time LinkAuths are not used
 
 """
-from __future__ import print_function
 
 import sys
 from collections import namedtuple, defaultdict
@@ -46,7 +43,6 @@ import time
 import os
 import tempfile
 from datetime import datetime
-import importlib
 
 import numpy as np
 import pandas as pd
