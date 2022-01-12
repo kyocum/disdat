@@ -12,6 +12,8 @@
 # limitations under the License.
 #
 
+import disdat.common as common
+
 def different_code_versions(code_version, lineage_obj):
     """
     Given the current version, see if it is different than found_version

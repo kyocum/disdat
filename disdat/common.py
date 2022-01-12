@@ -247,3 +247,24 @@ def slicezip(a, b):
     result[::2] = a
     result[1::2] = b
     return result
+
+
+def load_class(class_path):
+    """
+    Given a fully-qualified [pkg.mod.sub.classname] class name,
+    load the specified class and return a reference to it.
+
+    Args:
+        class_path (str): '.' separated module and classname
+
+    Returns:
+        class: reference to the loaded class
+    """
+    try:
+        mod_path, cls_name = class_path.rsplit('.', 1)
+    except ValueError:
+        raise ValueError('must include fully specified classpath, not local reference')
+
+    mod = importlib.import_module(mod_path)
+    cls = getattr(mod, cls_name)
+    return cls

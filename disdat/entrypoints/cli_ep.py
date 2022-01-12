@@ -36,7 +36,7 @@ _pipes_fs = None
 
 DISDAT_PATH = os.environ.get("PATH", None)
 DISDAT_PYTHONPATH = os.environ.get("PYTHONPATH", None)
-DISDAT_CLI_EXTRAS = ["disdat_luigi"]
+DISDAT_CLI_EXTRAS = ["disdatluigi"]
 EXTENSION_MODULE = "cli_extension"
 EXTENSION_METHOD = "add_arg_parser"
 
@@ -54,9 +54,10 @@ def resolve_cli_extras(subparsers):
     for module in DISDAT_CLI_EXTRAS:
         spec = importlib.util.find_spec(module)
         if spec is None:
-            print(f"Dynamic CLI extension: {module} is not installed")
+            pass
+            #print(f"Dynamic CLI extension: {module} is not installed")
         else:
-            print(f"Dynamic CLI extension: {module} found, attempting to extend CLI . . . ")
+            #print(f"Dynamic CLI extension: {module} found, attempting to extend CLI . . . ")
             module_handle = importlib.import_module(module+f".{EXTENSION_MODULE}")
             try:
                 add_cli_arg_parser = getattr(module_handle, EXTENSION_METHOD)

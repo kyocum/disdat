@@ -212,7 +212,7 @@ class Bundle(HyperFrameRecord):
             # TODO: if people create s3 files, s3 file targets, inside of an s3 context,
             # TODO: then we will have to clean those up as well.
         except IOError as why:
-            _logger.error("Removal of bundle directory {} failed with error {}. Continuing removal...".format(uuid, why))
+            _logger.error("Removal of bundle directory {} failed with error {}. Continuing removal...".format(self._local_dir, why))
 
     def _check_open(self):
         assert not self._closed, "Bundle must be open (not closed) for editing."

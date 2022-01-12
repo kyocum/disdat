@@ -116,9 +116,6 @@ setup(
     entry_points={
         'console_scripts': [
             'dsdt = disdat.entrypoints.cli_ep:main',
-        ],
-        'distutils.commands': [
-            "dsdt_distname = disdat.infrastructure.dockerizer.setup_tools_commands:DistributionName",
         ]
     },
 )
