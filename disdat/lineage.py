@@ -14,8 +14,6 @@
 # limitations under the License.
 #
 
-from __future__ import print_function
-
 import disdat.api as api
 import disdat.fs
 from disdat import logger as _logger

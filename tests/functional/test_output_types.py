@@ -19,7 +19,6 @@ import pandas as pd
 import pytest
 import six
 
-from disdat.pipe import PipeTask
 import disdat.api as api
 from tests.functional.common import TEST_CONTEXT
 
@@ -38,19 +37,10 @@ def setup():
     api.context(context_name=TEST_CONTEXT)
 
 
-# Test Return Types
-class IntTask(PipeTask):
-    def pipe_requires(self, pipeline_input=None):
-        self.set_bundle_name('int_task')
-
-    def pipe_run(self, pipeline_input=None):
-        return 1
-
-
 def test_int_task():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT, IntTask)
+    _ = api.Bundle(TEST_CONTEXT, name='int_task', data=1)
     data = api.get(TEST_CONTEXT, 'int_task').data
 
     assert data == 1, 'Data did not match output'
@@ -58,18 +48,10 @@ def test_int_task():
     assert len(api.search(TEST_CONTEXT)) == 1, 'Only one bundle should be present'
 
 
-class StringTask(PipeTask):
-    def pipe_requires(self, pipeline_input=None):
-        self.set_bundle_name('string_task')
-
-    def pipe_run(self, pipeline_input=None):
-        return 'output'
-
-
 def test_string_task():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT, StringTask)
+    _ = api.Bundle(TEST_CONTEXT, name='string_task', data='output')
     data = api.get(TEST_CONTEXT, 'string_task').data
 
     assert data == 'output', 'Data did not match output'
@@ -77,18 +59,10 @@ def test_string_task():
     assert len(api.search(TEST_CONTEXT)) == 1, 'Only one bundle should be present'
 
 
-class FloatTask(PipeTask):
-    def pipe_requires(self, pipeline_input=None):
-        self.set_bundle_name('float_task')
-
-    def pipe_run(self, pipeline_input=None):
-        return 2.5
-
-
 def test_float_task():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT, FloatTask)
+    _ = api.Bundle(TEST_CONTEXT, name='float_task', data=2.5)
     data = api.get(TEST_CONTEXT, 'float_task').data
 
     assert data == 2.5, 'Data did not match output'
@@ -96,18 +70,10 @@ def test_float_task():
     assert len(api.search(TEST_CONTEXT)) == 1, 'Only one bundle should be present'
 
 
-class ListTask(PipeTask):
-    def pipe_requires(self, pipeline_input=None):
-        self.set_bundle_name('list_task')
-
-    def pipe_run(self, pipeline_input=None):
-        return [1, 2, 3]
-
-
 def test_list_task():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT, ListTask)
+    _ = api.Bundle(TEST_CONTEXT, name='list_task', data=[1, 2, 3])
     data = api.get(TEST_CONTEXT, 'list_task').data
 
     assert np.array_equal(data, [1, 2, 3]), 'Data did not match output'
@@ -115,46 +81,29 @@ def test_list_task():
     assert len(api.search(TEST_CONTEXT)) == 1, 'Only one bundle should be present'
 
 
-class DataFrameTask(PipeTask):
-    def pipe_requires(self, pipeline_input=None):
-        self.set_bundle_name('df_task')
-
-    def pipe_run(self, pipeline_input=None):
-        df = pd.DataFrame()
-        df['a'] = [1, 2, 3]
-        return df
-
-
 def test_df_task():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT, DataFrameTask)
-    data = api.get(TEST_CONTEXT, 'df_task').data
-
     df = pd.DataFrame()
     df['a'] = [1, 2, 3]
+
+    _ = api.Bundle(TEST_CONTEXT, name='df_task', data=df)
+    data = api.get(TEST_CONTEXT, 'df_task').data
 
     assert df.equals(data), 'Data did not match output'
     assert type(data) == pd.DataFrame, 'Data is not df'
     assert len(api.search(TEST_CONTEXT)) == 1, 'Only one bundle should be present'
 
 
-class FileTask(PipeTask):
-    def pipe_requires(self, pipeline_input=None):
-        self.set_bundle_name('file_task')
-
-    def pipe_run(self, pipeline_input=None):
-        target = self.create_output_file('test.txt')
-        with target.open('w') as of:
-            of.write('5')
-
-        return target
-
-
 def test_file_task():
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT, FileTask)
+    with api.Bundle(TEST_CONTEXT, name='file_task') as b:
+        f1 = b.get_file("test.txt")
+        with open(f1, mode='w') as f:
+            f.write('5')
+        b.add_data(f1)
+
     output_path = api.get(TEST_CONTEXT, 'file_task').data
 
     with open(output_path) as f:
@@ -165,27 +114,18 @@ def test_file_task():
     assert len(api.search(TEST_CONTEXT)) == 1, 'Only one bundle should be present'
 
 
-class DictTask(PipeTask):
-    def pipe_requires(self, pipeline_input=None):
-        self.set_bundle_name('dict_task')
-
-    def pipe_run(self, pipeline_input=None):
-        return {
-            'hello': ['world']
-        }
-
-
 def test_dict_task():
     setup()
     assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
 
-    api.apply(TEST_CONTEXT, DictTask)
-    data = api.get(TEST_CONTEXT, 'dict_task').data
+    d = {'hello': ['world']}
+    _ = api.Bundle(TEST_CONTEXT, name='dict_task', data=d)
+    d = api.get(TEST_CONTEXT, 'dict_task').data
 
-    assert data == {
+    assert d == {
     'hello': ['world']
     }, 'Data did not match output'
-    assert type(data) == dict, 'Data is not dict'
+    assert type(d) == dict, 'Data is not dict'
     assert len(api.search(TEST_CONTEXT)) == 1, 'Only one bundle should be present'
 
 

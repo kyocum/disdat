@@ -1,4 +1,0 @@
-# Ignore most everything except .gitignore in the default config
-# directory
-*
-!.gitignore

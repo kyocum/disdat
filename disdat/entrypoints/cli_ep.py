@@ -1,7 +1,5 @@
 #! /usr/bin/env python
 #
-# Copyright 2015, 2016  Human Longevity, Inc.
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -18,7 +16,9 @@
 """
 Disdat
 
-Distributed data (dsdt) command line utility for working with data science pipelines.
+Command line utility
+This comes with disdat (disdat-core).  It looks for other installed packages, such as disdat-luigi,
+that may define additional commands.
 
 """
 
@@ -26,8 +26,9 @@ import argparse
 import logging
 import sys
 import os
+import importlib.util
 
-from disdat import apply, dockerize, run, fs, add, lineage
+from disdat import fs, add, lineage
 from disdat.common import DisdatConfig
 from disdat import log, __version__
 
@@ -35,7 +36,34 @@ _pipes_fs = None
 
 DISDAT_PATH = os.environ.get("PATH", None)
 DISDAT_PYTHONPATH = os.environ.get("PYTHONPATH", None)
+DISDAT_CLI_EXTRAS = ["disdatluigi"]
+EXTENSION_MODULE = "cli_extension"
+EXTENSION_METHOD = "add_arg_parser"
 
+def resolve_cli_extras(subparsers):
+    """
+    For each additional package that might extend the CLI check to see if the module
+    is loaded, create a reference to it, and call the "add_arg_parser" function.
+    We expect two things from the high-level package:
+    1.) a top-level module "cli_extension"
+    2.) method called "add_arg_parser"
+
+    Returns:
+        None
+    """
+    for module in DISDAT_CLI_EXTRAS:
+        spec = importlib.util.find_spec(module)
+        if spec is None:
+            pass
+            #print(f"Dynamic CLI extension: {module} is not installed")
+        else:
+            #print(f"Dynamic CLI extension: {module} found, attempting to extend CLI . . . ")
+            module_handle = importlib.import_module(module+f".{EXTENSION_MODULE}")
+            try:
+                add_cli_arg_parser = getattr(module_handle, EXTENSION_METHOD)
+                add_cli_arg_parser(subparsers)
+            except AttributeError as ae:
+                print(f"Disdat CLI unable to add commands from loaded extension [{module}], error {ae}")
 
 def main():
     """
@@ -65,13 +93,13 @@ def main():
     ls_p = subparsers.add_parser('init')
     ls_p.set_defaults(func=lambda args: DisdatConfig.init())
 
-    # Add additional subparsers
-    dockerize.add_arg_parser(subparsers)
-    run.add_arg_parser(subparsers)
-    apply.add_arg_parser(subparsers)
+    # Add disdat core subparsers
     fs.add_arg_parser(subparsers)
     add.add_arg_parser(subparsers)
     lineage.add_arg_parser(subparsers)
+
+    # Add additional parsers if we are imported
+    resolve_cli_extras(subparsers)
 
     args = parser.parse_args(args)
 

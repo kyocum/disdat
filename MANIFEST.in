@@ -1,11 +1,8 @@
-include disdat/infrastructure/dockerizer/Makefile
-include disdat/infrastructure/dockerizer/config.mk.template
-include disdat/infrastructure/dockerizer/config/*
 include LICENSE.txt
+include NOTICE.txt
 include setup.py
 include disdat/VERSION
 include disdat/resources/*
 recursive-include disdat/config *
-recursive-include disdat/infrastructure/dockerizer/context.template *
 
 global-exclude *~ *.pyc

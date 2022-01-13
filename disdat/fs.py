@@ -1,6 +1,4 @@
 #
-# Copyright 2015, 2016, 2017  Human Longevity, Inc.
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -20,7 +18,6 @@ This is the object used to access information about disdat bundles
 from a variety of backend resources.
 
 """
-from __future__ import print_function
 
 import os
 import json

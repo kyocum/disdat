@@ -1,0 +1,12 @@
+Disdat
+
+The creation of the core Disdat API, including the core Bundle data type, unifying remote/local link management,
+partial localization, and myriad other features (in support of instrumenting 3rd party systems
+(e.g, Kubeflow Pipelines, Luigi, Step functions), were developed by Ken Yocum.
+Copyright 2018 - 2022 Kenneth Yocum  All Rights Reserved.
+
+Contributions to the original dockerizer as well as initial AWS Batch support were made by Theodore Wong.
+Copyright 2015-2017 Theodore Wong, All Rights Reserved.
+
+The Initial Developer of some parts of this framework is Human Longevity, Inc.
+Copyright 2015 - 2017 Human Longevity, Inc.  All Rights Reserved.

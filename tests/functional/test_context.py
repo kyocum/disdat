@@ -14,16 +14,7 @@
 # limitations under the License.
 #
 import pytest
-from disdat.pipe import PipeTask
 import disdat.api as api
-
-
-class ContextTest(PipeTask):
-    def pipe_requires(self, pipeline_input=None):
-        self.set_bundle_name('context_test')
-
-    def pipe_run(self, pipeline_input=None):
-        return 2
 
 
 def test_create_context():
@@ -43,7 +34,7 @@ def test_independent_context():
     api.context(context_1_name)
     api.context(context_2_name)
 
-    api.apply(context_1_name, ContextTest)
+    _ = api.Bundle(context_1_name, name='context_test', data=2)
 
     assert len(api.search(context_1_name)) == 1, 'Only one bundle should be in context one'
     assert len(api.search(context_2_name)) == 0, 'Context two should be empty'
