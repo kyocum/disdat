@@ -10,9 +10,11 @@
 \
 \
 
-Disdat is a Python (3.6, 3.7, +) package for data versioning and pipeline authoring that allows data scientists to create,
-share, and track data products.  Disdat organizes data into *bundles*, collections of literal values and files --
-bundles are the unit at which data is versioned and shared.   Disdat provides an *API* for creating, finding, and publishing bundles to cloud storage (e.g., AWS S3).  Disdat uses this API to instrument Spotify's Luigi, so you can build pipelines that automatically create bundles, making it easy to share the latest outputs with other users and pipelines.  Instead of lengthy email conversations with multiple file attachments, searching through Slack for the most recent S3 file path, users can instead ``dsdt pull awesome_data`` to get the latest 'awesome_data.'
+Note: Disdat 1.0 no longer contains the instrumented form of Luigi.  Disdat-Luigi now resides `here <https://github.com/kyocum/disdat-luigi>`_.  Want to build versioned pipelines?  ``pip install disdat-luigi``   Want to just use the Disdat API?   ``pip install disdat`` 
+
+Disdat is a Python (3.6, 3.7, +) package for data versioning that allows data scientists to create, share, and track data products.  Disdat organizes data into *bundles*, collections of literal values and files -- bundles are the unit at which data is versioned and shared.   Disdat provides an *API* for creating, finding, and publishing bundles to cloud storage (e.g., AWS S3).  
+
+`Disdat-Luigi  <https://github.com/kyocum/disdat-luigi>`_ uses this API to instrument Spotify's Luigi, so you can build pipelines that automatically create bundles, making it easy to share the latest outputs with other users and pipelines.  Instead of lengthy email conversations with multiple file attachments, searching through Slack for the most recent S3 file path, users can instead ``dsdt pull awesome_data`` to get the latest 'awesome_data.'
 
 
 Disdat's bundle API and pipelines provide:
