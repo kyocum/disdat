@@ -81,14 +81,14 @@ def _run_git_cmd(git_dir, git_cmd, get_output=False):
     return output
 
 
-def determine_pipe_version(pipe_root):
     """
+def determine_pipe_version(pipe_root):
     Given a pipe file path, return the repo status. If they are set, use the environment variables,
     otherwise run the git commands.
 
+
     Args:
         pipe_root: path to the root of the pipeline
-
     Returns:
         CodeVersion: populated object with the git hash, branch, fetch url, last updated date
         and "dirty" status. A pipeline is considered to be dirty if there are modified files
