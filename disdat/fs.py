@@ -19,32 +19,34 @@ from a variety of backend resources.
 
 """
 
-import os
+import collections
 import json
-import urllib
+import os
+import shutil
+import subprocess
 import time
+import urllib
 from datetime import datetime
 from enum import Enum
-import shutil
-import collections
-import subprocess
 
 import pandas as pd
 
-import disdat.hyperframe as hyperframe
 import disdat.common as common
+import disdat.hyperframe as hyperframe
 import disdat.utility.aws_s3 as aws_s3
-from disdat.data_context import DataContext
-from disdat.common import DisdatConfig, CatNoBundleError
 from disdat import logger as _logger
+from disdat.common import CatNoBundleError, DisdatConfig
+from disdat.data_context import DataContext
 
-CodeVersion = collections.namedtuple('CodeVersion', 'semver hash tstamp branch url dirty')
+CodeVersion = collections.namedtuple(
+    "CodeVersion", "semver hash tstamp branch url dirty"
+)
 
-CONTEXTS = ['DEFAULT']
-META_FS_FILE = 'fs.json'
+CONTEXTS = ["DEFAULT"]
+META_FS_FILE = "fs.json"
 
-ObjectTypes = Enum('ObjectTypes', 'bundle atom')
-ObjectState = Enum('ObjectState', 'present removed')
+ObjectTypes = Enum("ObjectTypes", "bundle atom")
+ObjectState = Enum("ObjectState", "present removed")
 
 
 def _run_git_cmd(git_dir, git_cmd, get_output=False):
@@ -60,18 +62,22 @@ def _run_git_cmd(git_dir, git_cmd, get_output=False):
 
     verbose = False
 
-    cmd = ['git', '-C', git_dir] + git_cmd.split()
+    cmd = ["git", "-C", git_dir] + git_cmd.split()
     if verbose:
-        _logger.debug('Running git command {}'.format(cmd))
+        _logger.debug("Running git command {}".format(cmd))
     if get_output:
         try:
-            with open(os.devnull, 'w') as null_file:
+            with open(os.devnull, "w") as null_file:
                 output = subprocess.check_output(cmd, stderr=null_file)
         except subprocess.CalledProcessError as e:
-            _logger.debug("Unable to run git command {}: exit {}: likely no git repo, e.g., running in a container.".format(cmd, e.returncode))
+            _logger.debug(
+                "Unable to run git command {}: exit {}: likely no git repo, e.g., running in a container.".format(
+                    cmd, e.returncode
+                )
+            )
             return None
     else:
-        with open(os.devnull, 'w') as null_file:
+        with open(os.devnull, "w") as null_file:
             output = subprocess.call(cmd, stdout=null_file, stderr=null_file)
 
     output = str(output)
@@ -96,7 +102,7 @@ def determine_pipe_version(pipe_root):
     def _get_git_info_var(var_name, git_command):
         thing = os.getenv(var_name)
         if thing is None:
-            thing = _run_git_cmd(pipe_root, git_command,  get_output=True)
+            thing = _run_git_cmd(pipe_root, git_command, get_output=True)
         thing = _check_type_and_rstrip(thing, "unknown")
         return thing
 
@@ -107,14 +113,24 @@ def determine_pipe_version(pipe_root):
             val = default
         return val
 
-    git_hash = _get_git_info_var('PIPELINE_GIT_HASH', 'rev-parse HEAD')
-    git_branch = _get_git_info_var('PIPELINE_GIT_BRANCH', 'rev-parse --abbrev-ref HEAD')
-    git_fetch_url = _get_git_info_var('PIPELINE_GIT_FETCH_URL', 'config --get remote.origin.url')
-    git_timestamp = _get_git_info_var('PIPELINE_GIT_TIMESTAMP', 'log -1 --pretty=format:%aI')
-    git_dirty = bool(_get_git_info_var('GIT_DIRTY', 'diff --name-only'))
+    git_hash = _get_git_info_var("PIPELINE_GIT_HASH", "rev-parse HEAD")
+    git_branch = _get_git_info_var("PIPELINE_GIT_BRANCH", "rev-parse --abbrev-ref HEAD")
+    git_fetch_url = _get_git_info_var(
+        "PIPELINE_GIT_FETCH_URL", "config --get remote.origin.url"
+    )
+    git_timestamp = _get_git_info_var(
+        "PIPELINE_GIT_TIMESTAMP", "log -1 --pretty=format:%aI"
+    )
+    git_dirty = bool(_get_git_info_var("GIT_DIRTY", "diff --name-only"))
 
-    obj_version = CodeVersion(semver="0.1.0", hash=git_hash, tstamp=git_timestamp, branch=git_branch,
-                              url=git_fetch_url, dirty=git_dirty)
+    obj_version = CodeVersion(
+        semver="0.1.0",
+        hash=git_hash,
+        tstamp=git_timestamp,
+        branch=git_branch,
+        url=git_fetch_url,
+        dirty=git_dirty,
+    )
 
     return obj_version
 
@@ -127,12 +143,13 @@ class DisdatFS(object):
     This is filled at the time we try to run apply.
 
     """
+
     __metaclass__ = common.SingletonType
 
     current_pipe_version = None
 
     class JsonConfig(object):
-        ACTIVE_CONTEXT = '_mangled_curr_context_name'
+        ACTIVE_CONTEXT = "_mangled_curr_context_name"
 
     @staticmethod
     def get_pipe_version(pipe_root):
@@ -159,7 +176,9 @@ class DisdatFS(object):
         # set this so we don't need to calculate it each time
         DisdatFS.put_pipe_version(pipe_version)
 
-        _logger.debug("pipe_root = {} pipe_version = {}".format(pipe_root, pipe_version))
+        _logger.debug(
+            "pipe_root = {} pipe_version = {}".format(pipe_root, pipe_version)
+        )
 
         return pipe_version
 
@@ -178,7 +197,7 @@ class DisdatFS(object):
         DisdatFS.current_pipe_version = None
 
     def __init__(self):
-        """ Create an FS object.
+        """Create an FS object.
         1.) Load our state from the meta_dir -- which context we are working in
         2.) Load all available contexts
 
@@ -208,8 +227,12 @@ class DisdatFS(object):
             try:
                 self._curr_context = self._all_contexts[active_context_name]
             except KeyError:
-                raise AssertionError("active context '{}' not found in available contexts".format(active_context_name))
-        assert self._curr_context.is_valid(), 'not in a valid context'
+                raise AssertionError(
+                    "active context '{}' not found in available contexts".format(
+                        active_context_name
+                    )
+                )
+        assert self._curr_context.is_valid(), "not in a valid context"
         return self._curr_context
 
     @curr_context.setter
@@ -227,14 +250,18 @@ class DisdatFS(object):
 
         if not os.path.isfile(meta_file):
             _logger.debug("No disdat {} meta fs data file found.".format(meta_file))
-            raise RuntimeError("No current local context, please change context with 'dsdt switch'")
+            raise RuntimeError(
+                "No current local context, please change context with 'dsdt switch'"
+            )
         else:
-            with open(meta_file, 'r') as json_file:
+            with open(meta_file, "r") as json_file:
                 state_dict = json.loads(json_file.readline())
             try:
                 return state_dict[self.JsonConfig.ACTIVE_CONTEXT]
             except KeyError:
-                raise RuntimeError("No current local context, please change context with 'dsdt switch'")
+                raise RuntimeError(
+                    "No current local context, please change context with 'dsdt switch'"
+                )
 
     def save(self):
         """
@@ -245,12 +272,12 @@ class DisdatFS(object):
         """
         meta_file = os.path.join(DisdatConfig.instance().get_meta_dir(), META_FS_FILE)
 
-        with open(meta_file, 'w') as json_file:
+        with open(meta_file, "w") as json_file:
             state_dict = {self.JsonConfig.ACTIVE_CONTEXT: self.curr_context_name}
             json_file.write(json.dumps(state_dict))
 
     def reload_all_contexts(self):
-        """ The set of available contexts can change, so this is a refresh hook.
+        """The set of available contexts can change, so this is a refresh hook.
         This happens if you use the API, then someone uses the CLI out-of-band.
 
         Returns:
@@ -259,7 +286,7 @@ class DisdatFS(object):
         self.__all_contexts = DataContext.load()
 
     def reload_context(self, target_context):
-        """ If a particular context is not available, load if it exists
+        """If a particular context is not available, load if it exists
 
         This happens if you use the API, then someone uses the CLI out-of-band.
 
@@ -284,7 +311,9 @@ class DisdatFS(object):
         """
         return self.curr_context and self.curr_context.is_valid()
 
-    def rmr(self, human_name=None, uuid=None, tags=None, dryrun=False, data_context=None):
+    def rmr(
+        self, human_name=None, uuid=None, tags=None, dryrun=False, data_context=None
+    ):
         """
         Remove bundle from remote.  If human_name provided, remove the latest.
         This call uses the local index (sqlite db) to first find the uuid's and then
@@ -313,18 +342,26 @@ class DisdatFS(object):
 
         return_strings.append("Disdat Context: {}".format(data_context.context))
 
-        uuids = self.ls(human_name,
-                        False, False, False, False, False,
-                        uuid=uuid,
-                        tags=tags,
-                        print_uuid_only=True,
-                        data_context=data_context)
+        uuids = self.ls(
+            human_name,
+            False,
+            False,
+            False,
+            False,
+            False,
+            uuid=uuid,
+            tags=tags,
+            print_uuid_only=True,
+            data_context=data_context,
+        )
 
         local_uuids_found = len(uuids)
 
         # if a specific uuid, it may not be found locally.
         if uuid is not None:
-            uuids = [uuid,]
+            uuids = [
+                uuid,
+            ]
 
         if dryrun:
             if len(uuids) == 0:
@@ -334,16 +371,30 @@ class DisdatFS(object):
             return return_strings
 
         try:
-            s3_urls = [os.path.join(data_context.get_remote_object_dir(), id) for id in uuids]
-            return_strings.append("Found {} local bundles to remove.".format(local_uuids_found))
+            s3_urls = [
+                os.path.join(data_context.get_remote_object_dir(), id) for id in uuids
+            ]
+            return_strings.append(
+                "Found {} local bundles to remove.".format(local_uuids_found)
+            )
             num_objects_deleted = aws_s3.delete_s3_dir_many(s3_urls)
-            return_strings.append("Removed {} remote bundles from S3.".format(num_objects_deleted))
+            return_strings.append(
+                "Removed {} remote bundles from S3.".format(num_objects_deleted)
+            )
         except Exception as e:
             return_strings.append("Remote remote ERROR: {} ".format(e))
-            #_logger.error(e)
+            # _logger.error(e)
         return return_strings
 
-    def rm(self, human_name=None, rm_all=False, rm_old_only=False, uuid=None, tags=None, data_context=None):
+    def rm(
+        self,
+        human_name=None,
+        rm_all=False,
+        rm_old_only=False,
+        uuid=None,
+        tags=None,
+        data_context=None,
+    ):
         """
         Remove bundle with human_name or tag_value
 
@@ -368,8 +419,12 @@ class DisdatFS(object):
         if data_context is None:
             return return_strings
 
-        return_strings.append("Disdat Context {}".format(data_context.get_remote_name()))
-        return_strings.append("On local branch {}".format(data_context.get_local_name()))
+        return_strings.append(
+            "Disdat Context {}".format(data_context.get_remote_name())
+        )
+        return_strings.append(
+            "On local branch {}".format(data_context.get_local_name())
+        )
 
         hfrs = data_context.get_hframes(human_name=human_name, uuid=uuid, tags=tags)
 
@@ -380,11 +435,15 @@ class DisdatFS(object):
         if rm_old_only or rm_all:
             for hfr in hfrs[1:]:
                 if data_context.rm_hframe(hfr.pb.uuid):
-                    return_strings.append("Removing old bundle {}".format(hfr.to_string()))
+                    return_strings.append(
+                        "Removing old bundle {}".format(hfr.to_string())
+                    )
 
         if not rm_old_only:
             if data_context.rm_hframe(hfrs[0].pb.uuid):
-                return_strings.append("Removing latest bundle {}".format(hfrs[0].to_string()))
+                return_strings.append(
+                    "Removing latest bundle {}".format(hfrs[0].to_string())
+                )
 
         return return_strings
 
@@ -440,7 +499,9 @@ class DisdatFS(object):
         elif len(found) == 0:
             return None
         else:
-            raise Exception("Many records {} found with uuid {}".format(len(found), uuid))
+            raise Exception(
+                "Many records {} found with uuid {}".format(len(found), uuid)
+            )
 
     def get_hframe_by_proc(self, processing_name, getall=False, data_context=None):
         """
@@ -494,9 +555,23 @@ class DisdatFS(object):
                 return None
         return data_context
 
-    def ls(self, search_name, print_tags, print_intermediates, print_roots, print_long, print_args,
-           before=None, after=None, uuid=None, maxbydate=False, committed=None, tags=None, print_uuid_only=False,
-           data_context=None):
+    def ls(
+        self,
+        search_name,
+        print_tags,
+        print_intermediates,
+        print_roots,
+        print_long,
+        print_args,
+        before=None,
+        after=None,
+        uuid=None,
+        maxbydate=False,
+        committed=None,
+        tags=None,
+        print_uuid_only=False,
+        data_context=None,
+    ):
         """
         Enumerate bundles (hyperframes) in this context.
 
@@ -534,36 +609,44 @@ class DisdatFS(object):
 
         if not print_intermediates and print_roots:
             if tags is not None:
-                tags.update({'root_task': True})
+                tags.update({"root_task": True})
             else:
-                tags = {'root_task': True}
+                tags = {"root_task": True}
 
         if print_long:
             output_strings.append(DisdatFS._pretty_print_header())
 
-        for i, r in enumerate(data_context.get_hframes(human_name=search_name,
-                                                       uuid=uuid,
-                                                       tags=tags,
-                                                       maxbydate=maxbydate,
-                                                       before=before,
-                                                       after=after)):
+        for i, r in enumerate(
+            data_context.get_hframes(
+                human_name=search_name,
+                uuid=uuid,
+                tags=tags,
+                maxbydate=maxbydate,
+                before=before,
+                after=after,
+            )
+        ):
             if committed is not None:
                 if committed:
-                    if not r.get_tag('committed'):
+                    if not r.get_tag("committed"):
                         continue
                 else:
-                    if r.get_tag('committed'):
+                    if r.get_tag("committed"):
                         continue
 
             if print_intermediates and not print_roots:
-                if r.get_tag('root_task'):
+                if r.get_tag("root_task"):
                     continue
 
             if print_uuid_only:
                 output_strings.append(r.pb.uuid)
             else:
                 if print_long:
-                    output_strings.append(DisdatFS._pretty_print_hframe(r, print_tags=print_tags, print_args=print_args))
+                    output_strings.append(
+                        DisdatFS._pretty_print_hframe(
+                            r, print_tags=print_tags, print_args=print_args
+                        )
+                    )
                 else:
                     if r.pb.human_name not in output_strings:
                         output_strings.append(r.pb.human_name)
@@ -571,32 +654,45 @@ class DisdatFS(object):
 
     @staticmethod
     def _pretty_print_header():
-        header = "{:20}\t{:20}\t{:8}\t{:18}\t{:8}\t{:40}\t{}".format('NAME','PROC_NAME','OWNER','DATE','COMMITTED','UUID','TAGS')
+        header = "{:20}\t{:20}\t{:8}\t{:18}\t{:8}\t{:40}\t{}".format(
+            "NAME", "PROC_NAME", "OWNER", "DATE", "COMMITTED", "UUID", "TAGS"
+        )
         return header
 
     @staticmethod
     def _pretty_print_hframe(hfr, print_tags=False, print_args=False):
 
-        if 'committed' in hfr.tag_dict:
-            committed = 'True'
+        if "committed" in hfr.tag_dict:
+            committed = "True"
         else:
-            committed = 'False'
+            committed = "False"
 
-        output_string = "{:20}\t{:20}\t{:8}\t{:18}\t{:8}\t{:40}".format(hfr.pb.human_name,
-                                                                   hfr.pb.processing_name[:],
-                                                                   hfr.pb.owner,
-                                                                   time.strftime("%m-%d-%y %H:%M:%S ", time.localtime(hfr.pb.lineage.creation_date)),
-                                                                   committed,
-                                                                   hfr.pb.uuid)
+        output_string = "{:20}\t{:20}\t{:8}\t{:18}\t{:8}\t{:40}".format(
+            hfr.pb.human_name,
+            hfr.pb.processing_name[:],
+            hfr.pb.owner,
+            time.strftime(
+                "%m-%d-%y %H:%M:%S ", time.localtime(hfr.pb.lineage.creation_date)
+            ),
+            committed,
+            hfr.pb.uuid,
+        )
         if print_tags:
-            tags = ["[{}]:[{}]".format(k, v) for k, v in hfr.tag_dict.items() if k != 'committed' and common.BUNDLE_TAG_PARAMS_PREFIX not in k]
-            output_string += ' '.join(tags)
+            tags = [
+                "[{}]:[{}]".format(k, v)
+                for k, v in hfr.tag_dict.items()
+                if k != "committed" and common.BUNDLE_TAG_PARAMS_PREFIX not in k
+            ]
+            output_string += " ".join(tags)
 
         if print_args:
-            tags = ["[{}]:[{}]".format(k[len(common.BUNDLE_TAG_PARAMS_PREFIX):], v)
-                    for k, v in hfr.tag_dict.items() if common.BUNDLE_TAG_PARAMS_PREFIX in k]
+            tags = [
+                "[{}]:[{}]".format(k[len(common.BUNDLE_TAG_PARAMS_PREFIX) :], v)
+                for k, v in hfr.tag_dict.items()
+                if common.BUNDLE_TAG_PARAMS_PREFIX in k
+            ]
             if len(tags) > 0:
-                output_string += '\n\t ARGS: ' + ' '.join(tags)
+                output_string += "\n\t ARGS: " + " ".join(tags)
 
         return output_string
 
@@ -617,22 +713,28 @@ class DisdatFS(object):
 
         data_context = self.ensure_data_context(data_context)
         if data_context is None:
-            raise CatNoBundleError("No bundle found with name({}) uuid({})".format(human_name,uuid))
+            raise CatNoBundleError(
+                "No bundle found with name({}) uuid({})".format(human_name, uuid)
+            )
 
         if uuid is None:
-            hfr = self.get_latest_hframe(human_name, tags=tags, data_context=data_context)
+            hfr = self.get_latest_hframe(
+                human_name, tags=tags, data_context=data_context
+            )
         else:
             hfr = self.get_hframe_by_uuid(uuid, tags=tags, data_context=data_context)
 
         if hfr is not None:
             other = data_context.present_hfr(hfr)
             if file is not None:
-                df    = data_context.convert_hfr2df(hfr)
+                df = data_context.convert_hfr2df(hfr)
                 print("Saving to file {}".format(file))
-                df.to_csv(file, sep=',', index=False)
+                df.to_csv(file, sep=",", index=False)
             return other
         else:
-            raise CatNoBundleError("No bundle found with name({}) uuid({})".format(human_name,uuid))
+            raise CatNoBundleError(
+                "No bundle found with name({}) uuid({})".format(human_name, uuid)
+            )
 
     @staticmethod
     def _extract_uuid(managed_path):
@@ -647,8 +749,7 @@ class DisdatFS(object):
 
     @staticmethod
     def disdat_uuid():
-        """
-        """
+        """ """
         return common.create_uuid()
 
     @staticmethod
@@ -659,7 +760,7 @@ class DisdatFS(object):
         :param possible_bundle_name:
         :return: True / False
         """
-        return len(possible_bundle_name.split('.')) == 2
+        return len(possible_bundle_name.split(".")) == 2
 
     @staticmethod
     def is_input_param_bundle_name(possible_bundle_name):
@@ -674,7 +775,7 @@ class DisdatFS(object):
         :return: True / False
         """
 
-        first  = DisdatFS.is_bundle_name(possible_bundle_name)
+        first = DisdatFS.is_bundle_name(possible_bundle_name)
         second = possible_bundle_name.endswith(".BNDL")
 
         return first and second
@@ -691,13 +792,16 @@ class DisdatFS(object):
         """
 
         try:
-            if '/' in fq_context_name:
-                repo, local_context = fq_context_name.split('/')
+            if "/" in fq_context_name:
+                repo, local_context = fq_context_name.split("/")
             else:
                 repo = None
                 local_context = fq_context_name
         except ValueError:
-            error = "Invalid context_name: Expected <remote context>/<local context> or <local context> but got '%s'" % (fq_context_name)
+            error = (
+                "Invalid context_name: Expected <remote context>/<local context> or <local context> but got '%s'"
+                % (fq_context_name)
+            )
             _logger.error(error)
             raise Exception(error)
 
@@ -719,15 +823,27 @@ class DisdatFS(object):
 
         if fq_context_name is None:
             from termcolor import cprint
+
             for ctxt_name, ctxt in self._all_contexts.items():
                 if self.curr_context is not None and self.curr_context is ctxt:
-                    cprint("*", "white", end='')
-                    cprint("\t{}".format(ctxt_name), "green", end='')
-                    cprint("\t[{}@{}]".format(ctxt.remote_ctxt,
-                                              DataContext.s3_remote_from_url(self.curr_context.remote_ctxt_url)))
+                    cprint("*", "white", end="")
+                    cprint("\t{}".format(ctxt_name), "green", end="")
+                    cprint(
+                        "\t[{}@{}]".format(
+                            ctxt.remote_ctxt,
+                            DataContext.s3_remote_from_url(
+                                self.curr_context.remote_ctxt_url
+                            ),
+                        )
+                    )
                 else:
-                    print("\t{}\t[{}@{}]".format(ctxt.local_ctxt, ctxt.remote_ctxt,
-                                                 DataContext.s3_remote_from_url(ctxt.remote_ctxt_url)))
+                    print(
+                        "\t{}\t[{}@{}]".format(
+                            ctxt.local_ctxt,
+                            ctxt.remote_ctxt,
+                            DataContext.s3_remote_from_url(ctxt.remote_ctxt_url),
+                        )
+                    )
             return 0
 
         remote_context, local_context = DisdatFS._parse_fq_context_name(fq_context_name)
@@ -737,24 +853,28 @@ class DisdatFS(object):
         ctxt_dir = os.path.join(context_dir, local_context)
 
         if local_context in self._all_contexts:
-            assert(os.path.exists(ctxt_dir))
+            assert os.path.exists(ctxt_dir)
             _logger.info("The context '{}' already exists.".format(local_context))
             return 1
 
         DataContext.create_branch(context_dir, local_context)
 
-        context = DataContext(context_dir,
-                              remote_ctxt=remote_context,
-                              local_ctxt=local_context,
-                              remote_ctxt_url=None)
+        context = DataContext(
+            context_dir,
+            remote_ctxt=remote_context,
+            local_ctxt=local_context,
+            remote_ctxt_url=None,
+        )
 
         context.save()
 
         self._all_contexts[local_context] = context
 
-        _logger.info("Disdat created data context {}/{} at object dir {}.".format(remote_context,
-                                                                                  local_context,
-                                                                                  context.get_object_dir()))
+        _logger.info(
+            "Disdat created data context {}/{} at object dir {}.".format(
+                remote_context, local_context, context.get_object_dir()
+            )
+        )
         return 0
 
     def delete_context(self, fq_context_name, remote, force):
@@ -772,11 +892,21 @@ class DisdatFS(object):
         """
         repo, local_context = DisdatFS._parse_fq_context_name(fq_context_name)
 
-        ctxt_dir = os.path.join(DisdatConfig.instance().get_context_dir(), local_context)
+        ctxt_dir = os.path.join(
+            DisdatConfig.instance().get_context_dir(), local_context
+        )
 
-        if self.curr_context is not None and (fq_context_name == self.curr_context_name):
-            print("Disdat deleting the current context {}, remember to 'dsdt switch <otherbranch>' afterwords!".format(fq_context_name))
-            os.remove(os.path.join(DisdatConfig.instance().get_meta_dir(), META_FS_FILE))
+        if self.curr_context is not None and (
+            fq_context_name == self.curr_context_name
+        ):
+            print(
+                "Disdat deleting the current context {}, remember to 'dsdt switch <otherbranch>' afterwords!".format(
+                    fq_context_name
+                )
+            )
+            os.remove(
+                os.path.join(DisdatConfig.instance().get_meta_dir(), META_FS_FILE)
+            )
 
         if local_context in self._all_contexts:
             dc = self._all_contexts[local_context]
@@ -789,9 +919,15 @@ class DisdatFS(object):
             _logger.info("Disdat deleted local data context {}.".format(local_context))
             if remote:
                 aws_s3.delete_s3_dir(remote_context_url)
-                _logger.info("Disdat deleted remote data context {}.".format(remote_context_url))
+                _logger.info(
+                    "Disdat deleted remote data context {}.".format(remote_context_url)
+                )
         else:
-            _logger.info("Disdat local data context {} appears to already have been deleted.".format(local_context))
+            _logger.info(
+                "Disdat local data context {} appears to already have been deleted.".format(
+                    local_context
+                )
+            )
 
     def get_context(self, local_context_name):
         """
@@ -808,7 +944,11 @@ class DisdatFS(object):
         repo, local_context = DisdatFS._parse_fq_context_name(local_context_name)
 
         if local_context not in self._all_contexts:
-            _logger.error("Context {} not found.  Please create the context locally.".format(local_context, local_context))
+            _logger.error(
+                "Context {} not found.  Please create the context locally.".format(
+                    local_context, local_context
+                )
+            )
             return None
 
         return self._all_contexts[local_context]
@@ -827,10 +967,17 @@ class DisdatFS(object):
 
         repo, local_context = DisdatFS._parse_fq_context_name(local_context_name)
 
-        if self.curr_context is not None and self.curr_context_name == local_context_name:
-            assert(local_context in self._all_contexts)
-            assert(self.curr_context == self._all_contexts[local_context_name])
-            _logger.info("Disdat already within a valid data context_name {}".format(local_context))
+        if (
+            self.curr_context is not None
+            and self.curr_context_name == local_context_name
+        ):
+            assert local_context in self._all_contexts
+            assert self.curr_context == self._all_contexts[local_context_name]
+            _logger.info(
+                "Disdat already within a valid data context_name {}".format(
+                    local_context
+                )
+            )
 
         new_context = self.get_context(local_context_name)
 
@@ -841,7 +988,7 @@ class DisdatFS(object):
             print("In context {}".format(self.curr_context_name))
 
     def commit(self, bundle_name, input_tags, uuid=None, data_context=None):
-        """   Commit indicates that this is a primary version of this bundle.
+        """Commit indicates that this is a primary version of this bundle.
 
         Commit in place.  Re-use existing bundle and add the commit tag.
         Database links are special.  Commits materialize special views of the physical table.
@@ -861,30 +1008,46 @@ class DisdatFS(object):
         if data_context is None:
             return
 
-        _logger.debug('Committing bundle {} in context {}'.format(bundle_name, data_context.get_remote_name()))
+        _logger.debug(
+            "Committing bundle {} in context {}".format(
+                bundle_name, data_context.get_remote_name()
+            )
+        )
 
         if uuid is not None:
-            hfr = self.get_hframe_by_uuid(uuid,
-                                          tags=input_tags,
-                                          data_context=data_context)
+            hfr = self.get_hframe_by_uuid(
+                uuid, tags=input_tags, data_context=data_context
+            )
         elif bundle_name is not None:
-            hfr = self.get_latest_hframe(str(bundle_name),
-                                         tags=input_tags if len(input_tags) > 0 else None,
-                                         data_context=data_context)
+            hfr = self.get_latest_hframe(
+                str(bundle_name),
+                tags=input_tags if len(input_tags) > 0 else None,
+                data_context=data_context,
+            )
         else:
-            print("Push requires either a human name or a uuid to identify the hyperframe.")
+            print(
+                "Push requires either a human name or a uuid to identify the hyperframe."
+            )
             return None
 
         if hfr is None:
-            print("No bundle with human name [{}] or uuid [{}] found.".format(bundle_name, uuid))
+            print(
+                "No bundle with human name [{}] or uuid [{}] found.".format(
+                    bundle_name, uuid
+                )
+            )
             return
 
-        commit_tag = hfr.get_tag('committed')
-        if commit_tag is not None and commit_tag == 'True':
-            print("Bundle human name [{}] uuid [{}] already committed.".format(hfr.pb.human_name, hfr.pb.uuid))
+        commit_tag = hfr.get_tag("committed")
+        if commit_tag is not None and commit_tag == "True":
+            print(
+                "Bundle human name [{}] uuid [{}] already committed.".format(
+                    hfr.pb.human_name, hfr.pb.uuid
+                )
+            )
             return
 
-        tags = {'committed': 'True'}
+        tags = {"committed": "True"}
 
         # Commit in memory:
         existing_tags = hfr.get_tags()
@@ -894,7 +1057,9 @@ class DisdatFS(object):
         # Commit to disk:
         data_context.atomic_update_hframe(hfr)
 
-    def _get_all_link_frames(self, outer_hfr, local_fs_frames=False, s3_frames=False, db_frames=False):
+    def _get_all_link_frames(
+        self, outer_hfr, local_fs_frames=False, s3_frames=False, db_frames=False
+    ):
         """
         To push a hyperframe, we need to see if it contains any local file link frames.
         This is within the entire structure, not just at the top level.
@@ -913,7 +1078,9 @@ class DisdatFS(object):
 
         """
 
-        hf_frontier = [outer_hfr, ]
+        hf_frontier = [
+            outer_hfr,
+        ]
         found_link_frames = []
 
         while len(hf_frontier) > 0:
@@ -924,18 +1091,20 @@ class DisdatFS(object):
 
                 if local_fs_frames:
                     if fr.is_local_fs_link_frame():
-                        found_link_frames.append( (next_hf, fr) )
+                        found_link_frames.append((next_hf, fr))
 
                 if s3_frames:
                     if fr.is_s3_link_frame():
-                        found_link_frames.append( (next_hf, fr) )
+                        found_link_frames.append((next_hf, fr))
 
                 if db_frames:
                     if fr.is_db_link_frame():
-                        found_link_frames.append( (next_hf, fr) )
+                        found_link_frames.append((next_hf, fr))
 
                 if fr.is_hfr_frame():
-                    for hfr in fr.get_hframes(): # making a copy from the pb in this frame
+                    for (
+                        hfr
+                    ) in fr.get_hframes():  # making a copy from the pb in this frame
                         hf_frontier.append(hfr)
 
         return found_link_frames
@@ -968,11 +1137,19 @@ class DisdatFS(object):
             if fr.is_hfr_frame():
                 # CASE 1: A frame containing HFRs.   Descend recursively.
                 for next_hfr in fr.get_hframes():
-                    copies.extend(self._copy_hfr_to_remote_branch(next_hfr, data_context, dry_run=dry_run))
+                    copies.extend(
+                        self._copy_hfr_to_remote_branch(
+                            next_hfr, data_context, dry_run=dry_run
+                        )
+                    )
             else:
                 # CASE 2:  Copy any local files or unmanaged S3 files to S3 remote
                 obj_dir = data_context.get_remote_object_dir()
-                copies.extend(self._copy_fr_links_to_branch(fr, obj_dir, data_context, dry_run=dry_run))
+                copies.extend(
+                    self._copy_fr_links_to_branch(
+                        fr, obj_dir, data_context, dry_run=dry_run
+                    )
+                )
 
         # Write PBs to remote
         copies.extend(data_context.write_hframe_remote(hfr, dry_run=dry_run))
@@ -1003,12 +1180,16 @@ class DisdatFS(object):
             src_paths = data_context.actualize_link_urls(fr)
             bundle_dir = os.path.join(branch_object_dir, fr.hframe_uuid)
             if urllib.parse.urlparse(bundle_dir).scheme != "s3":
-                bundle_dir = urllib.parse.urljoin('file:', bundle_dir)
-            dst_paths = data_context.copy_in_files(src_paths, bundle_dir, dry_run=dry_run)
+                bundle_dir = urllib.parse.urljoin("file:", bundle_dir)
+            dst_paths = data_context.copy_in_files(
+                src_paths, bundle_dir, dry_run=dry_run
+            )
 
         return [(src, dst) for src, dst in zip(src_paths, dst_paths)]
 
-    def push(self, human_name=None, uuid=None, tags=None, data_context=None, delocalize=False):
+    def push(
+        self, human_name=None, uuid=None, tags=None, data_context=None, delocalize=False
+    ):
         """
 
         Push a particular hyperframe to our remote context.   This only pushes the most recent (in time) version of
@@ -1041,33 +1222,40 @@ class DisdatFS(object):
             return None
 
         if data_context.remote_ctxt_url is None:
-            print("Push cannot execute.  Local context {} on remote {} not bound.".format(data_context.local_ctxt,
-                                                                                          data_context.remote_ctxt))
+            print(
+                "Push cannot execute.  Local context {} on remote {} not bound.".format(
+                    data_context.local_ctxt, data_context.remote_ctxt
+                )
+            )
             return None
 
         if tags is None:
             tags = {}
 
-        tags['committed'] = 'True'
+        tags["committed"] = "True"
 
         if human_name is None and uuid is None:
             self.fast_push(data_context, delocalize)
             return
 
         if uuid is not None:
-            hfr = self.get_hframe_by_uuid(uuid,
-                                          tags=tags,
-                                          data_context=data_context)
+            hfr = self.get_hframe_by_uuid(uuid, tags=tags, data_context=data_context)
         elif human_name is not None:
-            hfr = self.get_latest_hframe(human_name,
-                                         tags=tags,
-                                         data_context=data_context)
+            hfr = self.get_latest_hframe(
+                human_name, tags=tags, data_context=data_context
+            )
         else:
-            print("Push requires either a human name or a uuid to identify the hyperframe.")
+            print(
+                "Push requires either a human name or a uuid to identify the hyperframe."
+            )
             return None
 
         if hfr is None:
-            print("Push unable to find committed bundle name [{}] uuid [{}]".format(human_name, uuid))
+            print(
+                "Push unable to find committed bundle name [{}] uuid [{}]".format(
+                    human_name, uuid
+                )
+            )
             return None
 
         # All bundles contain relative paths.  Copying is a simple
@@ -1087,15 +1275,22 @@ class DisdatFS(object):
                 try:
                     os.remove(f)
                 except IOError as e:
-                    print("fast_push: during delocalization, unable to remove {} due to {}".format(f, e))
+                    print(
+                        "fast_push: during delocalization, unable to remove {} due to {}".format(
+                            f, e
+                        )
+                    )
 
-        print("Pushed committed bundle {} uuid {} to remote {}".format(human_name, hfr.pb.uuid,
-                                                                       data_context.remote_ctxt_url))
+        print(
+            "Pushed committed bundle {} uuid {} to remote {}".format(
+                human_name, hfr.pb.uuid, data_context.remote_ctxt_url
+            )
+        )
 
         return hfr
 
     def fast_push(self, data_context, delocalize):
-        """ Push all the bundles (all versions) in this context to the remote in parallel.
+        """Push all the bundles (all versions) in this context to the remote in parallel.
 
         Args:
             data_context (`data_context.DataContext`): The context to push.
@@ -1104,44 +1299,68 @@ class DisdatFS(object):
         Returns:
             None
         """
-        _logger.info("Fast Push synchronizing with remote context {}@{}".format(data_context.remote_ctxt,
-                                                                                data_context.remote_ctxt_url))
+        _logger.info(
+            "Fast Push synchronizing with remote context {}@{}".format(
+                data_context.remote_ctxt, data_context.remote_ctxt_url
+            )
+        )
 
         remote_s3_object_dir = data_context.get_remote_object_dir()
         bucket, _ = aws_s3.split_s3_url(remote_s3_object_dir)
-        all_keys = aws_s3.ls_s3_url_keys(remote_s3_object_dir,
-                                         is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
-        all_keys = {os.path.join("s3://", bucket, k): os.path.join("s3://", bucket, k) for k in all_keys}
+        all_keys = aws_s3.ls_s3_url_keys(
+            remote_s3_object_dir,
+            is_object_directory=data_context.bundle_count()
+            > aws_s3.S3_LS_USE_MP_THRESH,
+        )
+        all_keys = {
+            os.path.join("s3://", bucket, k): os.path.join("s3://", bucket, k)
+            for k in all_keys
+        }
 
         # TODO: change to iterators to avoid large file lists.
-        all_local_hframes = data_context.get_hframes(tags={'committed': 'True'})
+        all_local_hframes = data_context.get_hframes(tags={"committed": "True"})
         push_tuples = []
         to_delete = []
 
         for hfr in all_local_hframes:
-            src_dst_copies = self._copy_hfr_to_remote_branch(hfr, data_context, dry_run=True)
+            src_dst_copies = self._copy_hfr_to_remote_branch(
+                hfr, data_context, dry_run=True
+            )
             for src, dst in src_dst_copies:
                 if dst not in all_keys:
                     push_tuples.append((src, dst))
                 if not hyperframe.is_hyperframe_pb_file(src):
                     to_delete.append(urllib.parse.urlparse(src).path)
 
-        _logger.info("Fast push copying {} objects to S3 . . .".format(len(push_tuples)))
-        #for s, d in push_tuples:
+        _logger.info(
+            "Fast push copying {} objects to S3 . . .".format(len(push_tuples))
+        )
+        # for s, d in push_tuples:
         #    _logger.info("----> ".format(push_tuples))
         #    _logger.info("\tSRC {} ".format(s))
         #    _logger.info("\tDST {} ".format(d))
 
         results = aws_s3.put_s3_key_many(push_tuples)
-        _logger.info("Fast push completed {} transfers -- process pool closed and joined.".format(len(results)))
-        assert len(results) == len(push_tuples), "Fast push failed: transferred {} out of {} files".format(len(results),
-                                                                                                           len(push_tuples))
+        _logger.info(
+            "Fast push completed {} transfers -- process pool closed and joined.".format(
+                len(results)
+            )
+        )
+        assert len(results) == len(
+            push_tuples
+        ), "Fast push failed: transferred {} out of {} files".format(
+            len(results), len(push_tuples)
+        )
         if delocalize:
             for f in to_delete:
                 try:
                     os.remove(f)
                 except IOError as e:
-                    print("fast_push: during delocalization, unable to remove {} due to {}".format(f, e))
+                    print(
+                        "fast_push: during delocalization, unable to remove {} due to {}".format(
+                            f, e
+                        )
+                    )
 
     @staticmethod
     def _localize_hfr(local_hfr, s3_uuid, data_context):
@@ -1156,7 +1375,9 @@ class DisdatFS(object):
         Returns:
             None
         """
-        managed_path = urllib.parse.urljoin('file:', os.path.join(data_context.get_object_dir(), s3_uuid))
+        managed_path = urllib.parse.urljoin(
+            "file:", os.path.join(data_context.get_object_dir(), s3_uuid)
+        )
         for fr in local_hfr.get_frames(data_context):
             if fr.is_link_frame():
                 src_paths = data_context.actualize_link_urls(fr)
@@ -1176,21 +1397,29 @@ class DisdatFS(object):
         Returns:
 
         """
-        _logger.info("Fast Pull synchronizing with remote context {}@{}".format(data_context.remote_ctxt,
-                                                                                data_context.remote_ctxt_url))
+        _logger.info(
+            "Fast Pull synchronizing with remote context {}@{}".format(
+                data_context.remote_ctxt, data_context.remote_ctxt_url
+            )
+        )
 
         remote_s3_object_dir = data_context.get_remote_object_dir()
         s3_bucket, remote_obj_dir = aws_s3.split_s3_url(remote_s3_object_dir)
-        all_keys = aws_s3.ls_s3_url_keys(remote_s3_object_dir,
-                                         is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
+        all_keys = aws_s3.ls_s3_url_keys(
+            remote_s3_object_dir,
+            is_object_directory=data_context.bundle_count()
+            > aws_s3.S3_LS_USE_MP_THRESH,
+        )
         if not localize:
-            all_keys = [k for k in all_keys if 'frame.pb' in k]
+            all_keys = [k for k in all_keys if "frame.pb" in k]
         fetch_count = 0
         fetch_tuples = []
         for s3_key in all_keys:
             obj_basename = os.path.basename(s3_key)
-            obj_suffix = s3_key.replace(remote_obj_dir,'')
-            obj_suffix_dir = os.path.dirname(obj_suffix).strip('/')  # remote_obj_dir won't have a trailing slash
+            obj_suffix = s3_key.replace(remote_obj_dir, "")
+            obj_suffix_dir = os.path.dirname(obj_suffix).strip(
+                "/"
+            )  # remote_obj_dir won't have a trailing slash
             local_uuid_dir = os.path.join(data_context.get_object_dir(), obj_suffix_dir)
             local_object_path = os.path.join(local_uuid_dir, obj_basename)
             if not os.path.exists(local_object_path):
@@ -1198,7 +1427,11 @@ class DisdatFS(object):
                 fetch_tuples.append((s3_bucket, s3_key, local_object_path))
         _logger.info("Fast pull fetching {} objects...".format(fetch_count))
         results = aws_s3.get_s3_key_many(fetch_tuples)
-        _logger.info("Fast pull completed {} transfers -- process pool closed and joined.".format(len(results)))
+        _logger.info(
+            "Fast pull completed {} transfers -- process pool closed and joined.".format(
+                len(results)
+            )
+        )
 
     def pull(self, human_name=None, uuid=None, localize=False, data_context=None):
         """
@@ -1226,8 +1459,14 @@ class DisdatFS(object):
             return
 
         if data_context.remote_ctxt_url is None:
-            print("Pull cannot execute.  Local context {} on remote {} not bound.".format(data_context.local_ctxt, data_context.remote_ctxt))
-            raise UserWarning("Local context {} has no remote".format(data_context.local_ctxt))
+            print(
+                "Pull cannot execute.  Local context {} on remote {} not bound.".format(
+                    data_context.local_ctxt, data_context.remote_ctxt
+                )
+            )
+            raise UserWarning(
+                "Local context {} has no remote".format(data_context.local_ctxt)
+            )
 
         if human_name is None and uuid is None:
             # NOTE: This is fast and loose.  Another command might be editing the db.  Unit test.
@@ -1250,53 +1489,78 @@ class DisdatFS(object):
         else:
             object_directory = data_context.get_remote_object_dir()
 
-        possible_hframe_objects = aws_s3.ls_s3_url_keys(object_directory,
-                                                        is_object_directory=data_context.bundle_count() > aws_s3.S3_LS_USE_MP_THRESH)
+        possible_hframe_objects = aws_s3.ls_s3_url_keys(
+            object_directory,
+            is_object_directory=data_context.bundle_count()
+            > aws_s3.S3_LS_USE_MP_THRESH,
+        )
 
-        hframe_keys = [obj for obj in possible_hframe_objects if '_hframe.pb' in obj]
+        hframe_keys = [obj for obj in possible_hframe_objects if "_hframe.pb" in obj]
 
         for s3_hfr_key in hframe_keys:
             hfr_basename = os.path.basename(s3_hfr_key)
             # Note that this works because the UUID is prepended to the <uuid>_hframe.pb
-            s3_uuid = hfr_basename.split('_')[0]
+            s3_uuid = hfr_basename.split("_")[0]
 
-            if uuid is not None:   # filter by UUID
+            if uuid is not None:  # filter by UUID
                 if s3_uuid != uuid:
                     continue
                 else:
-                    print("Found remote bundle with UUID {}, checking local context for duplicates ...".format(uuid))
+                    print(
+                        "Found remote bundle with UUID {}, checking local context for duplicates ...".format(
+                            uuid
+                        )
+                    )
 
             local_hfr = self.get_hframe_by_uuid(s3_uuid, data_context=data_context)
             if local_hfr is not None:
                 if not localize:
-                    _logger.debug("Found HyperFrame UUID {} present in local context, skipping . . .".format(s3_uuid))
+                    _logger.debug(
+                        "Found HyperFrame UUID {} present in local context, skipping . . .".format(
+                            s3_uuid
+                        )
+                    )
                 else:
                     if human_name is not None:
                         if human_name != local_hfr.pb.human_name:
                             continue
                         else:
-                            print("Found remote bundle with human name {}, uuid {} localizing ...".format(local_hfr.pb.human_name,
-                                                                                                          local_hfr.pb.uuid))
+                            print(
+                                "Found remote bundle with human name {}, uuid {} localizing ...".format(
+                                    local_hfr.pb.human_name, local_hfr.pb.uuid
+                                )
+                            )
                     DisdatFS._localize_hfr(local_hfr, s3_uuid, data_context)
             else:
                 s3_bucket, _ = aws_s3.split_s3_url(data_context.remote_ctxt_url)
                 found_objects = aws_s3.s3_list_objects_at_prefix(s3_bucket, s3_hfr_key)
                 assert len(found_objects) == 1
                 obj = found_objects[0].Object().get()
-                hfr_test = hyperframe.HyperFrameRecord.from_str_bytes(obj['Body'].read())
+                hfr_test = hyperframe.HyperFrameRecord.from_str_bytes(
+                    obj["Body"].read()
+                )
                 if human_name is not None:
                     if human_name != hfr_test.pb.human_name:
                         continue
                     else:
-                        print("Found remote bundle with human name {}, uuid {} ...".format(hfr_test.pb.human_name,
-                                                                                           hfr_test.pb.uuid))
+                        print(
+                            "Found remote bundle with human name {}, uuid {} ...".format(
+                                hfr_test.pb.human_name, hfr_test.pb.uuid
+                            )
+                        )
 
-                _logger.info("Adding HyperFrame UUID {} to local context . . .".format(s3_uuid))
+                _logger.info(
+                    "Adding HyperFrame UUID {} to local context . . .".format(s3_uuid)
+                )
 
                 local_uuid_dir = os.path.join(data_context.get_object_dir(), s3_uuid)
                 local_hfr_path = os.path.join(local_uuid_dir, hfr_basename)
                 if os.path.exists(local_uuid_dir):
-                    print("Pull found existing data in local disdat db at UUID {}, overwriting . . .".format(s3_uuid))
+                    print(
+                        "Pull found existing data in local disdat db at UUID {}, overwriting . . .".format(
+                            s3_uuid
+                        )
+                    )
                     shutil.rmtree(local_uuid_dir)
 
                 os.makedirs(local_uuid_dir)
@@ -1306,7 +1570,9 @@ class DisdatFS(object):
                 # grab frames for this hyperframe
                 s3_hfr_dir = os.path.join(data_context.get_remote_object_dir(), s3_uuid)
                 possible_frame_objects = aws_s3.ls_s3_url_objects(s3_hfr_dir)
-                frame_objects = [obj for obj in possible_frame_objects if '_frame.pb' in obj.key]
+                frame_objects = [
+                    obj for obj in possible_frame_objects if "_frame.pb" in obj.key
+                ]
                 for s3_fr_obj in frame_objects:
                     fr_basename = os.path.basename(s3_fr_obj.key)
                     local_fr_path = os.path.join(local_uuid_dir, fr_basename)
@@ -1315,8 +1581,11 @@ class DisdatFS(object):
                 data_context.write_hframe_db_only(hfr_test)
 
                 if localize:
-                    DisdatFS._localize_hfr(self.get_hframe_by_uuid(s3_uuid, data_context=data_context),
-                                           s3_uuid, data_context)
+                    DisdatFS._localize_hfr(
+                        self.get_hframe_by_uuid(s3_uuid, data_context=data_context),
+                        s3_uuid,
+                        data_context,
+                    )
 
     def remote_add(self, remote_context, s3_url):
         """
@@ -1354,20 +1623,23 @@ def _remote(fs, args):
     except RuntimeError as rte:
         pass
 
+
 def _push(fs, args):
     bundle = None
-    uuid   = None
+    uuid = None
     if args.bundle:
         bundle = args.bundle
     if args.uuid:
         uuid = args.uuid
 
-    fs.push(bundle, uuid, tags=common.parse_args_tags(args.tag), delocalize=args.delocalize)
+    fs.push(
+        bundle, uuid, tags=common.parse_args_tags(args.tag), delocalize=args.delocalize
+    )
 
 
 def _pull(fs, args):
     bundle = None
-    uuid   = None
+    uuid = None
     if args.bundle:
         bundle = args.bundle
     if args.uuid:
@@ -1377,12 +1649,23 @@ def _pull(fs, args):
 
 
 def _rm(fs, args):
-    for f in fs.rm(args.bundle, rm_all=args.all, rm_old_only=args.old, tags=common.parse_args_tags(args.tag), uuid=args.uuid):
+    for f in fs.rm(
+        args.bundle,
+        rm_all=args.all,
+        rm_old_only=args.old,
+        tags=common.parse_args_tags(args.tag),
+        uuid=args.uuid,
+    ):
         print(f)
 
 
 def _rmr(fs, args):
-    for f in fs.rmr(args.bundle, tags=common.parse_args_tags(args.tag), uuid=args.uuid, dryrun=args.dryrun):
+    for f in fs.rmr(
+        args.bundle,
+        tags=common.parse_args_tags(args.tag),
+        uuid=args.uuid,
+        dryrun=args.dryrun,
+    ):
         print(f)
 
 
@@ -1399,12 +1682,14 @@ def _parse_date(date_string, throw=False):
         datetime.datetime
     """
     try:
-        if len(date_string.split(' ')) > 1:
+        if len(date_string.split(" ")) > 1:
             date = datetime.strptime(date_string, "%m-%d-%Y %X")
         else:
             date = datetime.strptime(date_string, "%m-%d-%Y")
     except ValueError as ve:
-        print("Unable to parse date, must be like '12-1-2008' or '\"12-1-2008 13:12:05\"'")
+        print(
+            "Unable to parse date, must be like '12-1-2008' or '\"12-1-2008 13:12:05\"'"
+        )
         if not throw:
             return None
         else:
@@ -1439,33 +1724,44 @@ def _ls(fs, args):
         if before is None:
             return
 
-    for f in fs.ls(arg,
-                   args.print_tags,
-                   args.intermediates,
-                   args.roots,
-                   args.verbose,
-                   args.print_args,
-                   uuid=args.uuid,
-                   committed=committed,
-                   before=before,
-                   after=after,
-                   maxbydate=args.latest_by_date,
-                   tags=common.parse_args_tags(args.tag)):
+    for f in fs.ls(
+        arg,
+        args.print_tags,
+        args.intermediates,
+        args.roots,
+        args.verbose,
+        args.print_args,
+        uuid=args.uuid,
+        committed=committed,
+        before=before,
+        after=after,
+        maxbydate=args.latest_by_date,
+        tags=common.parse_args_tags(args.tag),
+    ):
         print(f)
 
 
 def _cat(fs, args):
     try:
-        result = fs.cat(args.bundle, uuid=args.uuid, tags=common.parse_args_tags(args.tag), file=args.file)
+        result = fs.cat(
+            args.bundle,
+            uuid=args.uuid,
+            tags=common.parse_args_tags(args.tag),
+            file=args.file,
+        )
         if isinstance(result, pd.DataFrame):
             # If df, make sure we print out all columns
-            pd.set_option('display.max_colwidth', -1)
+            pd.set_option("display.max_colwidth", -1)
             print(result.to_string())
         else:
             # else default print the object
             print(result)
     except CatNoBundleError as cnbe:
-        print("Disdat cat found no bundle with name {} or uuid {}".format(args.bundle, args.uuid))
+        print(
+            "Disdat cat found no bundle with name {} or uuid {}".format(
+                args.bundle, args.uuid
+            )
+        )
 
 
 def add_arg_parser(subparsers):
@@ -1477,116 +1773,274 @@ def add_arg_parser(subparsers):
     fs = DisdatFS()
 
     # context
-    context_p = subparsers.add_parser('context')
-    context_p.add_argument('-f', '--force', action='store_true', help='Force remove of a dirty local context')
-    context_p.add_argument('-d','--delete', action='store_true', help='Delete local context')
-    context_p.add_argument('-r','--remote', action='store_true', help='Delete remote context along with local context')
+    context_p = subparsers.add_parser("context")
     context_p.add_argument(
-        'context',
-        nargs='?',
+        "-f",
+        "--force",
+        action="store_true",
+        help="Force remove of a dirty local context",
+    )
+    context_p.add_argument(
+        "-d", "--delete", action="store_true", help="Delete local context"
+    )
+    context_p.add_argument(
+        "-r",
+        "--remote",
+        action="store_true",
+        help="Delete remote context along with local context",
+    )
+    context_p.add_argument(
+        "context",
+        nargs="?",
         type=str,
-        help="Create a new data context using <remote context>/<local context> or <local context>")
+        help="Create a new data context using <remote context>/<local context> or <local context>",
+    )
     context_p.set_defaults(func=lambda args: _branch(fs, args))
 
     # switch contexts
-    switch_p = subparsers.add_parser('switch')
+    switch_p = subparsers.add_parser("switch")
     switch_p.add_argument(
-        'context',
-        type=str,
-        help='Switch contexts to "<local context>".')
+        "context", type=str, help='Switch contexts to "<local context>".'
+    )
     switch_p.set_defaults(func=lambda args: fs.switch(args.context))
 
     # commit
-    commit_p = subparsers.add_parser('commit', description='Commit most recent bundle of name <bundle>.')
-    commit_p.add_argument('bundle', type=str, nargs='?', default=None,
-                          help='Bundle name to commit in the current context (optional)')
-    commit_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to commit')
-    commit_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
-                          help="Having a specific tag: 'dsdt rm -t committed:True -t version:0.7.1'")
+    commit_p = subparsers.add_parser(
+        "commit", description="Commit most recent bundle of name <bundle>."
+    )
+    commit_p.add_argument(
+        "bundle",
+        type=str,
+        nargs="?",
+        default=None,
+        help="Bundle name to commit in the current context (optional)",
+    )
+    commit_p.add_argument(
+        "-u", "--uuid", type=str, default=None, help="Bundle UUID to commit"
+    )
+    commit_p.add_argument(
+        "-t",
+        "--tag",
+        nargs=1,
+        type=str,
+        action="append",
+        help="Having a specific tag: 'dsdt rm -t committed:True -t version:0.7.1'",
+    )
     commit_p.set_defaults(func=lambda args: _commit(fs, args))
 
     # rm
-    rm_p = subparsers.add_parser('rm')
-    rm_p.add_argument('bundle', nargs='?', type=str, default=None, help='The bundle in the current context')
-    rm_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to remove')
-    rm_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
-                      help="Having a specific tag: 'dsdt rm -t committed:True -t version:0.7.1'")
-    rm_p.add_argument('--all', action='store_true',
-                      help='Remove the current version and all history.  Otherwise just remove history')
-    rm_p.add_argument('--old', action='store_true', default=False,
-                      help='Remove everything except the most recent bundle.')
+    rm_p = subparsers.add_parser("rm")
+    rm_p.add_argument(
+        "bundle",
+        nargs="?",
+        type=str,
+        default=None,
+        help="The bundle in the current context",
+    )
+    rm_p.add_argument(
+        "-u", "--uuid", type=str, default=None, help="Bundle UUID to remove"
+    )
+    rm_p.add_argument(
+        "-t",
+        "--tag",
+        nargs=1,
+        type=str,
+        action="append",
+        help="Having a specific tag: 'dsdt rm -t committed:True -t version:0.7.1'",
+    )
+    rm_p.add_argument(
+        "--all",
+        action="store_true",
+        help="Remove the current version and all history.  Otherwise just remove history",
+    )
+    rm_p.add_argument(
+        "--old",
+        action="store_true",
+        default=False,
+        help="Remove everything except the most recent bundle.",
+    )
     rm_p.set_defaults(func=lambda args: _rm(fs, args))
 
     # rmr remove from remote
-    rmr_p = subparsers.add_parser('rmr')
-    rmr_p.add_argument('bundle', nargs='?', type=str, default=None, help='The bundle in the current context')
-    rmr_p.add_argument('--dryrun', action='store_true', default=False, help='Do not delete found bundles')
-    rmr_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to remove')
-    rmr_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
-                       help="Having a specific tag: 'dsdt rm -t committed:True -t version:0.7.1'")
+    rmr_p = subparsers.add_parser("rmr")
+    rmr_p.add_argument(
+        "bundle",
+        nargs="?",
+        type=str,
+        default=None,
+        help="The bundle in the current context",
+    )
+    rmr_p.add_argument(
+        "--dryrun",
+        action="store_true",
+        default=False,
+        help="Do not delete found bundles",
+    )
+    rmr_p.add_argument(
+        "-u", "--uuid", type=str, default=None, help="Bundle UUID to remove"
+    )
+    rmr_p.add_argument(
+        "-t",
+        "--tag",
+        nargs=1,
+        type=str,
+        action="append",
+        help="Having a specific tag: 'dsdt rm -t committed:True -t version:0.7.1'",
+    )
     rmr_p.set_defaults(func=lambda args: _rmr(fs, args))
 
     # ls
-    ls_p = subparsers.add_parser('ls')
-    ls_p.add_argument('bundle', nargs='*', type=str, help="Show all bundles 'dsdt ls' or explicit bundle 'dsdt ls <somebundle>' in current context")
-    ls_p.add_argument('-a', '--print-args', action='store_true', help="Print the arguments (if any) used to create the bundle.")
-    ls_p.add_argument('-p', '--print-tags', action='store_true', help="Print each bundle's tags.")
-    ls_p.add_argument('-i', '--intermediates', action='store_true',
-                      help="List only intermediate outputs.")
-    ls_p.add_argument('-r', '--roots', action='store_true',
-                      help="List only bundles from root tasks (last task in pipeline).")
-    ls_p.add_argument('-c', '--committed', action='store_true',
-                      help="List only committed bundles.")
-    ls_p.add_argument('-u', '--uuid', type=str, default=None,
-                      help='list by bundle UUID')
-    ls_p.add_argument('--uncommitted', action='store_true',
-                      help="List only uncommitted bundles.")
-    ls_p.add_argument('-l', '--latest-by-date', action='store_true',
-                      help="Return the most recent bundle for any name.")
-    ls_p.add_argument('-A', '--after',  type=str,
-                      help="List bundles created on or after date or datetime: '--after 12-10-2008 13:40:30'")
-    ls_p.add_argument('-B', '--before', type=str,
-                      help="List bundles created on or before date or datetime: '--before 12-10-2008 13:40:30'")
-    ls_p.add_argument('-v', '--verbose', action='store_true',
-                      help="Print bundles with more information.")
-    ls_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
-                      help="Having a specific tag: 'dsdt ls -t committed:True -t version:0.7.1'")
+    ls_p = subparsers.add_parser("ls")
+    ls_p.add_argument(
+        "bundle",
+        nargs="*",
+        type=str,
+        help="Show all bundles 'dsdt ls' or explicit bundle 'dsdt ls <somebundle>' in current context",
+    )
+    ls_p.add_argument(
+        "-a",
+        "--print-args",
+        action="store_true",
+        help="Print the arguments (if any) used to create the bundle.",
+    )
+    ls_p.add_argument(
+        "-p", "--print-tags", action="store_true", help="Print each bundle's tags."
+    )
+    ls_p.add_argument(
+        "-i",
+        "--intermediates",
+        action="store_true",
+        help="List only intermediate outputs.",
+    )
+    ls_p.add_argument(
+        "-r",
+        "--roots",
+        action="store_true",
+        help="List only bundles from root tasks (last task in pipeline).",
+    )
+    ls_p.add_argument(
+        "-c", "--committed", action="store_true", help="List only committed bundles."
+    )
+    ls_p.add_argument(
+        "-u", "--uuid", type=str, default=None, help="list by bundle UUID"
+    )
+    ls_p.add_argument(
+        "--uncommitted", action="store_true", help="List only uncommitted bundles."
+    )
+    ls_p.add_argument(
+        "-l",
+        "--latest-by-date",
+        action="store_true",
+        help="Return the most recent bundle for any name.",
+    )
+    ls_p.add_argument(
+        "-A",
+        "--after",
+        type=str,
+        help="List bundles created on or after date or datetime: '--after 12-10-2008 13:40:30'",
+    )
+    ls_p.add_argument(
+        "-B",
+        "--before",
+        type=str,
+        help="List bundles created on or before date or datetime: '--before 12-10-2008 13:40:30'",
+    )
+    ls_p.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Print bundles with more information.",
+    )
+    ls_p.add_argument(
+        "-t",
+        "--tag",
+        nargs=1,
+        type=str,
+        action="append",
+        help="Having a specific tag: 'dsdt ls -t committed:True -t version:0.7.1'",
+    )
     ls_p.set_defaults(func=lambda args: _ls(fs, args))
 
     # cat
-    cat_p = subparsers.add_parser('cat')
-    cat_p.add_argument('bundle', type=str, nargs='?', default=None, help='The bundle name in the current context')
-    cat_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
-                       help="Having a specific tag: 'dsdt ls -t committed:True -t version:0.7.1'")
-    cat_p.add_argument('-f', '--file', type=str,
-                       help="Save output dataframe as csv without index to specified file")
-    cat_p.add_argument('-u', '--uuid', type=str, default=None, help='Bundle UUID to cat')
+    cat_p = subparsers.add_parser("cat")
+    cat_p.add_argument(
+        "bundle",
+        type=str,
+        nargs="?",
+        default=None,
+        help="The bundle name in the current context",
+    )
+    cat_p.add_argument(
+        "-t",
+        "--tag",
+        nargs=1,
+        type=str,
+        action="append",
+        help="Having a specific tag: 'dsdt ls -t committed:True -t version:0.7.1'",
+    )
+    cat_p.add_argument(
+        "-f",
+        "--file",
+        type=str,
+        help="Save output dataframe as csv without index to specified file",
+    )
+    cat_p.add_argument(
+        "-u", "--uuid", type=str, default=None, help="Bundle UUID to cat"
+    )
     cat_p.set_defaults(func=lambda args: _cat(fs, args))
 
     # remote add <name> <s3_url>
-    remote_p = subparsers.add_parser('remote')
-    remote_p.add_argument('context', type=str, help='Name of the remote context')
-    remote_p.add_argument('s3_url', type=str, help="Remote context site, i.e, 's3://<bucket>/dsdt/'")
+    remote_p = subparsers.add_parser("remote")
+    remote_p.add_argument("context", type=str, help="Name of the remote context")
+    remote_p.add_argument(
+        "s3_url", type=str, help="Remote context site, i.e, 's3://<bucket>/dsdt/'"
+    )
     remote_p.set_defaults(func=lambda args: _remote(fs, args))
 
     # push <name> --uuid <uuid>
-    push_p = subparsers.add_parser('push')
-    push_p.add_argument('bundle', type=str, nargs='?', default=None,
-                        help='The bundle name in the current context')
-    push_p.add_argument('-u', '--uuid', type=str,
-                        help='A UUID of a bundle in the current context')
-    push_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
-                        help="Having a specific tag: 'dsdt ls -t committed:True -t version:0.7.1'")
-    push_p.add_argument('-d', '--delocalize', action='store_true',
-                        help='After pushing, remove all local files linked to Bundle.  Default leaves local copies.')
+    push_p = subparsers.add_parser("push")
+    push_p.add_argument(
+        "bundle",
+        type=str,
+        nargs="?",
+        default=None,
+        help="The bundle name in the current context",
+    )
+    push_p.add_argument(
+        "-u", "--uuid", type=str, help="A UUID of a bundle in the current context"
+    )
+    push_p.add_argument(
+        "-t",
+        "--tag",
+        nargs=1,
+        type=str,
+        action="append",
+        help="Having a specific tag: 'dsdt ls -t committed:True -t version:0.7.1'",
+    )
+    push_p.add_argument(
+        "-d",
+        "--delocalize",
+        action="store_true",
+        help="After pushing, remove all local files linked to Bundle.  Default leaves local copies.",
+    )
     push_p.set_defaults(func=lambda args: _push(fs, args))
 
     # pull <name --uuid <uuid>
-    pull_p = subparsers.add_parser('pull')
-    pull_p.add_argument('bundle', type=str, nargs='?', default=None,
-                        help='The bundle name in the current context')
-    pull_p.add_argument('-u', '--uuid', type=str,
-                        help='A UUID of a bundle in the current context')
-    pull_p.add_argument('-l', '--localize', action='store_true',
-                        help='Pull files with the bundle.  Default to leaving files at remote.')
+    pull_p = subparsers.add_parser("pull")
+    pull_p.add_argument(
+        "bundle",
+        type=str,
+        nargs="?",
+        default=None,
+        help="The bundle name in the current context",
+    )
+    pull_p.add_argument(
+        "-u", "--uuid", type=str, help="A UUID of a bundle in the current context"
+    )
+    pull_p.add_argument(
+        "-l",
+        "--localize",
+        action="store_true",
+        help="Pull files with the bundle.  Default to leaving files at remote.",
+    )
     pull_p.set_defaults(func=lambda args: _pull(fs, args))

@@ -35,36 +35,45 @@ Note: as of this time LinkAuths are not used
 
 """
 
-import sys
-from collections import namedtuple, defaultdict
-from collections.abc import Sequence
-import hashlib
-import time
-import os
-import tempfile
 import configparser
+import enum
+import hashlib
+import os
+import sys
+import tempfile
+import time
+from collections import defaultdict, namedtuple
+from collections.abc import Sequence
 from datetime import datetime
 
 import numpy as np
 import pandas as pd
-import enum
-from sqlalchemy import Table, Column, String, MetaData, BLOB, Text, Enum, UniqueConstraint, DateTime
-from sqlalchemy.sql import text
+from sqlalchemy import (
+    BLOB,
+    Column,
+    DateTime,
+    Enum,
+    MetaData,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.sql import text
 
 import disdat.common as common
 from disdat import hyperframe_pb2
-from disdat.utility.aws_s3 import s3_path_exists
 from disdat import logger as _logger
+from disdat.utility.aws_s3 import s3_path_exists
 
-
-HyperFrameTuple = namedtuple('HyperFrameTuple', 'columns, links, uuid, tags')
+HyperFrameTuple = namedtuple("HyperFrameTuple", "columns, links, uuid, tags")
 
 # UPSERT policy for inserts that violate constraints (explicit or primary key uniqueness)
 # We can ROLLBACK, ABORT, FAIL, IGNORE, and REPLACE
 # Most cases we want to REPLACE (UPSERT)
-UPSERT_POLICY = 'FAIL'
-HFRAMES_TABLE = 'hframes'
+UPSERT_POLICY = "FAIL"
+HFRAMES_TABLE = "hframes"
 
 
 class RecordState(enum.Enum):
@@ -75,9 +84,10 @@ class RecordState(enum.Enum):
     Deleted records indicate that someone tried to remove the hyperframe.
     If marked deleted, we should remove from disk and remove the record.
     """
+
     invalid = 0
     pending = 1
-    valid   = 2
+    valid = 2
     deleted = 3
 
 
@@ -95,15 +105,15 @@ def r_pb_fs(file_path, read_pb_class, validate_cksum=False):
         instance of read_pb_class
 
     """
-    with open(file_path, 'rb') as f:
+    with open(file_path, "rb") as f:
         contents = f.read()
         pb_record = read_pb_class.from_str_bytes(contents)
 
     if validate_cksum:
         old_hash = pb_record.pb.hash
-        pb_record.pb.ClearField('hash')
+        pb_record.pb.ClearField("hash")
         new_hash = hashlib.md5(pb_record.pb.SerializeToString()).hexdigest()
-        assert(old_hash == new_hash)
+        assert old_hash == new_hash
         pb_record.pb.hash = old_hash
 
     return pb_record
@@ -135,17 +145,18 @@ def w_pb_fs(file_prefix, pb_record, fq_file_path=None, atomic=False):
         fq_file_path = os.path.join(file_prefix, pb_record.get_filename())
 
     if not atomic:
-        with open(fq_file_path, 'wb') as f:
+        with open(fq_file_path, "wb") as f:
             f.write(pb_record.pb.SerializeToString())
     else:
         with tempfile.NamedTemporaryFile(
-                dir=os.path.dirname(fq_file_path), delete=False) as f:
+            dir=os.path.dirname(fq_file_path), delete=False
+        ) as f:
             f.write(pb_record.pb.SerializeToString())
         os.rename(f.name, fq_file_path)
 
 
 def is_hyperframe_pb_file(file):
-    """ Given a file path, is this a hyperframe pb or a frame pb file?
+    """Given a file path, is this a hyperframe pb or a frame pb file?
     Often in a bundle directory we simply want to distinguish between
     user files and pb files.   The truly safe way is to look through
     all link frames.
@@ -159,9 +170,10 @@ def is_hyperframe_pb_file(file):
     Returns:
 
     """
-    if file.endswith('frame.pb'):
+    if file.endswith("frame.pb"):
         return True
     return False
+
 
 def _sql_write_tbl_rows(pb_tbls, pb_rows, db_conn):
     """
@@ -175,17 +187,19 @@ def _sql_write_tbl_rows(pb_tbls, pb_rows, db_conn):
 
     """
     if type(pb_tbls) is dict:
-        assert (isinstance(pb_rows, dict) or isinstance(pb_rows, defaultdict))
+        assert isinstance(pb_rows, dict) or isinstance(pb_rows, defaultdict)
         results = []
-        for k, tbl in pb_tbls.items(): # dict of tables
-            for r in pb_rows[k]:           # dict of list of rows
+        for k, tbl in pb_tbls.items():  # dict of tables
+            for r in pb_rows[k]:  # dict of list of rows
                 ins = tbl.insert()
                 results.append(db_conn.execute(ins, r))
     else:
-        assert (type(pb_tbls) is not list)
-        assert (type(pb_tbls) is not tuple)
+        assert type(pb_tbls) is not list
+        assert type(pb_tbls) is not tuple
         ins = pb_tbls.insert()
-        results = [db_conn.execute(ins, pb_rows), ]
+        results = [
+            db_conn.execute(ins, pb_rows),
+        ]
     return results
 
 
@@ -207,7 +221,9 @@ def w_pb_db(pb_record, engine_g):
     """
 
     if not isinstance(pb_record, list):
-        pb_record = [pb_record, ]
+        pb_record = [
+            pb_record,
+        ]
     # print("w_pb_db handling {} records in a transaction".format(len(pb_record)))
     # gather up the tbls and rows to write for each record we are going to add
     all_inserts = []
@@ -222,7 +238,9 @@ def w_pb_db(pb_record, engine_g):
             try:
                 results.append(_sql_write_tbl_rows(pb_tbls, pb_rows, db_conn))
             except IntegrityError as ie:
-                _logger.info("Writing class pb to table encountered error {}".format(ie))
+                _logger.info(
+                    "Writing class pb to table encountered error {}".format(ie)
+                )
     return results
 
 
@@ -241,9 +259,7 @@ def r_pb_db(pb_cls, engine_g):
     """
     from sqlalchemy.sql import text
 
-    s = text(
-        "SELECT * from {}".format(pb_cls.table_name)
-    )
+    s = text("SELECT * from {}".format(pb_cls.table_name))
 
     with engine_g.connect() as conn:
         result = conn.execute(s)
@@ -268,38 +284,44 @@ def _groupby_clause(uuid=None, owner=None, human_name=None, processing_name=None
 
     """
 
-    gbc = ''
+    gbc = ""
     clauses = []
 
     if uuid is not None:
-        clauses.append('uuid')
+        clauses.append("uuid")
 
     if owner is not None:
-        clauses.append('owner')
+        clauses.append("owner")
 
     if human_name is not None:
-        clauses.append('human_name')
+        clauses.append("human_name")
 
     if processing_name is not None:
-        clauses.append('processing_name')
+        clauses.append("processing_name")
 
     if len(clauses) > 0:
-        gbc =  ','.join(clauses)
+        gbc = ",".join(clauses)
 
     return gbc
 
 
 def _translate(s):
-    if '.*' in s or '.' in s:
-        s = 'like "{}"'.format(s.replace('.*', '%').replace('.', '_'))
+    if ".*" in s or "." in s:
+        s = 'like "{}"'.format(s.replace(".*", "%").replace(".", "_"))
     else:
         s = '= "{}"'.format(s)
     return s
 
 
-def _where_clause(uuid=None, owner=None, human_name=None,
-                  processing_name=None, state=None,
-                  before=None, after=None):
+def _where_clause(
+    uuid=None,
+    owner=None,
+    human_name=None,
+    processing_name=None,
+    state=None,
+    before=None,
+    after=None,
+):
     """
     Build the where clause.  Note, if any string contains '.*' (zero or many of any ) or . (one of any).
     Translate that to '%' and '_' respectively.
@@ -321,20 +343,20 @@ def _where_clause(uuid=None, owner=None, human_name=None,
 
     """
 
-    where = ''
+    where = ""
     clauses = []
 
     if uuid is not None:
-        clauses.append('uuid {}'.format(_translate(uuid)))
+        clauses.append("uuid {}".format(_translate(uuid)))
 
     if owner is not None:
-        clauses.append('owner {}'.format(_translate(owner)))
+        clauses.append("owner {}".format(_translate(owner)))
 
     if human_name is not None:
-        clauses.append('human_name {}'.format(_translate(human_name)))
+        clauses.append("human_name {}".format(_translate(human_name)))
 
     if processing_name is not None:
-        clauses.append('processing_name {}'.format(_translate(processing_name)))
+        clauses.append("processing_name {}".format(_translate(processing_name)))
 
     if state is not None:
         clauses.append('state = "{}"'.format(state.name))
@@ -346,7 +368,7 @@ def _where_clause(uuid=None, owner=None, human_name=None,
         clauses.append('creation_date >= "{}"'.format(after.strftime("%Y-%m-%d %X")))
 
     if len(clauses) > 0:
-        where = 'WHERE ' + ' AND '.join(clauses)
+        where = "WHERE " + " AND ".join(clauses)
 
     return where
 
@@ -363,7 +385,7 @@ def _tag_query(tags):
 
     """
 
-    tag_table_name = HyperFrameRecord.table_name + '_tags'
+    tag_table_name = HyperFrameRecord.table_name + "_tags"
 
     tag_clauses = []
 
@@ -375,9 +397,11 @@ def _tag_query(tags):
             # SQLITE: critical to have single quotes around strings in sub-select query
             tag_clauses.append("(key = '{}' AND value = '{}')".format(k, v))
 
-    tag_where = 'WHERE ' + ' OR '.join(tag_clauses)
+    tag_where = "WHERE " + " OR ".join(tag_clauses)
 
-    s = "SELECT uuid from {} {} GROUP BY uuid HAVING count(*) = {}".format(tag_table_name, tag_where, len(tags))
+    s = "SELECT uuid from {} {} GROUP BY uuid HAVING count(*) = {}".format(
+        tag_table_name, tag_where, len(tags)
+    )
 
     return s
 
@@ -393,10 +417,20 @@ def bundle_count(engine_g):
     return count
 
 
-def select_hfr_db(engine_g, uuid=None, owner=None, human_name=None,
-                  processing_name=None, tags=None, state=None,
-                  orderby=False, groupby=False, maxbydate=False,
-                  before=None, after=None):
+def select_hfr_db(
+    engine_g,
+    uuid=None,
+    owner=None,
+    human_name=None,
+    processing_name=None,
+    tags=None,
+    state=None,
+    orderby=False,
+    groupby=False,
+    maxbydate=False,
+    before=None,
+    after=None,
+):
     """
     Create an HFrame Record from a row in our DB.
     Where uuid= && owner= && human_name= && processing_name=
@@ -422,38 +456,48 @@ def select_hfr_db(engine_g, uuid=None, owner=None, human_name=None,
 
     pb_cls = HyperFrameRecord
 
-    where = _where_clause(uuid, owner, human_name, processing_name, state, before, after)
+    where = _where_clause(
+        uuid, owner, human_name, processing_name, state, before, after
+    )
 
     if tags is not None and tags:  # bool(l={}) = False
-        if where == '':
+        if where == "":
             where = "WHERE uuid in (" + _tag_query(tags) + ")"
         else:
             where = where + " AND uuid in (" + _tag_query(tags) + ")"
 
-    select = '*'
+    select = "*"
 
     if orderby:
         orderby = "ORDER BY creation_date DESC"
     else:
-        orderby = ''
+        orderby = ""
 
     if groupby:
         gbc = _groupby_clause(uuid, owner, human_name, processing_name)
         groupby = "GROUP BY " + gbc
-        select  = gbc
+        select = gbc
     else:
-        groupby = ''
+        groupby = ""
 
     # add sub-query if we need to maxbydate, always group by 'human_name'
-    sub_q = ''
+    sub_q = ""
     if maxbydate:
-        sub_q = " AS a JOIN (SELECT human_name as hn, " + \
-                    " max(creation_date) AS max_date FROM {} GROUP BY human_name ) as b ".format(pb_cls.table_name) + \
-                " ON a.human_name = b.hn AND a.creation_date = b.max_date "
+        sub_q = (
+            " AS a JOIN (SELECT human_name as hn, "
+            + " max(creation_date) AS max_date FROM {} GROUP BY human_name ) as b ".format(
+                pb_cls.table_name
+            )
+            + " ON a.human_name = b.hn AND a.creation_date = b.max_date "
+        )
 
-    s = text("SELECT {} FROM {} {} {} {} {}".format(select, pb_cls.table_name, sub_q, where, groupby, orderby))
+    s = text(
+        "SELECT {} FROM {} {} {} {} {}".format(
+            select, pb_cls.table_name, sub_q, where, groupby, orderby
+        )
+    )
 
-    #print ("Query {}".format(s))
+    # print ("Query {}".format(s))
 
     with engine_g.connect() as conn:
         result = conn.execute(s)
@@ -462,7 +506,9 @@ def select_hfr_db(engine_g, uuid=None, owner=None, human_name=None,
     return hfrs
 
 
-def update_hfr_db(engine_g, state, uuid=None, owner=None, human_name=None, processing_name=None):
+def update_hfr_db(
+    engine_g, state, uuid=None, owner=None, human_name=None, processing_name=None
+):
     """
     Update HFrame row with a new state.
     Where uuid= && owner= && human_name= && processing_name=
@@ -494,7 +540,9 @@ def update_hfr_db(engine_g, state, uuid=None, owner=None, human_name=None, proce
     return result
 
 
-def delete_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_name=None, state=None):
+def delete_hfr_db(
+    engine_g, uuid=None, owner=None, human_name=None, processing_name=None, state=None
+):
     """
     Delete HFrame row from a table where
     uuid= && owner= && human_name= && processing_name= && (optional) state = hyperframe.RecordState.deleted
@@ -518,18 +566,14 @@ def delete_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_n
 
     where = _where_clause(uuid, owner, human_name, processing_name, state)
 
-    if where == '':
+    if where == "":
         raise Exception("HFrame DB Delete requires a valid where clause")
 
-    hfr_del = text(
-        "DELETE FROM {} {}".format(pb_cls.table_name, where)
-    )
+    hfr_del = text("DELETE FROM {} {}".format(pb_cls.table_name, where))
 
     where = _where_clause(uuid)
 
-    tag_del = text(
-        "DELETE FROM {} {}".format(pb_cls.table_name + '_tags', where)
-    )
+    tag_del = text("DELETE FROM {} {}".format(pb_cls.table_name + "_tags", where))
 
     results = []
     with engine_g.connect() as conn:
@@ -540,7 +584,7 @@ def delete_hfr_db(engine_g, uuid=None, owner=None, human_name=None, processing_n
 
 
 def delete_fr_db(engine_g, hfr_uuid):
-    """ Remove all frames from the database that belong to the hyperframe with uuid hfr_uuid
+    """Remove all frames from the database that belong to the hyperframe with uuid hfr_uuid
 
     Args:
         engine_g: query engine
@@ -554,9 +598,7 @@ def delete_fr_db(engine_g, hfr_uuid):
 
     where = "WHERE hframe_uuid {}".format(_translate(hfr_uuid))
 
-    fr_del = text(
-        "DELETE FROM {} {}".format(pb_cls.table_name, where)
-    )
+    fr_del = text("DELETE FROM {} {}".format(pb_cls.table_name, where))
 
     with engine_g.connect() as conn:
         results = conn.execute(fr_del)
@@ -589,8 +631,10 @@ def detect_local_fs_path(series):
         if os.path.isfile(s):
             output.append("file://{}".format(os.path.abspath(s)))
         elif os.path.isdir(s):
-            """ Find files one-level down """
-            raise common.BadLinkError("Unable to process links: {} is a directory.".format(s))
+            """Find files one-level down"""
+            raise common.BadLinkError(
+                "Unable to process links: {} is a directory.".format(s)
+            )
             # output.extend(["file://{}".format(os.path.join(s, f)) for f in get_files_in_dir(s)])
         else:
             del output
@@ -615,9 +659,15 @@ def detect_s3_fs_path(series):
 
     for s in series:
         if not isinstance(s, str):
-            raise common.BadLinkError("Unable to process links: s3 path not string type - found {} .".format(type(s)))
+            raise common.BadLinkError(
+                "Unable to process links: s3 path not string type - found {} .".format(
+                    type(s)
+                )
+            )
         if s3_path_exists(s):
-            raise common.BadLinkError("Unable to process links: s3 object {} not found.".format(s))
+            raise common.BadLinkError(
+                "Unable to process links: s3 object {} not found.".format(s)
+            )
 
     return series
 
@@ -679,42 +729,64 @@ def parse_return_val(hfid, val, data_context):
         np.uint64,
         np.float16,
         np.float32,
-        np.float64,        
+        np.float64,
         np.unicode_,
-        np.string_
+        np.string_,
     )
 
     frames = []
 
     if val is None:
-        """ None's stored as json.dumps([None]) or '[null]' """
+        """None's stored as json.dumps([None]) or '[null]'"""
         presentation = hyperframe_pb2.JSON
-        frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
+        frames.append(
+            data_context.convert_scalar2frame(
+                hfid, common.DEFAULT_FRAME_NAME + ":0", val
+            )
+        )
 
     elif isinstance(val, HyperFrameRecord):
         presentation = hyperframe_pb2.HF
-        frames.append(FrameRecord.make_hframe_frame(hfid, common.DEFAULT_FRAME_NAME + ':0', [val]))
+        frames.append(
+            FrameRecord.make_hframe_frame(hfid, common.DEFAULT_FRAME_NAME + ":0", [val])
+        )
 
     elif isinstance(val, np.ndarray) or isinstance(val, list):
         presentation = hyperframe_pb2.TENSOR
         if isinstance(val, list):
             val = np.array(val)
-        frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
+        frames.append(
+            data_context.convert_serieslike2frame(
+                hfid, common.DEFAULT_FRAME_NAME + ":0", val
+            )
+        )
 
     elif isinstance(val, tuple):
         presentation = hyperframe_pb2.ROW
         val = np.array(val)
-        frames.append(data_context.convert_serieslike2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
+        frames.append(
+            data_context.convert_serieslike2frame(
+                hfid, common.DEFAULT_FRAME_NAME + ":0", val
+            )
+        )
 
     elif isinstance(val, dict):
         presentation = hyperframe_pb2.ROW
         for k, v in val.items():
-            if not isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, Sequence)):
+            if not isinstance(
+                v, (list, tuple, pd.core.series.Series, np.ndarray, Sequence)
+            ):
                 # assuming this is a scalar
-                assert isinstance(v, possible_scalar_types), 'Disdat requires dictionary values to be one of {} not {}'.format(possible_scalar_types, type(v))
+                assert isinstance(
+                    v, possible_scalar_types
+                ), "Disdat requires dictionary values to be one of {} not {}".format(
+                    possible_scalar_types, type(v)
+                )
                 frames.append(data_context.convert_scalar2frame(hfid, k, v))
             else:
-                assert isinstance(v, (list, tuple, pd.core.series.Series, np.ndarray, Sequence))
+                assert isinstance(
+                    v, (list, tuple, pd.core.series.Series, np.ndarray, Sequence)
+                )
                 frames.append(data_context.convert_serieslike2frame(hfid, k, v))
 
     elif isinstance(val, pd.DataFrame):
@@ -723,7 +795,11 @@ def parse_return_val(hfid, val, data_context):
 
     else:
         presentation = hyperframe_pb2.SCALAR
-        frames.append(data_context.convert_scalar2frame(hfid, common.DEFAULT_FRAME_NAME + ':0', val))
+        frames.append(
+            data_context.convert_scalar2frame(
+                hfid, common.DEFAULT_FRAME_NAME + ":0", val
+            )
+        )
 
     return presentation, frames
 
@@ -870,7 +946,7 @@ class PBObject(object):
         pb = cls._pb_type()
         pb.ParseFromString(pb_str_bytes)
         obj = cls.__new__(cls)
-        setattr(obj, 'pb', pb)
+        setattr(obj, "pb", pb)
 
         obj.init_internal_state()
         return obj
@@ -890,7 +966,7 @@ class PBObject(object):
         pb = cls._pb_type()
         pb.CopyFrom(other_pb)
         obj = cls.__new__(cls)
-        setattr(obj, 'pb', pb)
+        setattr(obj, "pb", pb)
         obj.init_internal_state()
         return obj
 
@@ -916,24 +992,24 @@ class PBObject(object):
         """
         objs = []
         for row in sa_result:
-            if 'pb' in row:
-                pb = row['pb']
+            if "pb" in row:
+                pb = row["pb"]
                 if isinstance(pb, str):
-                    pb = pb.encode('utf8')
+                    pb = pb.encode("utf8")
                 obj = cls.from_str_bytes(pb)
-                obj.state = row['state']
+                obj.state = row["state"]
             else:
                 obj = row
             objs.append(obj)
         return objs
 
     def ser(self):
-        assert (self.pb is not None)
-        assert (self.pb.IsInitialized())
+        assert self.pb is not None
+        assert self.pb.IsInitialized()
         return self.pb.SerializeToString()
 
     def deser(self, byte_str):
-        assert (self.pb is not None)
+        assert self.pb is not None
         self.pb = self._pb_type()
         self.pb.ParseFromString(byte_str)
 
@@ -947,8 +1023,17 @@ class HyperFrameRecord(PBObject):
 
     table_name = HFRAMES_TABLE
 
-    def __init__(self, owner=None, human_name=None, processing_name=None, uuid=None,
-                 frames=None, lin_obj=None, tags=None, presentation=hyperframe_pb2.DEFAULT):
+    def __init__(
+        self,
+        owner=None,
+        human_name=None,
+        processing_name=None,
+        uuid=None,
+        frames=None,
+        lin_obj=None,
+        tags=None,
+        presentation=hyperframe_pb2.DEFAULT,
+    ):
         """
         Create a HyperFrame
 
@@ -988,8 +1073,8 @@ class HyperFrameRecord(PBObject):
         self.pb.presentation = presentation
 
         self.frame_cache = defaultdict(FrameRecord)
-        self.frame_dict  = {}
-        self.tag_dict    = {}
+        self.frame_dict = {}
+        self.tag_dict = {}
 
         if frames is not None:
             self.add_frames(frames)
@@ -1000,7 +1085,7 @@ class HyperFrameRecord(PBObject):
         if lin_obj is not None:
             self.add_lineage(lin_obj)
 
-        self.pb.ClearField('hash')
+        self.pb.ClearField("hash")
         self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
 
     def is_presentable(self):
@@ -1028,7 +1113,7 @@ class HyperFrameRecord(PBObject):
         """
         self.pb.uuid = new_hfr_uuid
 
-        self.pb.lineage.hframe_uuid   = new_hfr_uuid
+        self.pb.lineage.hframe_uuid = new_hfr_uuid
 
         return self._mod_finish()
 
@@ -1048,9 +1133,9 @@ class HyperFrameRecord(PBObject):
         # reset the internal frame_cache and frame_dict
         # these will be rebuilt on add_frames
         self.frame_cache = defaultdict(FrameRecord)
-        self.frame_dict  = {}
+        self.frame_dict = {}
 
-        self.pb.ClearField('frames')
+        self.pb.ClearField("frames")
         self.add_frames(new_frames)
 
         return self._mod_finish()
@@ -1070,7 +1155,7 @@ class HyperFrameRecord(PBObject):
         """
         self.tag_dict = {}
 
-        self.pb.ClearField('tags')
+        self.pb.ClearField("tags")
         self.add_tags(new_tags)
 
         return self._mod_finish(new_time=False)
@@ -1124,7 +1209,7 @@ class HyperFrameRecord(PBObject):
         if new_time:
             self.pb.lineage.creation_date = time.time()
 
-        self.pb.ClearField('hash')
+        self.pb.ClearField("hash")
         self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
 
         return self
@@ -1142,8 +1227,8 @@ class HyperFrameRecord(PBObject):
         """
 
         self.frame_cache = defaultdict(FrameRecord)
-        self.frame_dict  = {}
-        self.tag_dict    = {}
+        self.frame_dict = {}
+        self.tag_dict = {}
 
         for string_tuple in self.pb.frames:
             self.frame_dict[string_tuple.k] = string_tuple.v
@@ -1172,26 +1257,36 @@ class HyperFrameRecord(PBObject):
 
         :return: Table
         """
-        hframes = Table(HyperFrameRecord.table_name, metadata,
-                        Column('uuid', String(50), primary_key=True),# sqlite_on_conflict_primary_key=UPSERT_POLICY),
-                        Column('owner', String),
-                        Column('human_name', String),
-                        Column('processing_name', String),
-                        Column('creation_date', DateTime), #TIMESTAMP),
-                        Column('state', Enum(RecordState)),
-                        Column('pb', BLOB)
-                        )
+        hframes = Table(
+            HyperFrameRecord.table_name,
+            metadata,
+            Column(
+                "uuid", String(50), primary_key=True
+            ),  # sqlite_on_conflict_primary_key=UPSERT_POLICY),
+            Column("owner", String),
+            Column("human_name", String),
+            Column("processing_name", String),
+            Column("creation_date", DateTime),  # TIMESTAMP),
+            Column("state", Enum(RecordState)),
+            Column("pb", BLOB),
+        )
 
-        tags = Table(HyperFrameRecord.table_name+'_tags', metadata,
-                     Column('key', String),
-                     Column('uuid', String(50)),
-                     Column('value', String),
-                     # explicit/composite unique constraint.  'name' is optional.
-                     UniqueConstraint('key', 'uuid', name='uix_1')#, sqlite_on_conflict=UPSERT_POLICY)
-                     )
+        tags = Table(
+            HyperFrameRecord.table_name + "_tags",
+            metadata,
+            Column("key", String),
+            Column("uuid", String(50)),
+            Column("value", String),
+            # explicit/composite unique constraint.  'name' is optional.
+            UniqueConstraint(
+                "key", "uuid", name="uix_1"
+            ),  # , sqlite_on_conflict=UPSERT_POLICY)
+        )
 
-        return {HyperFrameRecord.table_name: hframes,
-                HyperFrameRecord.table_name+'_tags': tags}
+        return {
+            HyperFrameRecord.table_name: hframes,
+            HyperFrameRecord.table_name + "_tags": tags,
+        }
 
     @staticmethod
     def _pb_type():
@@ -1212,24 +1307,27 @@ class HyperFrameRecord(PBObject):
         Returns:
              Dictionary of key columns (from _create_table) and values.
         """
-        assert(self.pb is not None)
+        assert self.pb is not None
 
         rows = defaultdict(list)
 
         rows[HyperFrameRecord.table_name].append(
-            {'uuid': self.pb.uuid,
-             'owner': self.pb.owner,
-             'human_name': self.pb.human_name,
-             'processing_name': self.pb.processing_name,
-             'creation_date': datetime.utcfromtimestamp(self.pb.lineage.creation_date),
-             'state': self.state,
-             'pb': self.pb.SerializeToString()})
+            {
+                "uuid": self.pb.uuid,
+                "owner": self.pb.owner,
+                "human_name": self.pb.human_name,
+                "processing_name": self.pb.processing_name,
+                "creation_date": datetime.utcfromtimestamp(
+                    self.pb.lineage.creation_date
+                ),
+                "state": self.state,
+                "pb": self.pb.SerializeToString(),
+            }
+        )
 
         for string_tuple in self.pb.tags:
-            r = {'uuid': self.pb.uuid,
-                 'key': string_tuple.k,
-                 'value': string_tuple.v}
-            rows[HyperFrameRecord.table_name+'_tags'].append(r)
+            r = {"uuid": self.pb.uuid, "key": string_tuple.k, "value": string_tuple.v}
+            rows[HyperFrameRecord.table_name + "_tags"].append(r)
 
         return rows
 
@@ -1297,14 +1395,22 @@ class HyperFrameRecord(PBObject):
             else:
                 if data_context is not None:
                     # TODO: Move this into DataContext and handle non-local reads
-                    fr = r_pb_fs(os.path.join(data_context.get_object_dir(),
-                                              self.pb.uuid,
-                                              FrameRecord.make_filename(uuid)), FrameRecord)
+                    fr = r_pb_fs(
+                        os.path.join(
+                            data_context.get_object_dir(),
+                            self.pb.uuid,
+                            FrameRecord.make_filename(uuid),
+                        ),
+                        FrameRecord,
+                    )
                     # NOTE: UGLY -- one extra variable in the FrameRecord that is not in the FrameRecord.pb
                     # TODO: REMOVE this dependency.   Means we have to be very careful about FR copies
                     fr.hframe_uuid = self.pb.uuid
                 elif testing_dir is not None:
-                    fr = r_pb_fs(os.path.join(testing_dir, FrameRecord.make_filename(uuid)), FrameRecord)
+                    fr = r_pb_fs(
+                        os.path.join(testing_dir, FrameRecord.make_filename(uuid)),
+                        FrameRecord,
+                    )
                 else:
                     fr = None
                 return fr
@@ -1314,7 +1420,10 @@ class HyperFrameRecord(PBObject):
         else:
             name_uuids = [(k, self.frame_dict[k]) for k in names]
 
-        return [_resolve_frame(self, data_context, name, uuid, testing_dir=testing_dir) for name, uuid in name_uuids]
+        return [
+            _resolve_frame(self, data_context, name, uuid, testing_dir=testing_dir)
+            for name, uuid in name_uuids
+        ]
 
     def get_frame_ids(self, names=None):
         """
@@ -1357,7 +1466,7 @@ class HyperFrameRecord(PBObject):
             string: tag if present else None
         """
 
-        assert (name is not None)
+        assert name is not None
         if name in self.tag_dict:
             return self.tag_dict[name]
         else:
@@ -1400,25 +1509,37 @@ class HyperFrameRecord(PBObject):
             return None
 
     def to_string(self):
-        s = "HumanName[{}] ProcName[{}] Timestamp[{}] Owner[{}] uuid[{}] lineage[{}] presentation[{}]".format(self.pb.human_name,
-                                                                                                              self.pb.processing_name,
-                                                                                                              self.pb.lineage.creation_date,
-                                                                                                              self.pb.owner,
-                                                                                                              self.pb.uuid,
-                                                                                                              self.pb.lineage.depends_on,
-                                                                                                              self.pb.presentation)
+        s = "HumanName[{}] ProcName[{}] Timestamp[{}] Owner[{}] uuid[{}] lineage[{}] presentation[{}]".format(
+            self.pb.human_name,
+            self.pb.processing_name,
+            self.pb.lineage.creation_date,
+            self.pb.owner,
+            self.pb.uuid,
+            self.pb.lineage.depends_on,
+            self.pb.presentation,
+        )
         return s
 
 
 class LineageRecord(PBObject):
 
-    table_name = 'lineage'
+    table_name = "lineage"
 
-    def __init__(self, hframe_proc_name='', hframe_uuid='',
-                 code_repo='', code_name='', code_semver='',
-                 code_hash='', code_branch='', code_method='',
-                 creation_date=None, depends_on=None,
-                 start_ts=0, stop_ts=0):
+    def __init__(
+        self,
+        hframe_proc_name="",
+        hframe_uuid="",
+        code_repo="",
+        code_name="",
+        code_semver="",
+        code_hash="",
+        code_branch="",
+        code_method="",
+        creation_date=None,
+        depends_on=None,
+        start_ts=0,
+        stop_ts=0,
+    ):
         """
         LineageRecord -- a collection of information about how this bundle was created.
 
@@ -1473,15 +1594,19 @@ class LineageRecord(PBObject):
         Only enter the items that we want to index / search on
         :return: Table
         """
-        lineage = Table(LineageRecord.table_name, metadata,
-                         Column('hframe_uuid', String(50), primary_key=True),# sqlite_on_conflict_primary_key=UPSERT_POLICY),
-                         Column('hframe_proc_name', String),
-                         Column('code_repo', String),
-                         Column('code_hash', String(50)),
-                         Column('creation_date', DateTime), #TIMESTAMP),
-                         Column('state', Enum(RecordState)),
-                         Column('pb', BLOB)
-                         )
+        lineage = Table(
+            LineageRecord.table_name,
+            metadata,
+            Column(
+                "hframe_uuid", String(50), primary_key=True
+            ),  # sqlite_on_conflict_primary_key=UPSERT_POLICY),
+            Column("hframe_proc_name", String),
+            Column("code_repo", String),
+            Column("code_hash", String(50)),
+            Column("creation_date", DateTime),  # TIMESTAMP),
+            Column("state", Enum(RecordState)),
+            Column("pb", BLOB),
+        )
         return lineage
 
     @staticmethod
@@ -1503,24 +1628,32 @@ class LineageRecord(PBObject):
         Returns:
              dictionary of key columns (from _create_table) and values.
         """
-        assert(self.pb is not None)
+        assert self.pb is not None
 
-        print("Lineage Writing row with TS {}".format(time.ctime(self.pb.lineage.creation_date)))
+        print(
+            "Lineage Writing row with TS {}".format(
+                time.ctime(self.pb.lineage.creation_date)
+            )
+        )
 
-        return {'hframe_uuid': self.pb.hframe_uuid,
-                'hframe_proc_name': self.pb.hframe_proc_name,
-                'code_repo': self.pb.code_repo,
-                'code_hash': self.pb.code_hash,
-                'creation_date': datetime.utcfromtimestamp(self.pb.creation_date),
-                'state': self.state,
-                'pb': self.pb.SerializeToString()}
+        return {
+            "hframe_uuid": self.pb.hframe_uuid,
+            "hframe_proc_name": self.pb.hframe_proc_name,
+            "code_repo": self.pb.code_repo,
+            "code_hash": self.pb.code_hash,
+            "creation_date": datetime.utcfromtimestamp(self.pb.creation_date),
+            "state": self.state,
+            "pb": self.pb.SerializeToString(),
+        }
 
     def to_string(self):
-        s = "hframe[{}] uuid[{}] Timestamp[{}] Repo[{}] GitHash[{}] ".format(self.pb.hframe_proc_name,
-                                                                             self.pb.hframe_uuid,
-                                                                             self.pb.creation_date,
-                                                                             self.pb.code_repo,
-                                                                             self.pb.code_hash)
+        s = "hframe[{}] uuid[{}] Timestamp[{}] Repo[{}] GitHash[{}] ".format(
+            self.pb.hframe_proc_name,
+            self.pb.hframe_uuid,
+            self.pb.creation_date,
+            self.pb.code_repo,
+            self.pb.code_hash,
+        )
         return s
 
     @staticmethod
@@ -1529,12 +1662,15 @@ class LineageRecord(PBObject):
 
     @staticmethod
     def add_deps_to_lr(lineage_pb, depends_on):
-        _ = [lineage_pb.depends_on.add(hframe_proc_name=tup[0],
-                                    hframe_uuid=tup[1],
-                                    arg_name=tup[2]) for tup in depends_on]
+        _ = [
+            lineage_pb.depends_on.add(
+                hframe_proc_name=tup[0], hframe_uuid=tup[1], arg_name=tup[2]
+            )
+            for tup in depends_on
+        ]
 
     def add_dependencies(self, depends_on):
-        """  Add dependencies to this Lineage Object.
+        """Add dependencies to this Lineage Object.
 
         Note: this adds to existing dependencies.
 
@@ -1558,9 +1694,19 @@ class LineageRecord(PBObject):
 
 class FrameRecord(PBObject):
 
-    table_name = 'frames'
+    table_name = "frames"
 
-    def __init__(self, name=None, hframe_uuid=None, type=None, shape=None, data=None, byteorder=None, hframes=None, links=None):
+    def __init__(
+        self,
+        name=None,
+        hframe_uuid=None,
+        type=None,
+        shape=None,
+        data=None,
+        byteorder=None,
+        hframes=None,
+        links=None,
+    ):
         """
         Data is held in "Frames."  These are individual tensors or n-dimensional vectors.
 
@@ -1576,9 +1722,11 @@ class FrameRecord(PBObject):
         super(FrameRecord, self).__init__()
 
         if not ((data is None) and (hframes is None) and (links is None)):
-            assert( ((data is not None) and (hframes is None) and (links is None)) or
-                    ((data is None) and (hframes is not None) and (links is None)) or
-                    ((data is None) and (hframes is None) and (links is not None)) )
+            assert (
+                ((data is not None) and (hframes is None) and (links is None))
+                or ((data is None) and (hframes is not None) and (links is None))
+                or ((data is None) and (hframes is None) and (links is not None))
+            )
 
         # TODO: REMOVE this dependency.   Means we have to be very careful about FR copies
         self.hframe_uuid = hframe_uuid
@@ -1592,7 +1740,9 @@ class FrameRecord(PBObject):
             self.pb.shape.extend(shape)
 
         if hframes is not None:
-            self.pb.hframes.extend([HyperFrameRecord.copy_from_pb(hfrcd.pb).pb for hfrcd in hframes])
+            self.pb.hframes.extend(
+                [HyperFrameRecord.copy_from_pb(hfrcd.pb).pb for hfrcd in hframes]
+            )
 
         if links is not None:
             self.pb.links.extend([LinkBase.copy_from_pb(lrcd.pb).pb for lrcd in links])
@@ -1607,7 +1757,7 @@ class FrameRecord(PBObject):
             else:
                 self.pb.byteorder = hyperframe_pb2.NA
 
-        self.pb.ClearField('hash')
+        self.pb.ClearField("hash")
 
         self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
 
@@ -1624,13 +1774,17 @@ class FrameRecord(PBObject):
 
         """
 
-        frame_tbl = Table(FrameRecord.table_name, metadata,
-                          Column('uuid', String(50), primary_key=True),# sqlite_on_conflict_primary_key=UPSERT_POLICY),
-                          Column('hframe_uuid', String(50)),
-                          Column('name', String),
-                          Column('state', Enum(RecordState)),
-                          Column('pb', BLOB)
-                          )
+        frame_tbl = Table(
+            FrameRecord.table_name,
+            metadata,
+            Column(
+                "uuid", String(50), primary_key=True
+            ),  # sqlite_on_conflict_primary_key=UPSERT_POLICY),
+            Column("hframe_uuid", String(50)),
+            Column("name", String),
+            Column("state", Enum(RecordState)),
+            Column("pb", BLOB),
+        )
         return frame_tbl
 
     @staticmethod
@@ -1652,12 +1806,14 @@ class FrameRecord(PBObject):
 
         """
 
-        assert(self.pb is not None)
-        return {'hframe_uuid': self.hframe_uuid,
-                'uuid': self.pb.uuid,
-                'name': self.pb.name,
-                'state': self.state,
-                'pb': self.pb.SerializeToString()}
+        assert self.pb is not None
+        return {
+            "hframe_uuid": self.hframe_uuid,
+            "uuid": self.pb.uuid,
+            "name": self.pb.name,
+            "state": self.state,
+            "pb": self.pb.SerializeToString(),
+        }
 
     def get_uuid(self):
         """
@@ -1721,14 +1877,14 @@ class FrameRecord(PBObject):
             (`hyperframe.FrameRecord`)
 
         """
-        assert(self.is_link_frame())
-        assert(len(self.pb.links) == 0)
+        assert self.is_link_frame()
+        assert len(self.pb.links) == 0
 
         self.pb.links.extend([LinkBase.copy_from_pb(lrcd.pb).pb for lrcd in links])
 
         self.pb.shape.extend((len(links),))
 
-        self.pb.ClearField('hash')
+        self.pb.ClearField("hash")
 
         self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
 
@@ -1748,7 +1904,7 @@ class FrameRecord(PBObject):
 
         self.pb.uuid = common.create_uuid()
 
-        self.pb.ClearField('hash')
+        self.pb.ClearField("hash")
 
         self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
 
@@ -1774,9 +1930,11 @@ class FrameRecord(PBObject):
         try:
             tester = series_like[0]
 
-            if (tester.startswith('file:///') or
-                tester.startswith('s3://') or
-                tester.startswith('db://')):
+            if (
+                tester.startswith("file:///")
+                or tester.startswith("s3://")
+                or tester.startswith("db://")
+            ):
                 return True
             else:
                 return False
@@ -1804,9 +1962,9 @@ class FrameRecord(PBObject):
         if not self.is_link_frame():
             return False
 
-        assert(len(self.pb.links) > 0)
+        assert len(self.pb.links) > 0
         link_pb = self.pb.links[0]
-        return link_pb.WhichOneof('link') == 'local'
+        return link_pb.WhichOneof("link") == "local"
 
     def is_s3_link_frame(self):
         """
@@ -1818,9 +1976,9 @@ class FrameRecord(PBObject):
         if not self.is_link_frame():
             return False
 
-        assert(len(self.pb.links) > 0)
+        assert len(self.pb.links) > 0
         link_pb = self.pb.links[0]
-        return link_pb.WhichOneof('link') == 's3'
+        return link_pb.WhichOneof("link") == "s3"
 
     def is_hfr_frame(self):
         """
@@ -1834,17 +1992,17 @@ class FrameRecord(PBObject):
     @staticmethod
     def get_proto_byteorder(numpy_byteorder):
         numpy_endianness = {
-            '<': hyperframe_pb2.LITTLE,
-            '>': hyperframe_pb2.BIG,
-            '|': hyperframe_pb2.NA,
+            "<": hyperframe_pb2.LITTLE,
+            ">": hyperframe_pb2.BIG,
+            "|": hyperframe_pb2.NA,
         }
 
         system_endianness = {
-            'little': hyperframe_pb2.LITTLE,
-            'big': hyperframe_pb2.BIG,
+            "little": hyperframe_pb2.LITTLE,
+            "big": hyperframe_pb2.BIG,
         }
 
-        if numpy_byteorder == '=':
+        if numpy_byteorder == "=":
             return system_endianness[sys.byteorder]
 
         return numpy_endianness[numpy_byteorder]
@@ -1852,9 +2010,9 @@ class FrameRecord(PBObject):
     @staticmethod
     def get_numpy_byteorder(proto_byteorder):
         proto_endianness = {
-            hyperframe_pb2.LITTLE: '<',
-            hyperframe_pb2.BIG: '>',
-            hyperframe_pb2.NA: '|'
+            hyperframe_pb2.LITTLE: "<",
+            hyperframe_pb2.BIG: ">",
+            hyperframe_pb2.NA: "|",
         }
 
         return proto_endianness[proto_byteorder]
@@ -1862,25 +2020,25 @@ class FrameRecord(PBObject):
     @staticmethod
     def get_numpy_type(proto_type):
         numpy_types = {
-            hyperframe_pb2.BOOL:    np.bool_,
-            hyperframe_pb2.INT8:    np.int8,
-            hyperframe_pb2.INT16:   np.int16,
-            hyperframe_pb2.INT32:   np.int32,
-            hyperframe_pb2.INT64:   np.int64,
-            hyperframe_pb2.UINT8:   np.uint8,
-            hyperframe_pb2.UINT16:  np.uint16,
-            hyperframe_pb2.UINT32:  np.uint32,
-            hyperframe_pb2.UINT64:  np.uint64,
+            hyperframe_pb2.BOOL: np.bool_,
+            hyperframe_pb2.INT8: np.int8,
+            hyperframe_pb2.INT16: np.int16,
+            hyperframe_pb2.INT32: np.int32,
+            hyperframe_pb2.INT64: np.int64,
+            hyperframe_pb2.UINT8: np.uint8,
+            hyperframe_pb2.UINT16: np.uint16,
+            hyperframe_pb2.UINT32: np.uint32,
+            hyperframe_pb2.UINT64: np.uint64,
             hyperframe_pb2.FLOAT16: np.float16,
             hyperframe_pb2.FLOAT32: np.float32,
             hyperframe_pb2.FLOAT64: np.float64,
-            hyperframe_pb2.OBJECT:  np.object_
+            hyperframe_pb2.OBJECT: np.object_,
             # Special Case -- manual conversion on string type -- hyperframe_pb2.STRING:  np.string_
         }
 
         if proto_type in numpy_types:
             return numpy_types[proto_type]
-        raise KeyError('Could not find a message array type for {}'.format(proto_type))
+        raise KeyError("Could not find a message array type for {}".format(proto_type))
 
     @staticmethod
     def get_proto_type(numpy_type):
@@ -1896,24 +2054,24 @@ class FrameRecord(PBObject):
 
         """
         proto_types = {
-            np.bool_:   'BOOL',
-            np.int8:    'INT8',
-            np.int16:   'INT16',
-            np.int32:   'INT32',
-            np.int64:   'INT64',
-            np.uint8:   'UINT8',
-            np.uint16:  'UINT16',
-            np.uint32:  'UINT32',
-            np.uint64:  'UINT64',
-            np.float_:  'FLOAT64',
-            np.float16: 'FLOAT16',
-            np.float32: 'FLOAT32',
-            np.float64: 'FLOAT64',
-            bytes: 'STRING',
-            str:   'STRING',
-            np.unicode_: 'STRING',
-            np.string_: 'STRING',
-            np.object_: 'OBJECT'
+            np.bool_: "BOOL",
+            np.int8: "INT8",
+            np.int16: "INT16",
+            np.int32: "INT32",
+            np.int64: "INT64",
+            np.uint8: "UINT8",
+            np.uint16: "UINT16",
+            np.uint32: "UINT32",
+            np.uint64: "UINT64",
+            np.float_: "FLOAT64",
+            np.float16: "FLOAT16",
+            np.float32: "FLOAT32",
+            np.float64: "FLOAT64",
+            bytes: "STRING",
+            str: "STRING",
+            np.unicode_: "STRING",
+            np.string_: "STRING",
+            np.object_: "OBJECT",
         }
 
         if isinstance(numpy_type, np.dtype):
@@ -1921,7 +2079,7 @@ class FrameRecord(PBObject):
 
         if numpy_type in proto_types:
             return proto_types[numpy_type]
-        raise KeyError('Could not find a message array type for {}'.format(numpy_type))
+        raise KeyError("Could not find a message array type for {}".format(numpy_type))
 
     def to_ndarray(self):
         """
@@ -1947,9 +2105,14 @@ class FrameRecord(PBObject):
                     nda = np.array(self.pb.strings, dtype=str)
                 else:
                     raise Exception(
-                        "Unable to convert pb strings to suitable type for ndarray {}".format(type(self.pb.strings[0])))
+                        "Unable to convert pb strings to suitable type for ndarray {}".format(
+                            type(self.pb.strings[0])
+                        )
+                    )
             else:
-                nda = np.array(self.pb.strings)  # nothing there, defaults to object array
+                nda = np.array(
+                    self.pb.strings
+                )  # nothing there, defaults to object array
         else:
             nda = self.make_numpy_array()
 
@@ -1977,9 +2140,9 @@ class FrameRecord(PBObject):
             (`numpy.ndarray`)
         """
 
-        assert (self.pb.type != hyperframe_pb2.LINK)
-        assert (self.pb.type != hyperframe_pb2.HFRAME)
-        assert (self.pb.type != hyperframe_pb2.STRING)
+        assert self.pb.type != hyperframe_pb2.LINK
+        assert self.pb.type != hyperframe_pb2.HFRAME
+        assert self.pb.type != hyperframe_pb2.STRING
 
         dtype = np.dtype(FrameRecord.get_numpy_type(self.pb.type))
         dtype = dtype.newbyteorder(FrameRecord.get_numpy_byteorder(self.pb.byteorder))
@@ -2014,6 +2177,7 @@ class FrameRecord(PBObject):
             else:
                 # ESCAPE HATCH -- Made from duct tape and JSON
                 import json
+
                 frame_type = FrameRecord.get_proto_type(str)
                 series_data = [json.dumps(element) for element in nda]
                 # print("Series_data {}".format(series_data))
@@ -2031,12 +2195,14 @@ class FrameRecord(PBObject):
             frame_type = FrameRecord.get_proto_type(nda.dtype)
             series_data = nda.tobytes()
 
-        frame = FrameRecord(name=name,
-                            hframe_uuid=hfid,
-                            type=frame_type,
-                            byteorder=nda.dtype.byteorder,
-                            shape=nda.shape,
-                            data=series_data)
+        frame = FrameRecord(
+            name=name,
+            hframe_uuid=hfid,
+            type=frame_type,
+            byteorder=nda.dtype.byteorder,
+            shape=nda.shape,
+            data=series_data,
+        )
 
         return frame
 
@@ -2076,16 +2242,20 @@ class FrameRecord(PBObject):
             (FrameRecord)
         """
 
-        frame = FrameRecord(name=name,
-                            hframe_uuid=hfid,
-                            type='HFRAME',
-                            shape=(len(hframes),),
-                            hframes=hframes)
+        frame = FrameRecord(
+            name=name,
+            hframe_uuid=hfid,
+            type="HFRAME",
+            shape=(len(hframes),),
+            hframes=hframes,
+        )
         return frame
 
     @staticmethod
-    def make_link_frame(hfid, name, file_paths, local_managed_path, remote_managed_path):
-        """ Create link frame from file paths (file, s3, or db)
+    def make_link_frame(
+        hfid, name, file_paths, local_managed_path, remote_managed_path
+    ):
+        """Create link frame from file paths (file, s3, or db)
 
         Assumes file_paths are 'file:///' or 's3://' or 'db://'
         Assumes that the files are already copied into the bundle directory.
@@ -2105,32 +2275,44 @@ class FrameRecord(PBObject):
             (FrameRecord)
         """
 
-        if file_paths[0].startswith('file:///'):
+        if file_paths[0].startswith("file:///"):
             link_type = FileLinkRecord
-        elif file_paths[0].startswith('s3://'):
+        elif file_paths[0].startswith("s3://"):
             link_type = S3LinkRecord
-        elif file_paths[0].startswith('db://'):
-            _logger.error("Found database reference[{}], DBLinks deprecated in 0.9.3 ".format(file_paths[0]))
-            raise Exception("hyperframe:make_link_frame: error trying to use a database reference.")
+        elif file_paths[0].startswith("db://"):
+            _logger.error(
+                "Found database reference[{}], DBLinks deprecated in 0.9.3 ".format(
+                    file_paths[0]
+                )
+            )
+            raise Exception(
+                "hyperframe:make_link_frame: error trying to use a database reference."
+            )
         else:
-            raise ValueError("Bad file paths -- cannot determine link type: example path {}".format(file_paths[0]))
+            raise ValueError(
+                "Bad file paths -- cannot determine link type: example path {}".format(
+                    file_paths[0]
+                )
+            )
 
         if link_type is FileLinkRecord:
             to_remove = "file://" + local_managed_path
         elif link_type is S3LinkRecord:
-            assert remote_managed_path.startswith('s3://')
+            assert remote_managed_path.startswith("s3://")
             to_remove = remote_managed_path
 
-        frame = FrameRecord(name=name,
-                            hframe_uuid=hfid,
-                            type='LINK')
+        frame = FrameRecord(name=name, hframe_uuid=hfid, type="LINK")
 
         frame_uuid = frame.get_uuid()
 
-        file_paths = [common.BUNDLE_URI_SCHEME + os.path.relpath(fn, to_remove) for fn in file_paths]
+        file_paths = [
+            common.BUNDLE_URI_SCHEME + os.path.relpath(fn, to_remove)
+            for fn in file_paths
+        ]
         links = [link_type(frame_uuid, None, fn) for fn in file_paths]
 
         return frame.add_links(links)
+
 
 """
 Tables
@@ -2164,7 +2346,7 @@ class LinkAuthBase(PBObject):
     row (uuid, type, blob)
     """
 
-    table_name = 'linkauth'
+    table_name = "linkauth"
 
     def __init__(self):
         super(LinkAuthBase, self).__init__()
@@ -2176,12 +2358,16 @@ class LinkAuthBase(PBObject):
         Create unbound table object
         :return: Table
         """
-        linkauth = Table(LinkAuthBase.table_name, metadata,
-                         Column('uuid', String(50), primary_key=True),# sqlite_on_conflict_primary_key=UPSERT_POLICY),
-                         Column('profile', String),
-                         Column('state', Enum(RecordState)),
-                         Column('pb', BLOB)
-                         )
+        linkauth = Table(
+            LinkAuthBase.table_name,
+            metadata,
+            Column(
+                "uuid", String(50), primary_key=True
+            ),  # sqlite_on_conflict_primary_key=UPSERT_POLICY),
+            Column("profile", String),
+            Column("state", Enum(RecordState)),
+            Column("pb", BLOB),
+        )
         return linkauth
 
     @staticmethod
@@ -2196,11 +2382,13 @@ class LinkAuthBase(PBObject):
         """
         :return: dictionary of key columns (from _create_table) and values.
         """
-        assert(self.pb is not None)
-        return {'uuid': self.pb.uuid,
-                'profile': self.pb.profile,
-                'state': self.state,
-                'pb': self.pb.SerializeToString()}
+        assert self.pb is not None
+        return {
+            "uuid": self.pb.uuid,
+            "profile": self.pb.profile,
+            "state": self.state,
+            "pb": self.pb.SerializeToString(),
+        }
 
     def __deploy_ini(self, ini_file):
         """
@@ -2213,11 +2401,11 @@ class LinkAuthBase(PBObject):
             config.read(ini_file)
 
         config.add_section(self.pb.profile)
-        for k,v in self.__dict__.items():
+        for k, v in self.__dict__.items():
             if v is not None:
                 config.set(self.pb.profile, k, v)
 
-        with open(ini_file, 'wb') as configfile:
+        with open(ini_file, "wb") as configfile:
             config.write(configfile)
 
     def get_filename(self):
@@ -2234,22 +2422,28 @@ class S3LinkAuthRecord(LinkAuthBase):
     """
     Information required to access an S3 bucket
     """
-    def __init__(self, aws_access_key_id=None, aws_secret_access_key=None,
-                 aws_session_token=None, profile=None):
+
+    def __init__(
+        self,
+        aws_access_key_id=None,
+        aws_secret_access_key=None,
+        aws_session_token=None,
+        profile=None,
+    ):
         super(S3LinkAuthRecord, self).__init__()
 
-        self.pb.profile = 'default-disdat' if profile is None else profile
+        self.pb.profile = "default-disdat" if profile is None else profile
         self.pb.uuid = common.create_uuid()
 
         self.pb.s3_auth.aws_access_key_id = aws_access_key_id
         self.pb.s3_auth.aws_secret_access_key = aws_secret_access_key
         self.pb.s3_auth.aws_session_token = aws_session_token
 
-        self.pb.ClearField('hash')
+        self.pb.ClearField("hash")
 
         self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
 
-        assert (self.pb.IsInitialized())
+        assert self.pb.IsInitialized()
 
     def deploy(self):
         """
@@ -2265,7 +2459,7 @@ class LinkBase(PBObject):
     and we are using ABCMeta as our class creator
     """
 
-    table_name = 'links'
+    table_name = "links"
 
     def __init__(self, frame_uuid, linkauth_uuid=None):
         super(LinkBase, self).__init__()
@@ -2275,11 +2469,11 @@ class LinkBase(PBObject):
             self.pb.linkauth_uuid = linkauth_uuid
 
     def get_linkauth(self):
-        assert (self.pb is not None)
+        assert self.pb is not None
         return self.pb.linkauth_uuid
 
     def set_linkauth(self, linkauth_uuid):
-        assert (self.pb is not None)
+        assert self.pb is not None
         self.pb.linkauth_uuid = linkauth_uuid
 
     @staticmethod
@@ -2292,13 +2486,15 @@ class LinkBase(PBObject):
         pb   -- protocol buffer blob
         :return: Table
         """
-        link = Table(LinkBase.table_name, metadata,
-                     Column('frame_uuid', String(50)),
-                     Column('linkauth_uuid', String(50)),
-                     Column('url', Text),
-                     Column('state', Enum(RecordState)),
-                     Column('pb', BLOB)
-                     )
+        link = Table(
+            LinkBase.table_name,
+            metadata,
+            Column("frame_uuid", String(50)),
+            Column("linkauth_uuid", String(50)),
+            Column("url", Text),
+            Column("state", Enum(RecordState)),
+            Column("pb", BLOB),
+        )
         return link
 
     @staticmethod
@@ -2317,11 +2513,11 @@ class LinkBase(PBObject):
         :param link_pb: the link-like pb
         :return: an URL-like string
         """
-        if link_pb.WhichOneof('link') == 's3':
+        if link_pb.WhichOneof("link") == "s3":
             url = link_pb.s3.url
-        elif link_pb.WhichOneof('link') == 'local':
+        elif link_pb.WhichOneof("link") == "local":
             url = link_pb.local.path
-        elif link_pb.WhichOneof('link') == 'database':
+        elif link_pb.WhichOneof("link") == "database":
             url = link_pb.database.url
         else:
             url = None
@@ -2333,21 +2529,23 @@ class LinkBase(PBObject):
         Returns:
              (dict): Dictionary of key columns (from _create_table) and values.
         """
-        assert (self.pb is not None)
+        assert self.pb is not None
 
         url = LinkBase.find_url(self.pb)
 
-        return {'frame_uuid': self.pb.frame_uuid,
-                'linkauth_uuid': self.pb.linkauth_uuid,
-                'url':  url,
-                'state': self.state,
-                'pb': self.pb.SerializeToString()}
+        return {
+            "frame_uuid": self.pb.frame_uuid,
+            "linkauth_uuid": self.pb.linkauth_uuid,
+            "url": url,
+            "state": self.state,
+            "pb": self.pb.SerializeToString(),
+        }
 
     def get_managed_path(self):
         """
         :return: The directory where this data-thing resides
         """
-        assert (self.pb is not None)
+        assert self.pb is not None
         return os.path.dirname(LinkBase.find_url(self.pb))
 
     def get_filename(self):
@@ -2365,6 +2563,7 @@ class LinkBase(PBObject):
 # The meta data does not change.
 # TODO: Unify these types
 
+
 class FileLinkRecord(LinkBase):
     def __init__(self, hframe_uuid, linkauth_uuid, path):
         """
@@ -2375,13 +2574,13 @@ class FileLinkRecord(LinkBase):
             path (str):  Local path to file
         """
         super(FileLinkRecord, self).__init__(hframe_uuid, linkauth_uuid)
-        assert (path.startswith(common.BUNDLE_URI_SCHEME))
+        assert path.startswith(common.BUNDLE_URI_SCHEME)
         self.pb.local.path = path
 
-        self.pb.ClearField('hash')
+        self.pb.ClearField("hash")
         self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
         # XXX Add size?   self.size = 0
-        assert (self.pb.IsInitialized())
+        assert self.pb.IsInitialized()
 
 
 class S3LinkRecord(LinkBase):
@@ -2394,10 +2593,10 @@ class S3LinkRecord(LinkBase):
             url:
         """
         super(S3LinkRecord, self).__init__(hframe_uuid, linkauth_uuid)
-        assert (url.startswith(common.BUNDLE_URI_SCHEME))
+        assert url.startswith(common.BUNDLE_URI_SCHEME)
         self.pb.s3.url = url
 
-        self.pb.ClearField('hash')
+        self.pb.ClearField("hash")
         self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
         # XXX Add size?   self.size = 0
-        assert (self.pb.IsInitialized())
+        assert self.pb.IsInitialized()

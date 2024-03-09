@@ -2,7 +2,7 @@ import pytest
 
 import disdat.api as api
 
-TEST_CONTEXT = '___test_context___'
+TEST_CONTEXT = "___test_context___"
 
 
 @pytest.fixture(autouse=True)

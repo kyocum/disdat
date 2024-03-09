@@ -14,8 +14,8 @@
 
 from __future__ import print_function
 
-import disdat.common as common
 import disdat.api as api
+import disdat.common as common
 import disdat.fs
 from disdat import logger as _logger
 
@@ -34,13 +34,15 @@ def _add(args):
     fs = disdat.fs.DisdatFS()
 
     if not fs.in_context():
-        _logger.warning('Not in a data context')
+        _logger.warning("Not in a data context")
         return
 
-    _ = api.add(fs._curr_context.get_local_name(),
-                args.bundle,
-                args.path_name,
-                tags=common.parse_args_tags(args.tag))
+    _ = api.add(
+        fs._curr_context.get_local_name(),
+        args.bundle,
+        args.path_name,
+        tags=common.parse_args_tags(args.tag),
+    )
 
     return
 
@@ -52,9 +54,24 @@ def add_arg_parser(subparsers):
         subparsers: A collection of subparsers as defined by `argsparse`.
     """
     # add
-    add_p = subparsers.add_parser('add', description='Create a bundle from a .csv, .tsv, or a directory of files.')
-    add_p.add_argument('-t', '--tag', nargs=1, type=str, action='append',
-                       help="Set one or more tags: 'dsdt add -t authoritative:True -t version:0.7.1'")
-    add_p.add_argument('bundle', type=str, help='The destination bundle in the current context')
-    add_p.add_argument('path_name', type=str, help='File or directory of files to add to the bundle', action='store')
+    add_p = subparsers.add_parser(
+        "add", description="Create a bundle from a .csv, .tsv, or a directory of files."
+    )
+    add_p.add_argument(
+        "-t",
+        "--tag",
+        nargs=1,
+        type=str,
+        action="append",
+        help="Set one or more tags: 'dsdt add -t authoritative:True -t version:0.7.1'",
+    )
+    add_p.add_argument(
+        "bundle", type=str, help="The destination bundle in the current context"
+    )
+    add_p.add_argument(
+        "path_name",
+        type=str,
+        help="File or directory of files to add to the bundle",
+        action="store",
+    )
     add_p.set_defaults(func=lambda args: _add(args))

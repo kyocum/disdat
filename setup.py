@@ -13,110 +13,91 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
     use_scm_version={
-        'write_to': 'disdat/version.py',
-        'write_to_template': '__version__ = "{version}"'
+        "write_to": "disdat/version.py",
+        "write_to_template": '__version__ = "{version}"',
     },
-    setup_requires=['setuptools_scm'],
-
-    name='disdat',
-    description='Disdat: data versioning',
-    author='Ken Yocum',
-    author_email='kyocum@gmail.com',
-    url='https://github.com/kyocum/disdat',
-
+    setup_requires=["setuptools_scm"],
+    name="disdat",
+    description="Disdat: data versioning",
+    author="Ken Yocum",
+    author_email="kyocum@gmail.com",
+    url="https://github.com/kyocum/disdat",
     # Choose your license
-    license='Apache License, version 2.0',
-
+    license="Apache License, version 2.0",
     classifiers=[
         # How mature is this project? Common values are
         #   3 - Alpha
         #   4 - Beta
         #   5 - Production/Stable
-        'Development Status :: 4 - Beta',
-
+        "Development Status :: 4 - Beta",
         # Indicate who your project is intended for
-        'Intended Audience :: Science/Research',
-        'Topic :: Scientific/Engineering',
-
+        "Intended Audience :: Science/Research",
+        "Topic :: Scientific/Engineering",
         # Pick your license as you wish (should match "license" above)
-        'License :: OSI Approved :: Apache Software License',
-
+        "License :: OSI Approved :: Apache Software License",
         # Specify the Python versions you support here. In particular, ensure
         # that you indicate whether you support Python 2, Python 3 or both.
-        'Programming Language :: Python :: 3.6',
-        'Operating System :: OS Independent',
-        'Natural Language :: English',
+        "Programming Language :: Python :: 3.6",
+        "Operating System :: OS Independent",
+        "Natural Language :: English",
     ],
-
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
-    packages=find_packages(exclude=['tests*']),
-
+    packages=find_packages(exclude=["tests*"]),
     # Include non-python files found in each package in the install, if in your MANIFEST.in
     include_package_data=True,
-
     # If any package contains other resource files, include them here.
     # We copy config/disdat so 'dsdt init' still runs from an installed
     # .egg.  This package_data only works if you're not using "sdist"
     # Otherwise only MANIFEST.in actually works, and then only if include_package_data=True
     package_data={
-        '': ['*.json'],
-        'disdat': [
-            'config/disdat/*',
-            'VERSION',
-        ]
+        "": ["*.json"],
+        "disdat": [
+            "config/disdat/*",
+            "VERSION",
+        ],
     },
-
-    exclude_package_data={
-        'disdat': [
-        ]
-    },
-
-    data_files=[('', ['setup.py'])],
-
-    python_requires='>=3.8, <3.12',
-
+    exclude_package_data={"disdat": []},
+    data_files=[("", ["setup.py"])],
+    python_requires=">=3.8, <3.12",
     # List run-time dependencies here.  These will be installed by pip when
     # your project is installed.  If >=, means it worked with the base version.
     # If <= means higher versions broke something.
-
     install_requires=[
-        'boto3>=1.14.49,<2.0',
-        'termcolor>=1.1.0,<2.0',
-        'pandas>=1.5,<3.0',
-        'numpy>=1.18.1,<=1.26.4',
-        'sqlalchemy>=1.3.13,<1.4',
-        'protobuf>=3.11.2,<4.0',
-        'docutils<0.16,>=0.10'
+        "boto3>=1.14.49,<2.0",
+        "termcolor>=1.1.0,<2.0",
+        "pandas>=1.5,<3.0",
+        "numpy>=1.18.1,<=1.26.4",
+        "sqlalchemy>=1.3.13,<1.4",
+        "protobuf>=3.11.2,<4.0",
+        "docutils<0.16,>=0.10",
     ],
-
     # List additional groups of dependencies here (e.g. development
     # dependencies). You can install these using the following syntax,
     # for example:
     # $ pip install -e '.[dev, rel]'
     extras_require={
-        'dev': [
-            'pytest',
-            'ipython',
-            'mock',
-            'pylint',
-            'coverage',
-            'tox',
-            'moto==2.2.13', # same as tox.ini
-            's3fs<=0.4.2' # 0.5.0 breaks with aiobotocore and missing AWS headers
+        "dev": [
+            "pytest",
+            "ipython",
+            "mock",
+            "pylint",
+            "coverage",
+            "tox",
+            "moto==2.2.13",  # same as tox.ini
+            "s3fs<=0.4.2",  # 0.5.0 breaks with aiobotocore and missing AWS headers
         ],
-        'rel': [
-            'wheel',
-        ]
+        "rel": [
+            "wheel",
+        ],
     },
-
     entry_points={
-        'console_scripts': [
-            'dsdt = disdat.entrypoints.cli_ep:main',
+        "console_scripts": [
+            "dsdt = disdat.entrypoints.cli_ep:main",
         ]
     },
 )
