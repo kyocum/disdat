@@ -78,6 +78,8 @@ setup(
 
     data_files=[('', ['setup.py'])],
 
+    python_requires='>=3.8, <=3.11',
+
     # List run-time dependencies here.  These will be installed by pip when
     # your project is installed.  If >=, means it worked with the base version.
     # If <= means higher versions broke something.
