@@ -78,7 +78,7 @@ setup(
 
     data_files=[('', ['setup.py'])],
 
-    python_requires='>=3.8, <=3.11',
+    python_requires='>=3.8, <3.12',
 
     # List run-time dependencies here.  These will be installed by pip when
     # your project is installed.  If >=, means it worked with the base version.
@@ -87,7 +87,7 @@ setup(
     install_requires=[
         'boto3>=1.14.49,<2.0',
         'termcolor>=1.1.0,<2.0',
-        'pandas>=1.0,<=1.5.3',
+        'pandas>=1.5,<3.0',
         'numpy>=1.18.1,<=1.26.4',
         'sqlalchemy>=1.3.13,<1.4',
         'protobuf>=3.11.2,<4.0',

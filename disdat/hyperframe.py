@@ -825,7 +825,7 @@ class PBObject(object):
         metadata = MetaData()
         metadata.bind = db_engine
         _ = cls._create_table(metadata)
-        metadata.create_all()
+        metadata.create_all(bind=db_engine)
 
     def write_row(self, state):
         """
