@@ -22,7 +22,7 @@ from disdat import hyperframe_pb2
 
 def test_record_from_string_types():
 
-    for dtype in (bytes, str, np.bytes_, np.str_):  # REVISIT 
+    for dtype in (bytes, str, np.bytes_, np.str_):
 
         array = np.array(['hello', 'world', 'sailor', ''])
         array = array.astype(dtype)
