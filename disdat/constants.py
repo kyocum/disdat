@@ -12,10 +12,9 @@
 # limitations under the License.
 #
 
-_MANAGED_OBJECTS = "objects"   # directory in the context for objects
+_MANAGED_OBJECTS = "objects"  # directory in the context for objects
 
 # Columns in our CSV and DF's
-JSON_DATA = 'json_data'
-DATA = 'data'
-FILE = 'files'
-
+JSON_DATA = "json_data"
+DATA = "data"
+FILE = "files"

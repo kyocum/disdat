@@ -1,4 +1,12 @@
 from __future__ import print_function
+
+import json
+
+import pytest
+
+import disdat.api as api
+from tests.functional.common import TEST_CONTEXT, run_test
+
 #
 # Copyright 2017 Human Longevity, Inc.
 #
@@ -14,34 +22,28 @@ from __future__ import print_function
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
-import json
 
-import disdat.api as api
-
-from tests.functional.common import run_test, TEST_CONTEXT
-
-
-test_json_args_data = {'str_arg': 'some string',
-                       'int_arg': 10,
-                       'list_arg': [1,3,5],
-                       'list_str_arg': ['farg','barg'],
-                       'dict_float_arg': {'farg': 0.01, 'barg': 3.14}}
+test_json_args_data = {
+    "str_arg": "some string",
+    "int_arg": 10,
+    "list_arg": [1, 3, 5],
+    "list_str_arg": ["farg", "barg"],
+    "dict_float_arg": {"farg": 0.01, "barg": 3.14},
+}
 
 serialized_json_args = {k: json.dumps(v) for k, v in test_json_args_data.items()}
 
 
 def test_args_bundle():
-    """ Create bundle, store args.
-    """
+    """Create bundle, store args."""
 
     with api.Bundle(TEST_CONTEXT) as b:
         b.add_params(serialized_json_args)
-        b.name = 'output'
+        b.name = "output"
 
-    b = api.get(TEST_CONTEXT, 'output')
+    b = api.get(TEST_CONTEXT, "output")
 
-    assert(b.params == serialized_json_args)
+    assert b.params == serialized_json_args
 
 
 if __name__ == "__main__":

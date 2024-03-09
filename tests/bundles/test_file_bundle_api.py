@@ -1,4 +1,17 @@
 from __future__ import print_function
+
+import hashlib
+import os
+import tempfile
+
+import boto3
+import moto
+import pytest
+
+import disdat.api as api
+from disdat.utility import aws_s3
+from tests.functional.common import TEST_CONTEXT, run_test
+
 #
 # Copyright 2017 Human Longevity, Inc.
 #
@@ -14,20 +27,12 @@ from __future__ import print_function
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from tests.functional.common import run_test, TEST_CONTEXT
-import tempfile
-import disdat.api as api
-from disdat.utility import aws_s3
-import pytest
-import moto
-import hashlib
-import boto3
-import os
 
 TEST_BUNDLE = "test.bundle"
-TEST_REMOTE = '__test_remote_context__'
-TEST_BUCKET = 'test-bucket'
+TEST_REMOTE = "__test_remote_context__"
+TEST_BUCKET = "test-bucket"
 TEST_BUCKET_URL = "s3://{}".format(TEST_BUCKET)
+
 
 def md5_file(fname):
     hash_md5 = hashlib.md5()
@@ -38,15 +43,15 @@ def md5_file(fname):
 
 
 def test_local_file(run_test):
-    """ Test copying in local file """
+    """Test copying in local file"""
 
     local_fp = tempfile.NamedTemporaryFile()
-    local_fp.write(b'an external local file')
+    local_fp.write(b"an external local file")
     local_fp.flush()
 
     with api.Bundle(TEST_CONTEXT, name=TEST_BUNDLE) as b:
         b.add_data(local_fp.name)
-        b.add_tags({'info':'added a local file'})
+        b.add_tags({"info": "added a local file"})
 
     saved_uuid = b.uuid
     saved_md5 = md5_file(local_fp.name)
@@ -57,17 +62,17 @@ def test_local_file(run_test):
 
 
 def test_zero_copy_local_file(run_test):
-    """ Test managed path of a local file """
+    """Test managed path of a local file"""
 
     with api.Bundle(TEST_CONTEXT, name=TEST_BUNDLE) as b:
         f1 = b.get_file("file_1.txt")
         f2 = b.get_file("file_2.txt")
-        with open(f1, mode='w') as f:
+        with open(f1, mode="w") as f:
             f.write("This is our first file!")
-        with open(f2, mode='w') as f:
+        with open(f2, mode="w") as f:
             f.write("This is our second file!")
-        b.add_data([f1,f2])
-        b.add_params({'type':'file'})
+        b.add_data([f1, f2])
+        b.add_params({"type": "file"})
 
     saved_uuid = b.uuid
     saved_f1_md5 = md5_file(f1)
@@ -80,11 +85,11 @@ def test_zero_copy_local_file(run_test):
 
 @moto.mock_s3
 def test_copy_in_s3_file(run_test):
-    """ Test copying in s3 file
+    """Test copying in s3 file
     The file should be copied into the local context
     """
 
-    s3_resource = boto3.resource('s3', region_name="us-east-1")
+    s3_resource = boto3.resource("s3", region_name="us-east-1")
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
 
     # Copy a local file to moto s3 bucket
@@ -95,7 +100,7 @@ def test_copy_in_s3_file(run_test):
 
     with api.Bundle(TEST_CONTEXT, name=TEST_BUNDLE) as b:
         b.add_data(s3_file)
-        b.add_tags({'info': 'added an s3 file'})
+        b.add_tags({"info": "added an s3 file"})
     saved_uuid = b.uuid
 
     b = api.get(TEST_CONTEXT, None, uuid=saved_uuid)
@@ -107,11 +112,11 @@ def test_copy_in_s3_file(run_test):
 
 @moto.mock_s3
 def test_copy_in_s3_file_with_remote(run_test):
-    """ Test copying in s3 file
+    """Test copying in s3 file
     The file should be copied into the remote context
     """
 
-    s3_resource = boto3.resource('s3', region_name="us-east-1")
+    s3_resource = boto3.resource("s3", region_name="us-east-1")
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
 
     api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
@@ -124,7 +129,7 @@ def test_copy_in_s3_file_with_remote(run_test):
 
     with api.Bundle(TEST_CONTEXT, name=TEST_BUNDLE) as b:
         b.add_data(s3_file)
-        b.add_tags({'info': 'added an s3 file'})
+        b.add_tags({"info": "added an s3 file"})
     saved_uuid = b.uuid
 
     b = api.get(TEST_CONTEXT, None, uuid=saved_uuid)
@@ -133,8 +138,8 @@ def test_copy_in_s3_file_with_remote(run_test):
 
 @moto.mock_s3
 def test_zero_copy_s3_file(run_test):
-    """ Test managed path in local file """
-    s3_resource = boto3.resource('s3', region_name="us-east-1")
+    """Test managed path in local file"""
+    s3_resource = boto3.resource("s3", region_name="us-east-1")
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
 
     api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
@@ -142,10 +147,10 @@ def test_zero_copy_s3_file(run_test):
     saved_md5 = md5_file(__file__)
 
     with api.Bundle(TEST_CONTEXT, name=TEST_BUNDLE) as b:
-        s3_path = b.get_remote_file('test_s3_file.txt')
+        s3_path = b.get_remote_file("test_s3_file.txt")
         aws_s3.cp_local_to_s3_file(__file__, s3_path)
         b.add_data(s3_path)
-        b.add_tags({'info': 'added an s3 file'})
+        b.add_tags({"info": "added an s3 file"})
     saved_uuid = b.uuid
 
     b = api.get(TEST_CONTEXT, None, uuid=saved_uuid)
@@ -158,4 +163,3 @@ def test_zero_copy_s3_file(run_test):
 
 if __name__ == "__main__":
     pytest.main([__file__])
-

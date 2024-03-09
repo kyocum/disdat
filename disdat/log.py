@@ -20,21 +20,20 @@ Log
 Package wide logging and logging utilities
 """
 
-import sys
-import logging
 import contextlib
+import logging
+import sys
 
 import disdat
-
 
 # Disdat global logger
 logger = logging.getLogger(disdat.__name__)
 logger.addHandler(logging.NullHandler())
 
 # External loggers
-luigi_logger = logging.getLogger('luigi-interface')
-boto3_logger = logging.getLogger('boto3')
-botocore_logger = logging.getLogger('botocore')
+luigi_logger = logging.getLogger("luigi-interface")
+boto3_logger = logging.getLogger("boto3")
+botocore_logger = logging.getLogger("botocore")
 
 
 @contextlib.contextmanager

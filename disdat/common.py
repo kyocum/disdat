@@ -12,34 +12,32 @@
 # limitations under the License.
 #
 
+import importlib
 import logging
 import os
-import sys
 import shutil
+import sys
 import uuid
-import importlib
 
-from six.moves import urllib
-from six.moves import configparser
+from six.moves import configparser, urllib
 
-from disdat import resource
 import disdat.config
 from disdat import logger as _logger
+from disdat import resource
 
-
-SYSTEM_CONFIG_DIR = '~/.config/disdat'
-PACKAGE_CONFIG_DIR = 'disdat'
-LOGGING_FILE = 'logging.conf'
-CFG_FILE = 'disdat.cfg'
-META_DIR = '.disdat'
-DISDAT_CONTEXT_DIR = 'context'  # ~/.disdat/context/<local_context_name>
-DEFAULT_FRAME_NAME = 'unnamed'
-BUNDLE_URI_SCHEME = 'bundle://'
+SYSTEM_CONFIG_DIR = "~/.config/disdat"
+PACKAGE_CONFIG_DIR = "disdat"
+LOGGING_FILE = "logging.conf"
+CFG_FILE = "disdat.cfg"
+META_DIR = ".disdat"
+DISDAT_CONTEXT_DIR = "context"  # ~/.disdat/context/<local_context_name>
+DEFAULT_FRAME_NAME = "unnamed"
+BUNDLE_URI_SCHEME = "bundle://"
 
 # Some tags in bundles are special.  They are prefixed with '__'
-BUNDLE_TAG_PARAMS_PREFIX = '__param.'
-BUNDLE_TAG_TRANSIENT = '__transient'
-BUNDLE_TAG_PUSH_META = '__push_meta'
+BUNDLE_TAG_PARAMS_PREFIX = "__param."
+BUNDLE_TAG_TRANSIENT = "__transient"
+BUNDLE_TAG_PUSH_META = "__push_meta"
 
 
 class CatNoBundleError(Exception):
@@ -90,7 +88,7 @@ class DisdatConfig(object):
 
         if not os.path.exists(config_dir):
             error(
-                'Did not find Disdat configuration. '
+                "Did not find Disdat configuration. "
                 'Call "dsdt init" to initialize Disdat.'
             )
 
@@ -99,7 +97,7 @@ class DisdatConfig(object):
         if meta_dir_root:
             self.meta_dir_root = meta_dir_root
         else:
-            self.meta_dir_root = '~/'
+            self.meta_dir_root = "~/"
         self.logging_config = None
         self.parser = self._read_configuration_file(disdat_cfg)
 
@@ -113,7 +111,9 @@ class DisdatConfig(object):
             config_dir (str): Optional directory from which to get disdat.cfg and (optional) luigi.cfg.  Default SYSTEM_CONFIG_DIR
         """
         if DisdatConfig._instance is None:
-            DisdatConfig._instance = DisdatConfig(meta_dir_root=meta_dir_root, config_dir=config_dir)
+            DisdatConfig._instance = DisdatConfig(
+                meta_dir_root=meta_dir_root, config_dir=config_dir
+            )
         return DisdatConfig._instance
 
     @staticmethod
@@ -129,17 +129,22 @@ class DisdatConfig(object):
         Next, see if there is a disdat.cfg in cwd.  Then configure disdat and (re)configure logging.
         """
         # _logger.debug("Loading config file [{}]".format(disdat_config_file))
-        config = configparser.ConfigParser({'meta_dir_root': self.meta_dir_root, 'ignore_code_version': 'False'})
+        config = configparser.ConfigParser(
+            {"meta_dir_root": self.meta_dir_root, "ignore_code_version": "False"}
+        )
         config.read(disdat_config_file)
-        self.meta_dir_root = os.path.expanduser(config.get('core', 'meta_dir_root'))
-        self.meta_dir_root = DisdatConfig._fix_relative_path(disdat_config_file, self.meta_dir_root)
-        self.ignore_code_version = config.getboolean('core', 'ignore_code_version')
+        self.meta_dir_root = os.path.expanduser(config.get("core", "meta_dir_root"))
+        self.meta_dir_root = DisdatConfig._fix_relative_path(
+            disdat_config_file, self.meta_dir_root
+        )
+        self.ignore_code_version = config.getboolean("core", "ignore_code_version")
 
         # Tell everything to push warnings through the logging infrastructure
         logging.captureWarnings(True)
 
         # unfortunately that's not enough -- kill all warnings
         import warnings
+
         warnings.filterwarnings("ignore")
 
         meta_dir = os.path.join(self.meta_dir_root, META_DIR)
@@ -164,9 +169,7 @@ class DisdatConfig(object):
 
         # Make sure disdat has not already been initialized
         if os.path.exists(directory):
-            error(
-                'DisDat already initialized in {}.'.format(directory)
-            )
+            error("DisDat already initialized in {}.".format(directory))
 
         # Create outer folder if the system does not have it yet
         path = os.path.dirname(directory)
@@ -190,8 +193,8 @@ def create_uuid():
     return str(uuid.uuid4())
 
 
-def parse_args_tags(args_tag, to='dict'):
-    """ parse argument string of tags 'tag:value tag:value'
+def parse_args_tags(args_tag, to="dict"):
+    """parse argument string of tags 'tag:value tag:value'
     into a dictionary.
 
     Args:
@@ -201,16 +204,16 @@ def parse_args_tags(args_tag, to='dict'):
         (list(str) or dict(str)):
     """
 
-    if to == 'list':
+    if to == "list":
         tag_thing = []
     else:
         tag_thing = {}
 
     if args_tag:
-        if to == 'list':
-            tag_thing = ['{}'.format(kv[0]) for kv in args_tag]
-        if to == 'dict':
-            tag_thing = {k: v for k, v in [kv[0].split(':') for kv in args_tag]}
+        if to == "list":
+            tag_thing = ["{}".format(kv[0]) for kv in args_tag]
+        if to == "dict":
+            tag_thing = {k: v for k, v in [kv[0].split(":") for kv in args_tag]}
 
     return tag_thing
 
@@ -229,8 +232,8 @@ def get_local_file_path(url):
         TypeError if the URL is not a file URL
     """
     parsed_url = urllib.parse.urlparse(url)
-    if parsed_url.scheme != 'file' and parsed_url.scheme != '':
-        raise TypeError('Expected file scheme in URL, got {}'.format(parsed_url.scheme))
+    if parsed_url.scheme != "file" and parsed_url.scheme != "":
+        raise TypeError("Expected file scheme in URL, got {}".format(parsed_url.scheme))
     return parsed_url.path
 
 
@@ -244,7 +247,7 @@ def slicezip(a, b):
     Returns:
         [ a[0], b[0], ..., a[n], b[n] ]
     """
-    result = [0]*(len(a)+len(b))
+    result = [0] * (len(a) + len(b))
     result[::2] = a
     result[1::2] = b
     return result
@@ -262,9 +265,9 @@ def load_class(class_path):
         class: reference to the loaded class
     """
     try:
-        mod_path, cls_name = class_path.rsplit('.', 1)
+        mod_path, cls_name = class_path.rsplit(".", 1)
     except ValueError:
-        raise ValueError('must include fully specified classpath, not local reference')
+        raise ValueError("must include fully specified classpath, not local reference")
 
     mod = importlib.import_module(mod_path)
     cls = getattr(mod, cls_name)
