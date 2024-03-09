@@ -12,28 +12,27 @@
 # limitations under the License.
 #
 
-import os
-import json
 import glob
+import json
+import os
 import shutil
-
-from sqlalchemy import create_engine
-import pandas as pd
-import numpy as np
 import urllib
+
 import boto3
+import numpy as np
+import pandas as pd
+from sqlalchemy import create_engine
 
-import disdat.constants as constants
-import disdat.hyperframe_pb2 as hyperframe_pb2
-import disdat.hyperframe as hyperframe
 import disdat.common as common
+import disdat.constants as constants
+import disdat.hyperframe as hyperframe
+import disdat.hyperframe_pb2 as hyperframe_pb2
 import disdat.utility.aws_s3 as aws_s3
-from disdat.common import DisdatConfig
 from disdat import logger as _logger
+from disdat.common import DisdatConfig
 
-
-META_CTXT_FILE = 'ctxt.json'
-DB_FILE = 'ctxt.db'
+META_CTXT_FILE = "ctxt.json"
+DB_FILE = "ctxt.db"
 DEFAULT_LEN_UNCOMMITTED_HISTORY = 1
 
 
@@ -56,7 +55,9 @@ class DataContext(object):
 
     """
 
-    def __init__(self, ctxt_dir, remote_ctxt=None, local_ctxt=None, remote_ctxt_url=None):
+    def __init__(
+        self, ctxt_dir, remote_ctxt=None, local_ctxt=None, remote_ctxt_url=None
+    ):
         """
         Data context resides in file:///meta_dir/context/<context_name>/
         Objects are in          file:///meta_dir/context/<context_name>/objects/<uuid>/{uuid_<type>.pb}
@@ -97,9 +98,9 @@ class DataContext(object):
         Returns:
         """
         # if the path exists, but there's nothing there, then assume we can remake it.
-        local_ctxt_dir = os.path.join(ctxt_dir, local_ctxt_name, 'objects')
+        local_ctxt_dir = os.path.join(ctxt_dir, local_ctxt_name, "objects")
         if os.path.exists(local_ctxt_dir):
-            assert (len(os.listdir(local_ctxt_dir)) == 0)
+            assert len(os.listdir(local_ctxt_dir)) == 0
         else:
             os.makedirs(local_ctxt_dir)
 
@@ -111,7 +112,13 @@ class DataContext(object):
 
         """
         if self.unpushed_data() and not force:
-            print(("Disdat found un-pushed data in context {}, use -f to delete".format(self.local_ctxt)))
+            print(
+                (
+                    "Disdat found un-pushed data in context {}, use -f to delete".format(
+                        self.local_ctxt
+                    )
+                )
+            )
             return
 
         self.local_engine.dispose()
@@ -134,23 +141,35 @@ class DataContext(object):
             None
 
         """
-        assert (urllib.parse.urlparse(s3_url).scheme == 's3')
+        assert urllib.parse.urlparse(s3_url).scheme == "s3"
 
-        if self.remote_ctxt_url is not None and self.remote_ctxt == remote_context and \
-                        os.path.normpath(os.path.dirname(self.remote_ctxt_url)) == os.path.normpath(s3_url):
+        if (
+            self.remote_ctxt_url is not None
+            and self.remote_ctxt == remote_context
+            and os.path.normpath(os.path.dirname(self.remote_ctxt_url))
+            == os.path.normpath(s3_url)
+        ):
             print("Context already bound to remote at {}".format(s3_url))
             return
 
         bucket, key = aws_s3.split_s3_url(s3_url)
         if not aws_s3.s3_bucket_exists(bucket):
-            _logger.error("Unable to bind context {} because bucket {} does not exist.".format(remote_context, bucket))
+            _logger.error(
+                "Unable to bind context {} because bucket {} does not exist.".format(
+                    remote_context, bucket
+                )
+            )
             raise RuntimeError
 
         if self.remote_ctxt_url is not None:
             print("You are re-binding this local context to a new remote context.")
             print("There may be un-localized bundles.")
 
-        _logger.debug("Binding local branch {} context {} to URL {}".format(self.local_ctxt, self.remote_ctxt, s3_url))
+        _logger.debug(
+            "Binding local branch {} context {} to URL {}".format(
+                self.local_ctxt, self.remote_ctxt, s3_url
+            )
+        )
         self.remote_ctxt = remote_context
         self.remote_ctxt_url = os.path.join(s3_url, common.DISDAT_CONTEXT_DIR)
         self.save()
@@ -166,9 +185,11 @@ class DataContext(object):
             None
 
         """
-        _logger.debug("Un-binding local branch {} context {} current URL {} to None".format(self.local_ctxt,
-                                                                                            self.remote_ctxt,
-                                                                                            self.remote_ctxt_url))
+        _logger.debug(
+            "Un-binding local branch {} context {} current URL {} to None".format(
+                self.local_ctxt, self.remote_ctxt, self.remote_ctxt_url
+            )
+        )
         self.remote_ctxt_url = None
         self.save()
 
@@ -190,14 +211,16 @@ class DataContext(object):
         Returns:
             None
         """
-        assert(os.path.isdir(self._get_local_context_dir()))
+        assert os.path.isdir(self._get_local_context_dir())
 
         meta_ctxt_file = os.path.join(self._get_local_context_dir(), META_CTXT_FILE)
 
-        with open(meta_ctxt_file, 'w') as json_file:
-            save_dict = {'remote_ctxt': self.remote_ctxt,
-                         'local_ctxt': self.local_ctxt,
-                         'remote_ctxt_url': self.remote_ctxt_url}
+        with open(meta_ctxt_file, "w") as json_file:
+            save_dict = {
+                "remote_ctxt": self.remote_ctxt,
+                "local_ctxt": self.local_ctxt,
+                "remote_ctxt_url": self.remote_ctxt_url,
+            }
             json_file.write(json.dumps(save_dict))
 
     @staticmethod
@@ -214,23 +237,27 @@ class DataContext(object):
         ctxt_dir = DisdatConfig.instance().get_context_dir()
 
         if ctxt_dir is None:
-            raise Exception("Unable to load context without a metadata directory argument")
+            raise Exception(
+                "Unable to load context without a metadata directory argument"
+            )
 
         contexts = {}
 
-        files = glob.glob(os.path.join(ctxt_dir, '*'))
+        files = glob.glob(os.path.join(ctxt_dir, "*"))
 
         for ctxt in files:
             if len(target_contexts) > 0 and ctxt not in target_contexts:
                 continue
 
-            #_logger.debug("Loading context {}...".format(ctxt))
+            # _logger.debug("Loading context {}...".format(ctxt))
             meta_file = os.path.join(ctxt_dir, ctxt, META_CTXT_FILE)
 
             if not os.path.isfile(meta_file):
-                _logger.debug("No disdat {} meta ctxt data file found.".format(meta_file))
+                _logger.debug(
+                    "No disdat {} meta ctxt data file found.".format(meta_file)
+                )
             else:
-                with open(meta_file, 'r') as json_file:
+                with open(meta_file, "r") as json_file:
                     dc_dict = json.loads(json_file.readline())
                     dc = DataContext(ctxt_dir, **dc_dict)
                 contexts[dc.local_ctxt] = dc
@@ -257,11 +284,11 @@ class DataContext(object):
 
     @staticmethod
     def s3_remote_from_url(remote_ctxt_url):
-        """ remove '/context' """
+        """remove '/context'"""
         if remote_ctxt_url is None:
-            return 'None'
+            return "None"
         else:
-            return remote_ctxt_url[:-len('/context')]
+            return remote_ctxt_url[: -len("/context")]
 
     @staticmethod
     def extract_uuid_from_pb_path(pb_path, pb_type):
@@ -277,13 +304,15 @@ class DataContext(object):
             str: the uuid or None
         """
         if pb_type == hyperframe.FrameRecord:
-            frame_file_suffix = '_frame.pb'
+            frame_file_suffix = "_frame.pb"
         elif pb_type == hyperframe.HyperFrameRecord:
-            frame_file_suffix = '_hframe.pb'
+            frame_file_suffix = "_hframe.pb"
         else:
-            assert False, "Unknown pb_type {} in extract_uuid_from_pb_path.".format(pb_type)
+            assert False, "Unknown pb_type {} in extract_uuid_from_pb_path.".format(
+                pb_type
+            )
         assert pb_path.endswith(frame_file_suffix)
-        return pb_path[:-len(frame_file_suffix)]
+        return pb_path[: -len(frame_file_suffix)]
 
     def get_remote_object_dir(self):
         """
@@ -294,7 +323,9 @@ class DataContext(object):
         """
         if self.remote_ctxt_url is None:
             return None
-        return os.path.join(self.remote_ctxt_url, self.remote_ctxt, constants._MANAGED_OBJECTS)
+        return os.path.join(
+            self.remote_ctxt_url, self.remote_ctxt, constants._MANAGED_OBJECTS
+        )
 
     def get_remote_name(self):
         return self.remote_ctxt
@@ -304,7 +335,7 @@ class DataContext(object):
 
     @property
     def context(self):
-        """ Return fully qualified context string """
+        """Return fully qualified context string"""
         return f"local [{self.local_ctxt}] remote [{self.remote_ctxt}@{self.remote_ctxt_url}/{self.remote_ctxt}]"
 
     def init_remote_db(self):
@@ -324,7 +355,9 @@ class DataContext(object):
         # Enable when we start to use Dynamo for an index.
         if not self.remote_engine and False:
             try:
-                self.remote_engine = boto3.resource('dynamodb', endpoint_url="http://localhost:8000")
+                self.remote_engine = boto3.resource(
+                    "dynamodb", endpoint_url="http://localhost:8000"
+                )
             except Exception as e:
                 _logger.debug("Failed to get dynamo AWS resource: {}".format(e))
         return
@@ -354,14 +387,16 @@ class DataContext(object):
 
         if in_memory:
             _logger.debug("Building in-memory database from local state...")
-            self.local_engine = create_engine('sqlite:///:memory:', echo=False)
+            self.local_engine = create_engine("sqlite:///:memory:", echo=False)
             self.rebuild_db()
         else:
             db_file = os.path.join(self._get_local_context_dir(), DB_FILE)
-            self.local_engine = create_engine('sqlite:///' + db_file, echo=False)
+            self.local_engine = create_engine("sqlite:///" + db_file, echo=False)
             if not os.path.isfile(db_file):
                 _logger.debug("No disdat {} local db data file found.".format(db_file))
-                _logger.debug("\t  Rebuilding local database from local state...".format(db_file))
+                _logger.debug(
+                    "\t  Rebuilding local database from local state...".format(db_file)
+                )
                 self.rebuild_db()
         self.dbck()
         return
@@ -398,7 +433,11 @@ class DataContext(object):
             fr_uuid = str_tuple.v
             if fr_uuid not in found_frames_uuids:
                 # Frame was not on disk
-                _logger.warn("HyperFrame {} Frame {} {} not present on disk".format(hfr.pb.uuid, fr_name, fr_uuid))
+                _logger.warn(
+                    "HyperFrame {} Frame {} {} not present on disk".format(
+                        hfr.pb.uuid, fr_name, fr_uuid
+                    )
+                )
                 return False
         return True
 
@@ -434,13 +473,23 @@ class DataContext(object):
             fr_uuid = str_tuple.v
             if fr_uuid in found_frames:
                 # Frame was on disk (in found_frames dict)
-                valid_frame = DataContext._validate_frame(found_frames[fr_uuid], found_auths)
+                valid_frame = DataContext._validate_frame(
+                    found_frames[fr_uuid], found_auths
+                )
                 if not valid_frame:
-                    _logger.warn("HyperFrame {} Frame {} {} not valid".format(hfr.pb.uuid, fr_name, fr_uuid))
+                    _logger.warn(
+                        "HyperFrame {} Frame {} {} not valid".format(
+                            hfr.pb.uuid, fr_name, fr_uuid
+                        )
+                    )
                     return False
             else:
                 # Frame was not on disk
-                _logger.warn("HyperFrame {} Frame {} {} not present on disk".format(hfr.pb.uuid, fr_name, fr_uuid))
+                _logger.warn(
+                    "HyperFrame {} Frame {} {} not present on disk".format(
+                        hfr.pb.uuid, fr_name, fr_uuid
+                    )
+                )
                 return False
         return True
 
@@ -461,31 +510,41 @@ class DataContext(object):
 
         if fr.is_link_frame():
             for l in fr.pb.links:
-                if l.linkauth_uuid != '':  # empty string is PB default value when not set
+                if (
+                    l.linkauth_uuid != ""
+                ):  # empty string is PB default value when not set
                     if l.linkauth_uuid not in found_auths:
-                        _logger.warn("Frame name {} with invalid link auth {} in link {}".format(fr.pb.name,
-                                                                                                 l.linkauth_uuid,
-                                                                                                 l.uuid))
+                        _logger.warn(
+                            "Frame name {} with invalid link auth {} in link {}".format(
+                                fr.pb.name, l.linkauth_uuid, l.uuid
+                            )
+                        )
                         return False
                 url = hyperframe.LinkBase.find_url(l)
                 o = urllib.parse.urlparse(url)
-                if o.scheme == 's3':
+                if o.scheme == "s3":
                     _logger.warn("Disdat FS TODO check on s3 for file {}".format(url))
-                elif o.scheme == 'db':
+                elif o.scheme == "db":
                     pass
-                    #_logger.warn("Disdat FS TODO support db tables in link columns")
-                elif o.scheme == 'bundle':
+                    # _logger.warn("Disdat FS TODO support db tables in link columns")
+                elif o.scheme == "bundle":
                     # this is OK.  file links are bundle urls.
                     pass
-                    #_logger.debug("Disdat FS TODO check on bundle links for {}".format(url))
-                elif o.scheme == 'file':
+                    # _logger.debug("Disdat FS TODO check on bundle links for {}".format(url))
+                elif o.scheme == "file":
                     if not os.path.exists(o.path):
-                        _logger.warn("Frame name {} contains file {} not found on disk.".format(fr.pb.name,
-                                                                                                os.path))
+                        _logger.warn(
+                            "Frame name {} contains file {} not found on disk.".format(
+                                fr.pb.name, os.path
+                            )
+                        )
                         return False
                 else:
-                    raise Exception("Disdat Context _validate_frame {} found bad scheme: {}".format(fr.pb.name,
-                                                                                              o.scheme))
+                    raise Exception(
+                        "Disdat Context _validate_frame {} found bad scheme: {}".format(
+                            fr.pb.name, o.scheme
+                        )
+                    )
         return True
 
     def rebuild_db(self, ignore_existing=True):
@@ -511,22 +570,28 @@ class DataContext(object):
         hframes = {}
         frames = {}
 
-        pb_types = [('*_hframe.pb', hyperframe.HyperFrameRecord, hframes),
-                    ('*_frame.pb', hyperframe.FrameRecord, frames)]
+        pb_types = [
+            ("*_hframe.pb", hyperframe.HyperFrameRecord, hframes),
+            ("*_frame.pb", hyperframe.FrameRecord, frames),
+        ]
 
         # Note: we no longer create the frame and auth tables.
         hyperframe.HyperFrameRecord.create_table(self.local_engine)
 
         for uuid_dir in os.listdir(self.get_object_dir()):
             for glb, rcd_type, store in pb_types:
-                files = glob.glob(os.path.join(os.path.join(self.get_object_dir(), uuid_dir), glb))
+                files = glob.glob(
+                    os.path.join(os.path.join(self.get_object_dir(), uuid_dir), glb)
+                )
                 for f in files:
                     if rcd_type == hyperframe.HyperFrameRecord:
                         rcd = hyperframe.r_pb_fs(f, rcd_type)
                         store[rcd.pb.uuid] = rcd
                     elif rcd_type == hyperframe.FrameRecord:
                         base_f = os.path.basename(f)
-                        store[DataContext.extract_uuid_from_pb_path(base_f, rcd_type)] = True
+                        store[
+                            DataContext.extract_uuid_from_pb_path(base_f, rcd_type)
+                        ] = True
 
         hframe_count = len(hframes.values())
         ten_percent = max(1, int(hframe_count / 10))
@@ -534,22 +599,31 @@ class DataContext(object):
         insert_batch = []
         for i, hfr in enumerate(hframes.values()):
             if i % ten_percent == 0:
-                _logger.debug("Disdat DB rebuild: written {} ({} percent) to db".format(i, perc))
+                _logger.debug(
+                    "Disdat DB rebuild: written {} ({} percent) to db".format(i, perc)
+                )
                 perc += 10
             if DataContext._weak_validate_hframe(hfr, frames):
-                hfr_from_db_list = hyperframe.select_hfr_db(self.local_engine, uuid=hfr.pb.uuid)
+                hfr_from_db_list = hyperframe.select_hfr_db(
+                    self.local_engine, uuid=hfr.pb.uuid
+                )
                 if not ignore_existing or len(hfr_from_db_list) == 0:
                     insert_batch.append(hfr)
             else:
                 # invalid hyperframe, if present in db as valid, mark invalid
-                hfr_from_db_list = hyperframe.select_hfr_db(self.local_engine, uuid=hfr.pb.uuid)
-                assert(len(hfr_from_db_list) == 0 or len(hfr_from_db_list) == 1)
+                hfr_from_db_list = hyperframe.select_hfr_db(
+                    self.local_engine, uuid=hfr.pb.uuid
+                )
+                assert len(hfr_from_db_list) == 0 or len(hfr_from_db_list) == 1
                 if len(hfr_from_db_list) == 1:
                     hfr_from_db = hfr_from_db_list[0]
                     if hfr_from_db.state == hyperframe.RecordState.valid:
                         # If it is valid, and we know it isn't, mark invalid
-                        hyperframe.update_hfr_db(self.local_engine, hyperframe.RecordState.invalid,
-                                                 uuid=hfr.pb.uuid)
+                        hyperframe.update_hfr_db(
+                            self.local_engine,
+                            hyperframe.RecordState.invalid,
+                            uuid=hfr.pb.uuid,
+                        )
                     # else, pending, invalid, deleted is all OK with an invalid hyperframe
             if len(insert_batch) >= INSERT_BATCH:
                 hyperframe.w_pb_db(insert_batch, self.local_engine)
@@ -558,7 +632,7 @@ class DataContext(object):
             hyperframe.w_pb_db(insert_batch, self.local_engine)
 
     def bundle_count(self):
-        """ Determine how many bundles in the current local context
+        """Determine how many bundles in the current local context
         Returns:
             (int): Count of bundles in this local context
         """
@@ -601,7 +675,7 @@ class DataContext(object):
         return path
 
     def util_get_managed_paths(self, uuid):
-        """ Given a uuid, use the local and remote contexts
+        """Given a uuid, use the local and remote contexts
         to return the local directory for this bundle and
         the remote directory for this bundle.
 
@@ -611,9 +685,11 @@ class DataContext(object):
             (str, str):  A tuple of local_dir and remote_dir
         """
 
-        assert(self.is_valid())
+        assert self.is_valid()
 
-        local_dir = os.path.join("file:///", self.get_object_dir(), uuid)  # @ReservedAssignment
+        local_dir = os.path.join(
+            "file:///", self.get_object_dir(), uuid
+        )  # @ReservedAssignment
 
         if self.remote_ctxt_url is not None:
             remote_dir = os.path.join(self.get_remote_object_dir(), uuid)
@@ -637,7 +713,7 @@ class DataContext(object):
         # TODO: Hateful local import -- fix
         from disdat.fs import DisdatFS
 
-        assert(self.is_valid())
+        assert self.is_valid()
 
         if uuid is None:
             _provided_uuid = DisdatFS.disdat_uuid()
@@ -647,7 +723,7 @@ class DataContext(object):
         local_dir, remote_dir = self.util_get_managed_paths(_provided_uuid)
 
         if os.path.exists(local_dir):
-            raise Exception('Caught UUID collision {}'.format(uuid))
+            raise Exception("Caught UUID collision {}".format(uuid))
 
         os.makedirs(local_dir)
 
@@ -674,8 +750,11 @@ class DataContext(object):
             # TODO: if people create s3 files, s3 file targets, inside of an s3 context,
             # TODO: then we will have to clean those up as well.
         except IOError as why:
-            _logger.error("Removal of hyperframe directory {} failed with error {}. Continuing removal...".format(
-                uuid, why))
+            _logger.error(
+                "Removal of hyperframe directory {} failed with error {}. Continuing removal...".format(
+                    uuid, why
+                )
+            )
 
     def rm_hframe(self, hfr_uuid):
         """
@@ -702,22 +781,39 @@ class DataContext(object):
             assert hfr is not None
             assert len(hfr) == 1
 
-            hyperframe.update_hfr_db(self.local_engine, hyperframe.RecordState.deleted, uuid=hfr_uuid)
+            hyperframe.update_hfr_db(
+                self.local_engine, hyperframe.RecordState.deleted, uuid=hfr_uuid
+            )
             shutil.rmtree(self.implicit_hframe_path(hfr_uuid))
             hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid)
 
             return True
         except (IOError, os.error) as why:
-            _logger.error("Removal of hyperframe directory {} failed with error {}.".format(self.implicit_hframe_path(hfr_uuid), why))
+            _logger.error(
+                "Removal of hyperframe directory {} failed with error {}.".format(
+                    self.implicit_hframe_path(hfr_uuid), why
+                )
+            )
 
             # Clean up db if directory removal failed
-            hyperframe.delete_hfr_db(self.local_engine, uuid=hfr_uuid, state=hyperframe.RecordState.deleted)
+            hyperframe.delete_hfr_db(
+                self.local_engine, uuid=hfr_uuid, state=hyperframe.RecordState.deleted
+            )
 
             return False
 
-    def get_hframes(self, human_name=None, processing_name=None,
-                    uuid=None, tags=None, state=None, groupby=False,
-                    before=None, after=None, maxbydate=False):
+    def get_hframes(
+        self,
+        human_name=None,
+        processing_name=None,
+        uuid=None,
+        tags=None,
+        state=None,
+        groupby=False,
+        before=None,
+        after=None,
+        maxbydate=False,
+    ):
         """
         Find all hframes with the given bundle_name
 
@@ -736,18 +832,19 @@ class DataContext(object):
             (list:`disdat.hyperframe.HyperFrameRecord'): list of HyperFrameRecords (or rows if groupby=True) ordered youngest to oldest
 
         """
-        found = hyperframe.select_hfr_db(self.local_engine,
-                                         human_name=human_name,
-                                         processing_name=processing_name,
-                                         uuid=uuid,
-                                         tags=tags,
-                                         state=state,
-                                         orderby=True,
-                                         groupby=groupby,
-                                         maxbydate=maxbydate,
-                                         before=before,
-                                         after=after
-                                         )
+        found = hyperframe.select_hfr_db(
+            self.local_engine,
+            human_name=human_name,
+            processing_name=processing_name,
+            uuid=uuid,
+            tags=tags,
+            state=state,
+            orderby=True,
+            groupby=groupby,
+            maxbydate=maxbydate,
+            before=before,
+            after=after,
+        )
 
         return found
 
@@ -805,9 +902,12 @@ class DataContext(object):
         """
         local_obj_dir = os.path.join(self.get_object_dir(), hfr.pb.uuid)
         if not os.path.exists(local_obj_dir):
-            raise Exception("Write HFrame to remote failed because hfr {} doesn't appear to be in local context".format(
-                hfr.pb.uuid))
-        to_copy_files = glob.glob(os.path.join(local_obj_dir, '*frame.pb'))
+            raise Exception(
+                "Write HFrame to remote failed because hfr {} doesn't appear to be in local context".format(
+                    hfr.pb.uuid
+                )
+            )
+        to_copy_files = glob.glob(os.path.join(local_obj_dir, "*frame.pb"))
         dst_files = []
         remote_object_dir = os.path.join(self.get_remote_object_dir(), hfr.pb.uuid)
         for f in to_copy_files:
@@ -840,7 +940,9 @@ class DataContext(object):
         hyperframe.delete_hfr_db(self.local_engine, uuid=hfr.pb.uuid)
 
         # 2.) Write FS HyperFrame PB to a sister file and then move to original file.
-        hyperframe.w_pb_fs(os.path.join(self.get_object_dir(), hfr.pb.uuid), hfr, atomic=True)
+        hyperframe.w_pb_fs(
+            os.path.join(self.get_object_dir(), hfr.pb.uuid), hfr, atomic=True
+        )
 
         # 3.) Write DB HyperFrame and tags
         result = hyperframe.w_pb_db(hfr, self.local_engine)
@@ -871,7 +973,9 @@ class DataContext(object):
             results (list:(str)): sorted name list
         """
 
-        found = self.get_hframes(human_name='.*', state=hyperframe.RecordState.valid, groupby=True)
+        found = self.get_hframes(
+            human_name=".*", state=hyperframe.RecordState.valid, groupby=True
+        )
 
         if len(found) == 0:
             return []
@@ -879,7 +983,7 @@ class DataContext(object):
 
             # if we want to read from disk ...
             # found = self.get_hframes(human_name='.*', state=hyperframe.RecordState.valid, groupby=False)
-            #for f in found:
+            # for f in found:
             #    print type(f)
             #    local_uuid_dir = os.path.join(self.get_object_dir(), f.pb.uuid)
             #    local_hfr_path = os.path.join(local_uuid_dir, hyperframe.HyperFrameRecord.make_filename(f.pb.uuid))
@@ -892,7 +996,7 @@ class DataContext(object):
                 found.sort(key=lambda hfr: hfr.pb.human_name)
                 return [hf.pb.human_name for hf in found]
             else:
-                return [row['human_name'] for row in found]
+                return [row["human_name"] for row in found]
 
     def get_hframe_processing_names(self):
         """
@@ -920,8 +1024,12 @@ class DataContext(object):
             ndarray wrapping scalar
         """
 
-        assert (not (isinstance(scalar, list) or isinstance(scalar, tuple) or
-                     isinstance(scalar,dict) or isinstance(scalar, np.ndarray)) )
+        assert not (
+            isinstance(scalar, list)
+            or isinstance(scalar, tuple)
+            or isinstance(scalar, dict)
+            or isinstance(scalar, np.ndarray)
+        )
         series_like = np.reshape(np.array(scalar), (1))
         return self.convert_serieslike2frame(hfid, name, series_like)
 
@@ -957,16 +1065,16 @@ class DataContext(object):
         if local_files_series is not None:
             series_like = local_files_series
 
-        #print (series_like)
+        # print (series_like)
 
         # Make sure s3 files exist -- copy in does this check
         # series_like = hyperframe.detect_s3_fs_path(series_like)
 
         if hyperframe.FrameRecord.is_link_series(series_like):
-            """ 
+            """
             If src is s3 file
               If s3 file not managed
-                if have remote: 
+                if have remote:
                   copy in to remote
                 else:
                   copy in to local
@@ -990,23 +1098,32 @@ class DataContext(object):
 
             copied_in_series_like = []
             for src in series_like:
-                #if isinstance(src, S3Target):
+                # if isinstance(src, S3Target):
                 #    src = src.path
-                #elif isinstance(src, luigi.LocalTarget):
+                # elif isinstance(src, luigi.LocalTarget):
                 #    src = urllib.parse.urljoin('file:', src.path)
 
-                if urllib.parse.urlparse(src).scheme == 's3':
+                if urllib.parse.urlparse(src).scheme == "s3":
                     if remote_managed_path is not None:
-                        copied_in_series_like.append(self.copy_in_files(src,
-                                                                        remote_managed_path,
-                                                                        localize=False))
+                        copied_in_series_like.append(
+                            self.copy_in_files(src, remote_managed_path, localize=False)
+                        )
                         continue
-                copied_in_series_like.append(self.copy_in_files(src,
-                                                                urllib.parse.urljoin('file:', local_managed_path),
-                                                                localize=False))
+                copied_in_series_like.append(
+                    self.copy_in_files(
+                        src,
+                        urllib.parse.urljoin("file:", local_managed_path),
+                        localize=False,
+                    )
+                )
 
-            frame = hyperframe.FrameRecord.make_link_frame(hfid, name, copied_in_series_like,
-                                                           local_managed_path, remote_managed_path)
+            frame = hyperframe.FrameRecord.make_link_frame(
+                hfid,
+                name,
+                copied_in_series_like,
+                local_managed_path,
+                remote_managed_path,
+            )
         else:
             frame = hyperframe.FrameRecord.from_serieslike(hfid, name, series_like)
         return frame
@@ -1031,7 +1148,7 @@ class DataContext(object):
         frames = []
 
         for idx, c in enumerate(df.columns):  # @UnusedVariable
-            if 'Unnamed:' in c:
+            if "Unnamed:" in c:
                 # ignore columsn without names, like default index columns
                 continue
             frames.append(self.convert_serieslike2frame(hfid, c, df[c]))
@@ -1054,64 +1171,69 @@ class DataContext(object):
             (str):
         """
         # Strip file name from src, normalize, and split on /
-        src_split = os.path.normpath(os.path.dirname(src)).split('/')
-        dst_split = os.path.normpath(dst).split('/')
+        src_split = os.path.normpath(os.path.dirname(src)).split("/")
+        dst_split = os.path.normpath(dst).split("/")
         sub_dir = list()
         found = False
-        for i in range(len(src_split)-1,-1,-1):
+        for i in range(len(src_split) - 1, -1, -1):
             if src_split[i] == dst_split[-1]:
-                if src_split[i-1] == dst_split[-2] and dst_split[-2] == 'objects':
+                if src_split[i - 1] == dst_split[-2] and dst_split[-2] == "objects":
                     found = True
                     break
             sub_dir.append(src_split[i])
         if found:
-            return '/'.join(sub_dir[::-1])
+            return "/".join(sub_dir[::-1])
         else:
-            return ''
+            return ""
 
     def copy_in_files(self, src_files, dst_dir, localize=True, dry_run=False):
         """
-         Given a set of link URLs, move them to the destination.
-         The link URLs will have file:///, s3://, or db:// schemes
+        Given a set of link URLs, move them to the destination.
+        The link URLs will have file:///, s3://, or db:// schemes
 
-         This call works for src: dst pairs of the form:
+        This call works for src: dst pairs of the form:
 
-         local fs : managed local fs dir
-         local fs : managed s3 dir
-         s3       : managed local fs dir
-         s3       : managed s3 dir
+        local fs : managed local fs dir
+        local fs : managed s3 dir
+        s3       : managed local fs dir
+        s3       : managed s3 dir
 
-         Assumes that src_files and dst_dir begin with scheme 'file'
+        Assumes that src_files and dst_dir begin with scheme 'file'
 
-         Args:
-            src_files (:list:str):  A single file path or a list of paths
-            dst_dir (str): Local or Remote managed dirs
-            localize (bool): If True, then copy src s3 -> dst file:/// (Default).  Else do not copy.
-            dry_run (bool): Return the destination files, but do not perform the copy
+        Args:
+           src_files (:list:str):  A single file path or a list of paths
+           dst_dir (str): Local or Remote managed dirs
+           localize (bool): If True, then copy src s3 -> dst file:/// (Default).  Else do not copy.
+           dry_run (bool): Return the destination files, but do not perform the copy
 
-         Returns:
-            file_set: set of new paths where files were copied.  Either one file or a list of files
+        Returns:
+           file_set: set of new paths where files were copied.  Either one file or a list of files
         """
         file_set = []
         return_one_file = False
         dst_scheme = urllib.parse.urlparse(dst_dir).scheme
-        assert dst_scheme == 'file' or dst_scheme == 's3', \
-            "copy_in_files: dst_dir with unrecognized scheme {}".format(dst_scheme)
+        assert (
+            dst_scheme == "file" or dst_scheme == "s3"
+        ), "copy_in_files: dst_dir with unrecognized scheme {}".format(dst_scheme)
 
         if not isinstance(src_files, list) and not isinstance(src_files, tuple):
             return_one_file = True
             src_files = [src_files]
 
         for src_path in src_files:
-            #if isinstance(src_path, luigi.LocalTarget) or isinstance(src_path, S3Target):
+            # if isinstance(src_path, luigi.LocalTarget) or isinstance(src_path, S3Target):
             #    src_path = src_path.path
 
             src_urlparse = urllib.parse.urlparse(src_path)
 
-            if src_urlparse.scheme == 's3' and not aws_s3.s3_path_exists(src_path):
-                raise common.BadLinkError("copy_in_files: s3 path {} does not exit.".format(src_path))
-            elif src_urlparse.scheme == 'file' and os.path.isdir(src_path):
-                raise common.BadLinkError("copy_in_files: local path {} is a directory.".format(src_path))
+            if src_urlparse.scheme == "s3" and not aws_s3.s3_path_exists(src_path):
+                raise common.BadLinkError(
+                    "copy_in_files: s3 path {} does not exit.".format(src_path)
+                )
+            elif src_urlparse.scheme == "file" and os.path.isdir(src_path):
+                raise common.BadLinkError(
+                    "copy_in_files: local path {} is a directory.".format(src_path)
+                )
 
             # Do not copy src file in to local if:
             # 1. Managed Local or S3 File  -- src path starts with dst path (dst is always a bundle directory)
@@ -1122,12 +1244,12 @@ class DataContext(object):
 
             # 2. Non Managed S3 File (Remote and push should be set)
             if self.remote_ctxt_url:
-                """ If there is a remote and we see a source S3 path
+                """If there is a remote and we see a source S3 path
                 If it is an external S3 path, then copy it to the dst_dir (local or s3)
                 If it is a managed s3 path and localizing, then copy it to the dst_dir (should be local)
-                If it is a managed s3 path and not localizing, do nothing. 
+                If it is a managed s3 path and not localizing, do nothing.
                 """
-                uuid = os.path.basename(dst_dir.rstrip('/'))
+                uuid = os.path.basename(dst_dir.rstrip("/"))
                 managed_path_s3 = os.path.join(self.get_remote_object_dir(), uuid)
                 if src_path.startswith(managed_path_s3) and not localize:
                     file_set.append(src_path)
@@ -1140,37 +1262,52 @@ class DataContext(object):
             file_set.append(dst_file)  # Record it with 'file://'
             dst_file_parse = urllib.parse.urlsplit(dst_file)
             # But strip 'file://' so that the copies to/from work.   S3 paths work all the time with s3://
-            if dst_file_parse.scheme == 'file':
+            if dst_file_parse.scheme == "file":
                 dst_file = dst_file_parse.path
 
             if not dry_run:
                 try:
-                    if src_urlparse.scheme == 's3':
+                    if src_urlparse.scheme == "s3":
                         # s3 to s3
-                        if dst_scheme == 's3':
+                        if dst_scheme == "s3":
                             aws_s3.cp_s3_file(src_path, os.path.dirname(dst_file))
-                        elif dst_scheme == 'file':
+                        elif dst_scheme == "file":
                             aws_s3.get_s3_file(src_path, dst_file)
                         else:
-                            raise common.BadLinkError("copy_in_files: copy s3 to unsupported scheme {}".format(dst_scheme))
+                            raise common.BadLinkError(
+                                "copy_in_files: copy s3 to unsupported scheme {}".format(
+                                    dst_scheme
+                                )
+                            )
 
-                    elif src_urlparse.scheme == 'db':  # left for back compat for now
+                    elif src_urlparse.scheme == "db":  # left for back compat for now
                         _logger.debug("Skipping a db file on bundle add")
 
-                    elif src_urlparse.scheme == 'file':
-                        if dst_scheme == 's3':
+                    elif src_urlparse.scheme == "file":
+                        if dst_scheme == "s3":
                             # local to s3
-                            aws_s3.put_s3_file(src_urlparse.path, os.path.dirname(dst_file))
-                        elif dst_scheme == 'file':
+                            aws_s3.put_s3_file(
+                                src_urlparse.path, os.path.dirname(dst_file)
+                            )
+                        elif dst_scheme == "file":
                             # local to local
                             shutil.copy(src_urlparse.path, os.path.dirname(dst_file))
                         else:
-                            raise common.BadLinkError("copy_in_files: copy local file to unsupported scheme {}".format(dst_scheme))
+                            raise common.BadLinkError(
+                                "copy_in_files: copy local file to unsupported scheme {}".format(
+                                    dst_scheme
+                                )
+                            )
                     else:
-                        raise common.BadLinkError("copy-in-file found bad scheme: {} from {}".format(src_urlparse.scheme,
-                                                                                                     src_urlparse))
+                        raise common.BadLinkError(
+                            "copy-in-file found bad scheme: {} from {}".format(
+                                src_urlparse.scheme, src_urlparse
+                            )
+                        )
                 except (IOError, os.error) as why:
-                    _logger.error("Disdat add error: {} {} {}".format(src_path, dst_dir, str(why)))
+                    _logger.error(
+                        "Disdat add error: {} {} {}".format(src_path, dst_dir, str(why))
+                    )
 
         if return_one_file:
             return file_set[0]
@@ -1202,9 +1339,16 @@ class DataContext(object):
         urls = fr.get_link_urls()
 
         """ Must be s3 or local file links.  All the files in the link must be present """
-        assert urllib.parse.urlparse(urls[0]).scheme == common.BUNDLE_URI_SCHEME.replace('://', '')
+        assert urllib.parse.urlparse(
+            urls[0]
+        ).scheme == common.BUNDLE_URI_SCHEME.replace("://", "")
         local_dir = self.get_object_dir()
-        local_file_set = [os.path.join(local_dir, fr.hframe_uuid, f.replace(common.BUNDLE_URI_SCHEME, '')) for f in urls]
+        local_file_set = [
+            os.path.join(
+                local_dir, fr.hframe_uuid, f.replace(common.BUNDLE_URI_SCHEME, "")
+            )
+            for f in urls
+        ]
 
         # Check to see which files are present and which must stay remote
         # This can now happen with individual link localize and delocalize.
@@ -1213,15 +1357,25 @@ class DataContext(object):
         for lf, rurl in zip(local_file_set, urls):
             if os.path.isfile(lf):
                 if not strip_file_scheme:
-                    lf = urllib.parse.urljoin('file:', lf)
+                    lf = urllib.parse.urljoin("file:", lf)
                 file_set.append(lf)
             else:
                 remote_dir = self.get_remote_object_dir()
                 if remote_dir is not None:
-                    file_set.append(os.path.join(remote_dir, fr.hframe_uuid, rurl.replace(common.BUNDLE_URI_SCHEME,'')))
+                    file_set.append(
+                        os.path.join(
+                            remote_dir,
+                            fr.hframe_uuid,
+                            rurl.replace(common.BUNDLE_URI_SCHEME, ""),
+                        )
+                    )
                 else:
-                    _logger.info("actualize_link_urls: Files are not local, and no remote context bound.")
-                    raise Exception("actualize_link_urls: Files are not local, and no remote context bound.")
+                    _logger.info(
+                        "actualize_link_urls: Files are not local, and no remote context bound."
+                    )
+                    raise Exception(
+                        "actualize_link_urls: Files are not local, and no remote context bound."
+                    )
 
         return file_set
 
@@ -1294,7 +1448,9 @@ class DataContext(object):
         assert len(frames) == 1
         fr = frames[0]
 
-        assert not (fr.is_local_fs_link_frame() or fr.is_s3_link_frame()), "hfr2json, failed since frame has links."
+        assert not (
+            fr.is_local_fs_link_frame() or fr.is_s3_link_frame()
+        ), "hfr2json, failed since frame has links."
 
         nda = fr.to_ndarray()
 
@@ -1352,7 +1508,10 @@ class DataContext(object):
                 return tuple(tuple_of_lists[0])
             return tuple_of_lists
         else:
-            d = { t[0]: (t[1] if isinstance(t[1], (tuple, list, np.ndarray)) else [t[1]]) for t in row }
+            d = {
+                t[0]: (t[1] if isinstance(t[1], (tuple, list, np.ndarray)) else [t[1]])
+                for t in row
+            }
             return d
 
     def present_hfr(self, hfr):
@@ -1372,8 +1531,10 @@ class DataContext(object):
             frames = hfr.get_frames(self)
             if len(frames) == 0:
                 # TODO: Remove on major release or adding true HF presentations
-                _logger.warning("DEPRECATION: Presentation HF was a hack for NoneType returns."
-                                " You should delete this bundle: UUID {}.".format(hfr.pb.uuid))
+                _logger.warning(
+                    "DEPRECATION: Presentation HF was a hack for NoneType returns."
+                    " You should delete this bundle: UUID {}.".format(hfr.pb.uuid)
+                )
                 print(hfr.pb)
                 return None
             assert len(frames) == 1
@@ -1396,7 +1557,11 @@ class DataContext(object):
             return self.convert_hfr2json(hfr)
 
         else:
-            raise Exception("present_hfr with HFR using unknown presentation enumeration {}".format(hfr.pb.presentation))
+            raise Exception(
+                "present_hfr with HFR using unknown presentation enumeration {}".format(
+                    hfr.pb.presentation
+                )
+            )
 
     def is_valid(self):
         return self.valid

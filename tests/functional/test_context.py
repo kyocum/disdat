@@ -14,37 +14,40 @@
 # limitations under the License.
 #
 import pytest
+
 import disdat.api as api
 
 
 def test_create_context():
-    context_name = '__test__'
-    assert context_name not in api.ls_contexts(), 'Context exists'
+    context_name = "__test__"
+    assert context_name not in api.ls_contexts(), "Context exists"
 
     api.context(context_name)
-    assert context_name in api.ls_contexts(), 'Test context does exists'
+    assert context_name in api.ls_contexts(), "Test context does exists"
     api.delete_context(context_name=context_name)
-    assert context_name not in api.ls_contexts(), 'Test context exists'
+    assert context_name not in api.ls_contexts(), "Test context exists"
 
 
 def test_independent_context():
-    context_1_name = '__test_context_1__'
-    context_2_name = '__test_context_2__'
+    context_1_name = "__test_context_1__"
+    context_2_name = "__test_context_2__"
 
     api.context(context_1_name)
     api.context(context_2_name)
 
-    _ = api.Bundle(context_1_name, name='context_test', data=2)
+    _ = api.Bundle(context_1_name, name="context_test", data=2)
 
-    assert len(api.search(context_1_name)) == 1, 'Only one bundle should be in context one'
-    assert len(api.search(context_2_name)) == 0, 'Context two should be empty'
+    assert (
+        len(api.search(context_1_name)) == 1
+    ), "Only one bundle should be in context one"
+    assert len(api.search(context_2_name)) == 0, "Context two should be empty"
 
     api.delete_context(context_name=context_1_name)
     api.delete_context(context_name=context_2_name)
 
-    assert context_1_name not in api.ls_contexts(), 'Contexts should be removed'
-    assert context_2_name not in api.ls_contexts(), 'Contexts should be removed'
+    assert context_1_name not in api.ls_contexts(), "Contexts should be removed"
+    assert context_2_name not in api.ls_contexts(), "Contexts should be removed"
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pytest.main([__file__])

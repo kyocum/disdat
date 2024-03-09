@@ -19,37 +19,37 @@ import moto
 import pytest
 
 import disdat.api as api
-from tests.functional.common import run_test, TEST_CONTEXT
+from tests.functional.common import TEST_CONTEXT, run_test
 
-TEST_REMOTE = '__test_remote_context__'
-TEST_BUCKET = 'test-bucket'
+TEST_REMOTE = "__test_remote_context__"
+TEST_BUCKET = "test-bucket"
 TEST_BUCKET_URL = "s3://{}".format(TEST_BUCKET)
 
 
 @moto.mock_s3
 def test_push(run_test):
-    s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3', region_name='us-east-1')
+    s3_client = boto3.client("s3")
+    s3_resource = boto3.resource("s3", region_name="us-east-1")
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
     bucket = s3_resource.Bucket(TEST_BUCKET)
 
     objects = s3_client.list_objects(Bucket=TEST_BUCKET)
-    assert 'Contents' not in objects, 'Bucket should be empty'
+    assert "Contents" not in objects, "Bucket should be empty"
 
-    assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
+    assert len(api.search(TEST_CONTEXT)) == 0, "Context should be empty"
     api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
 
-    _ = api.Bundle(TEST_CONTEXT, name='remote_test', data='Hello')
-    bundle = api.get(TEST_CONTEXT, 'remote_test')
+    _ = api.Bundle(TEST_CONTEXT, name="remote_test", data="Hello")
+    bundle = api.get(TEST_CONTEXT, "remote_test")
 
-    assert bundle.data == 'Hello'
+    assert bundle.data == "Hello"
 
     bundle.commit()
     bundle.push()
 
     objects = s3_client.list_objects(Bucket=TEST_BUCKET)
-    assert 'Contents' in objects, 'Bucket should not be empty'
-    assert len(objects['Contents']) > 0, 'Bucket should not be empty'
+    assert "Contents" in objects, "Bucket should not be empty"
+    assert len(objects["Contents"]) > 0, "Bucket should not be empty"
 
     bucket.objects.all().delete()
     bucket.delete()
@@ -57,28 +57,28 @@ def test_push(run_test):
 
 @moto.mock_s3
 def test_pull(run_test):
-    s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3', region_name='us-east-1')
+    s3_client = boto3.client("s3")
+    s3_resource = boto3.resource("s3", region_name="us-east-1")
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
     bucket = s3_resource.Bucket(TEST_BUCKET)
 
     objects = s3_client.list_objects(Bucket=TEST_BUCKET)
-    assert 'Contents' not in objects, 'Bucket should be empty'
+    assert "Contents" not in objects, "Bucket should be empty"
 
-    assert len(api.search(TEST_CONTEXT)) == 0, 'Context should be empty'
+    assert len(api.search(TEST_CONTEXT)) == 0, "Context should be empty"
     api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
 
-    _ = api.Bundle(TEST_CONTEXT, name='remote_test', data='Hello')
-    bundle = api.get(TEST_CONTEXT, 'remote_test')
+    _ = api.Bundle(TEST_CONTEXT, name="remote_test", data="Hello")
+    bundle = api.get(TEST_CONTEXT, "remote_test")
 
-    assert bundle.data == 'Hello'
+    assert bundle.data == "Hello"
 
     bundle.commit()
     bundle.push()
 
     objects = s3_client.list_objects(Bucket=TEST_BUCKET)
-    assert 'Contents' in objects, 'Bucket should not be empty'
-    assert len(objects['Contents']) > 0, 'Bucket should not be empty'
+    assert "Contents" in objects, "Bucket should not be empty"
+    assert len(objects["Contents"]) > 0, "Bucket should not be empty"
 
     api.delete_context(context_name=TEST_CONTEXT)
     api.context(context_name=TEST_CONTEXT)
@@ -86,12 +86,12 @@ def test_pull(run_test):
     api.pull(TEST_CONTEXT)
 
     pulled_bundles = api.search(TEST_CONTEXT)
-    assert len(pulled_bundles) > 0, 'No bundles were pulled'
-    assert pulled_bundles[0].data == 'Hello', 'Bundle contains incorrect data'
+    assert len(pulled_bundles) > 0, "No bundles were pulled"
+    assert pulled_bundles[0].data == "Hello", "Bundle contains incorrect data"
 
     bucket.objects.all().delete()
     bucket.delete()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pytest.main([__file__])

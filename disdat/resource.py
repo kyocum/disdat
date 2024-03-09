@@ -26,9 +26,9 @@ Advantages:
 
 """
 
+import os
 import pkgutil
 import sys
-import os
 import types
 
 
@@ -38,13 +38,13 @@ def filename(package, resource):
         mod = package
     else:
         loader = pkgutil.get_loader(package)
-        if loader is None or not hasattr(loader, 'get_data'):
+        if loader is None or not hasattr(loader, "get_data"):
             return None
         mod = sys.modules.get(package) or loader.load_module(package)
-        if mod is None or not hasattr(mod, '__file__'):
+        if mod is None or not hasattr(mod, "__file__"):
             return None
 
-    parts = resource.split('/')
+    parts = resource.split("/")
     parts.insert(0, os.path.dirname(mod.__file__))
     return os.path.join(*parts)
 
@@ -54,7 +54,7 @@ def exists(package, resource):
 
 
 def stream(package, resource):
-    return open(filename(package, resource), 'rb')
+    return open(filename(package, resource), "rb")
 
 
 def isdir(package, resource):
@@ -66,5 +66,5 @@ def listdir(package, resource):
 
 
 def string(package, resource):
-    with open(filename(package, resource), 'rb') as handle:
+    with open(filename(package, resource), "rb") as handle:
         return handle.read()
