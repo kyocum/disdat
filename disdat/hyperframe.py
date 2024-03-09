@@ -42,11 +42,11 @@ import hashlib
 import time
 import os
 import tempfile
+import configparser
 from datetime import datetime
 
 import numpy as np
 import pandas as pd
-import six
 import enum
 from sqlalchemy import Table, Column, String, MetaData, BLOB, Text, Enum, UniqueConstraint, DateTime
 from sqlalchemy.sql import text
@@ -584,7 +584,7 @@ def detect_local_fs_path(series):
     """
     output = []
     for s in series:
-        if not isinstance(s, six.string_types):
+        if not isinstance(s, str):
             return None
         if os.path.isfile(s):
             output.append("file://{}".format(os.path.abspath(s)))
@@ -614,7 +614,7 @@ def detect_s3_fs_path(series):
     """
 
     for s in series:
-        if not isinstance(s, six.string_types):
+        if not isinstance(s, str):
             raise common.BadLinkError("Unable to process links: s3 path not string type - found {} .".format(type(s)))
         if s3_path_exists(s):
             raise common.BadLinkError("Unable to process links: s3 object {} not found.".format(s))
@@ -667,6 +667,7 @@ def parse_return_val(hfid, val, data_context):
         float,
         str,
         bool,
+        bytes,
         np.bool_,
         np.int8,
         np.int16,
@@ -678,9 +679,7 @@ def parse_return_val(hfid, val, data_context):
         np.uint64,
         np.float16,
         np.float32,
-        np.float64,
-        six.binary_type,
-        six.text_type,
+        np.float64,        
         np.unicode_,
         np.string_
     )
@@ -869,8 +868,6 @@ class PBObject(object):
             object
         """
         pb = cls._pb_type()
-        if isinstance(pb_str_bytes, six.string_types):
-            pb_str_bytes = six.b(pb_str_bytes)
         pb.ParseFromString(pb_str_bytes)
         obj = cls.__new__(cls)
         setattr(obj, 'pb', pb)
@@ -921,7 +918,7 @@ class PBObject(object):
         for row in sa_result:
             if 'pb' in row:
                 pb = row['pb']
-                if isinstance(pb, six.string_types):
+                if isinstance(pb, str):
                     pb = pb.encode('utf8')
                 obj = cls.from_str_bytes(pb)
                 obj.state = row['state']
@@ -1912,8 +1909,8 @@ class FrameRecord(PBObject):
             np.float16: 'FLOAT16',
             np.float32: 'FLOAT32',
             np.float64: 'FLOAT64',
-            six.binary_type: 'STRING',
-            six.text_type:   'STRING',
+            bytes: 'STRING',
+            str:   'STRING',
             np.unicode_: 'STRING',
             np.string_: 'STRING',
             np.object_: 'OBJECT'
@@ -1944,10 +1941,10 @@ class FrameRecord(PBObject):
 
         elif self.pb.type == hyperframe_pb2.STRING:
             if len(self.pb.strings) > 0:
-                if isinstance(self.pb.strings[0], six.binary_type):
-                    nda = np.array(self.pb.strings, dtype=six.binary_type)
-                elif isinstance(self.pb.strings[0], six.text_type):
-                    nda = np.array(self.pb.strings, dtype=six.text_type)
+                if isinstance(self.pb.strings[0], bytes):
+                    nda = np.array(self.pb.strings, dtype=bytes)
+                elif isinstance(self.pb.strings[0], str):
+                    nda = np.array(self.pb.strings, dtype=str)
                 else:
                     raise Exception(
                         "Unable to convert pb strings to suitable type for ndarray {}".format(type(self.pb.strings[0])))
@@ -2008,11 +2005,11 @@ class FrameRecord(PBObject):
 
         if nda.dtype.type == np.object_:
             # NOTE: EXPENSIVE TESTS for STRINGS that come from ndarrays inside of Pandas series
-            if all(isinstance(x, six.binary_type) for x in nda):
-                frame_type = FrameRecord.get_proto_type(six.binary_type)
+            if all(isinstance(x, bytes) for x in nda):
+                frame_type = FrameRecord.get_proto_type(bytes)
                 series_data = nda
-            elif all(isinstance(x, six.text_type) for x in nda):
-                frame_type = FrameRecord.get_proto_type(six.text_type)
+            elif all(isinstance(x, str) for x in nda):
+                frame_type = FrameRecord.get_proto_type(str)
                 series_data = nda
             else:
                 # ESCAPE HATCH -- Made from duct tape and JSON
@@ -2211,8 +2208,6 @@ class LinkAuthBase(PBObject):
         If it exists, update the profile in profile with the information here.
         :return:
         """
-        from six.moves import configparser
-
         config = configparser.RawConfigParser()
         if os.path.exists(ini_file):
             config.read(ini_file)

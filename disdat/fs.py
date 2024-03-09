@@ -28,7 +28,6 @@ from enum import Enum
 import shutil
 import collections
 import subprocess
-import six
 
 import pandas as pd
 
@@ -75,8 +74,7 @@ def _run_git_cmd(git_dir, git_cmd, get_output=False):
         with open(os.devnull, 'w') as null_file:
             output = subprocess.call(cmd, stdout=null_file, stderr=null_file)
 
-    # If P3, this may be a byte array.   If P2, if not unicode, convert ...
-    output = six.ensure_str(output)
+    output = str(output)
 
     return output
 
@@ -103,7 +101,7 @@ def determine_pipe_version(pipe_root):
         return thing
 
     def _check_type_and_rstrip(val, default):
-        if isinstance(val, six.string_types):
+        if isinstance(val, str):
             val = val.rstrip()
         else:
             val = default

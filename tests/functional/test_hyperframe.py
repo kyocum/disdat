@@ -15,7 +15,6 @@
 #
 
 import numpy as np
-import six
 
 from disdat import hyperframe
 from disdat import hyperframe_pb2
@@ -23,7 +22,7 @@ from disdat import hyperframe_pb2
 
 def test_record_from_string_types():
 
-    for dtype in (six.binary_type, six.text_type):
+    for dtype in (bytes, str, np.bytes_, np.str_):  # REVISIT 
 
         array = np.array(['hello', 'world', 'sailor', ''])
         array = array.astype(dtype)

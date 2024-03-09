@@ -17,7 +17,6 @@
 import numpy as np
 import pandas as pd
 import pytest
-import six
 
 import disdat.api as api
 from tests.functional.common import TEST_CONTEXT
@@ -55,7 +54,7 @@ def test_string_task():
     data = api.get(TEST_CONTEXT, 'string_task').data
 
     assert data == 'output', 'Data did not match output'
-    assert type(data) == six.text_type, 'Data is not string'
+    assert type(data) == str, 'Data is not string'
     assert len(api.search(TEST_CONTEXT)) == 1, 'Only one bundle should be present'
 
 

@@ -68,7 +68,7 @@ test_data = {'int_data'   : np.array([0, -11, 12345, -314968], dtype=np.int32),
              'float32_data' : np.array([0.0, -1.1, 1.2345, -3.14968], dtype=np.float32),
              'float64_data' : np.array([0.0, -1.1, 1.2345, -3.14968], dtype=np.float64),
              'nd_float64_data' : np.array([[0.0, -1.1, 1.2345, -3.14968],[20.0, -21.1, 21.2345, -23.14968]], dtype=np.float64),
-             'bool_data'  : np.array([True, True, False, True, False], dtype=np.bool),
+             'bool_data'  : np.array([True, True, False, True, False], dtype=np.bool_),
              'string_data'  : np.array(['This', ' is', ' a', ' test!'], dtype=np.string_),
              'unicode_data' : np.array(['This', ' is', ' a', ' test!'], dtype=np.unicode_)
              }
