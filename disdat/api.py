@@ -21,27 +21,26 @@ The API won't change the CLI's context and vice versa.
 
 """
 
+import collections
+import errno
+import getpass
+import hashlib
 import os
 import shutil
-import getpass
-import errno
-import hashlib
-import collections
 import urllib
 
-import disdat.fs
 import disdat.common as common
-from disdat.data_context import DataContext
-from disdat.utility.aws_s3 import s3_path_exists
-
-from disdat.hyperframe import HyperFrameRecord, LineageRecord, parse_return_val
+import disdat.fs
 from disdat import logger as _logger
+from disdat.data_context import DataContext
+from disdat.hyperframe import HyperFrameRecord, LineageRecord, parse_return_val
+from disdat.utility.aws_s3 import s3_path_exists
 
 PROC_ID_TRUNCATE_HASH = 10  # 10 ls hex digits
 
 
 def _get_fs():
-    """ Initializing FS, which needs a config.
+    """Initializing FS, which needs a config.
     These are both singletons.
 
     TODO: Do we need the config instance here?  Most calls in fs / dockerize
@@ -57,26 +56,27 @@ def _get_fs():
 
 
 def set_aws_profile(aws_profile):
-    os.environ['AWS_PROFILE'] = aws_profile
+    os.environ["AWS_PROFILE"] = aws_profile
 
 
 class Bundle(HyperFrameRecord):
 
-    def __init__(self,
-                 local_context,
-                 name=None,
-                 data=None,
-                 processing_name=None,
-                 owner=None,
-                 tags=None,
-                 params=None,
-                 dependencies=None,
-                 code_method=None,
-                 vc_info=None,
-                 start_time=0,
-                 stop_time=0
-                 ):
-        """ Create a bundle in a local context.
+    def __init__(
+        self,
+        local_context,
+        name=None,
+        data=None,
+        processing_name=None,
+        owner=None,
+        tags=None,
+        params=None,
+        dependencies=None,
+        code_method=None,
+        vc_info=None,
+        start_time=0,
+        stop_time=0,
+    ):
+        """Create a bundle in a local context.
 
         There are three ways to create bundles:
 
@@ -131,22 +131,31 @@ class Bundle(HyperFrameRecord):
             elif isinstance(local_context, str):
                 self.data_context = self._fs.get_context(local_context)
                 if self.data_context is None:
-                    raise Exception("Unable to create Bundle: no context found with name[{}]".format(local_context))
+                    raise Exception(
+                        "Unable to create Bundle: no context found with name[{}]".format(
+                            local_context
+                        )
+                    )
             else:
-                raise Exception("Unable to create Bundle: local_context is not str or DataContext")
+                raise Exception(
+                    "Unable to create Bundle: local_context is not str or DataContext"
+                )
         except Exception as e:
-            _logger.error("Unable to allocate bundle in context: {} ".format(local_context, e))
+            _logger.error(
+                "Unable to allocate bundle in context: {} ".format(local_context, e)
+            )
             return
 
         self._local_dir = None
         self._remote_dir = None
-        self._closed = False     # Bundle is closed and immutable
-        self._data = None        # The df, array, dictionary the user wants to store
+        self._closed = False  # Bundle is closed and immutable
+        self._data = None  # The df, array, dictionary the user wants to store
 
-        super(Bundle, self).__init__(human_name=name, #'' if name is None else name,
-                                     owner=getpass.getuser() if owner is None else owner,
-                                     processing_name=processing_name, #'' if processing_name is None else processing_name
-                                     )
+        super(Bundle, self).__init__(
+            human_name=name,  #'' if name is None else name,
+            owner=getpass.getuser() if owner is None else owner,
+            processing_name=processing_name,  #'' if processing_name is None else processing_name
+        )
 
         # Add the fields they have passed in.
         if tags is not None:
@@ -168,23 +177,23 @@ class Bundle(HyperFrameRecord):
             self.close()
 
     def __getstate__(self):
-        """ Manual serialization for pickling bundles
+        """Manual serialization for pickling bundles
         We need to remove references to the data context, the DisdatFS, and
         underlying protobuf.  Data contexts have DB connections, DisdatFS points
         to the current data context, and protobufs should be serialized to string using
         the protobuf serializer.
-         """
+        """
         state = self.__dict__.copy()
         # convert the data context object to a name
-        state['data_context'] = self.data_context.get_local_name()
+        state["data_context"] = self.data_context.get_local_name()
         # no need to carry around the fs
-        del state['_fs']
+        del state["_fs"]
         # convert underlying pb to a string
-        state['pb'] = self.pb.SerializeToString()
+        state["pb"] = self.pb.SerializeToString()
         return state
 
     def __setstate__(self, state):
-        """ Deserialize the context, fs, and pb fields  """
+        """Deserialize the context, fs, and pb fields"""
         self.__dict__.update(state)
         # Restore a pointer to DisdatFS
         self._fs = _get_fs()
@@ -197,22 +206,28 @@ class Bundle(HyperFrameRecord):
         self.pb = pb
 
     def abandon(self):
-        """ Remove on-disk state of the bundle if it is abandoned before it is closed.
-         that were left !closed have their directories harvested.
-         NOTE: the user has the responsibility to make sure the bundle is not shared across
-         threads or processes and that they don't remove a directory out from under another
-         thread of control.  E.g., you cannot place this code in __del__ and then _check_closed() b/c
-         a forked child process might have closed their copy while the parent deletes theirs.
-         """
+        """Remove on-disk state of the bundle if it is abandoned before it is closed.
+        that were left !closed have their directories harvested.
+        NOTE: the user has the responsibility to make sure the bundle is not shared across
+        threads or processes and that they don't remove a directory out from under another
+        thread of control.  E.g., you cannot place this code in __del__ and then _check_closed() b/c
+        a forked child process might have closed their copy while the parent deletes theirs.
+        """
         self._check_open()
-        _logger.debug(f"Disdat api abandon bundle obj [{id(self)}] process[{os.getpid()}] uuid[{self.uuid}]")
+        _logger.debug(
+            f"Disdat api abandon bundle obj [{id(self)}] process[{os.getpid()}] uuid[{self.uuid}]"
+        )
         try:
             shutil.rmtree(self._local_dir, ignore_errors=True)
             os.rmdir(self._local_dir)
             # TODO: if people create s3 files, s3 file targets, inside of an s3 context,
             # TODO: then we will have to clean those up as well.
         except IOError as why:
-            _logger.error("Removal of bundle directory {} failed with error {}. Continuing removal...".format(self._local_dir, why))
+            _logger.error(
+                "Removal of bundle directory {} failed with error {}. Continuing removal...".format(
+                    self._local_dir, why
+                )
+            )
 
     def _check_open(self):
         assert not self._closed, "Bundle must be open (not closed) for editing."
@@ -228,12 +243,12 @@ class Bundle(HyperFrameRecord):
 
     @property
     def data(self):
-        """ Return the presented data if closed (refreshing in case of localization / delocalization).
+        """Return the presented data if closed (refreshing in case of localization / delocalization).
         Or return the data currently attached to an open bundle (if not closed).
         """
         if self._closed:
             assert self.is_presentable
-            self._data = self.data_context.present_hfr(self) # actualize link urls
+            self._data = self.data_context.present_hfr(self)  # actualize link urls
         return self._data
 
     @property
@@ -262,25 +277,33 @@ class Bundle(HyperFrameRecord):
 
     @property
     def tags(self):
-        """ Return the tags that the user set
+        """Return the tags that the user set
         bundle.tags holds all of the tags, including the "hidden" parameter tags.
         This accesses everything but the parameter tags.
         bundle.params accesses everything but the user tags
         """
-        return {k: v for k, v in self.tag_dict.items() if not k.startswith(common.BUNDLE_TAG_PARAMS_PREFIX)}
+        return {
+            k: v
+            for k, v in self.tag_dict.items()
+            if not k.startswith(common.BUNDLE_TAG_PARAMS_PREFIX)
+        }
 
     @property
     def params(self):
-        """ Return the tags that were parameters
+        """Return the tags that were parameters
         This returns the string version of the parameters (how they were serialized into the bundle)
         Note that we currently use Luigi Parameter parse and serialize to go from string and to string.
         Luigi does so to interpret command-line arguments.
         """
-        return {k[len(common.BUNDLE_TAG_PARAMS_PREFIX):]: v for k, v in self.tag_dict.items() if k.startswith(common.BUNDLE_TAG_PARAMS_PREFIX)}
+        return {
+            k[len(common.BUNDLE_TAG_PARAMS_PREFIX) :]: v
+            for k, v in self.tag_dict.items()
+            if k.startswith(common.BUNDLE_TAG_PARAMS_PREFIX)
+        }
 
     @property
     def dependencies(self):
-        """ Return the argnames and bundles used to produce this bundle.
+        """Return the argnames and bundles used to produce this bundle.
         Note: We do not return a bundle reference because it may not
         be found in this context, but it remains a valid reference.
 
@@ -290,7 +313,9 @@ class Bundle(HyperFrameRecord):
             dict: (arg_name:(proc_name, uuid))
         """
         found = {}
-        arg_names = ['_arg_{}'.format(i) for i in range(0, len(self.pb.lineage.depends_on))]
+        arg_names = [
+            "_arg_{}".format(i) for i in range(0, len(self.pb.lineage.depends_on))
+        ]
         for an, dep in zip(arg_names, self.pb.lineage.depends_on):
             try:
                 if dep.arg_name:
@@ -311,7 +336,7 @@ class Bundle(HyperFrameRecord):
 
     @property
     def timing(self):
-        """ Return the recorded start and stop times
+        """Return the recorded start and stop times
         Returns:
             (float, float): (start_time, stop_time)
         """
@@ -319,16 +344,20 @@ class Bundle(HyperFrameRecord):
 
     @property
     def git_info(self):
-        """ Return the recorded code versioning information.  Assumes
+        """Return the recorded code versioning information.  Assumes
         a repo URL, commit hash, and branch name.
         Returns:
             (str, str, str): (repo, hash, branch)
         """
-        return self.pb.lineage.code_repo, self.pb.lineage.code_hash, self.pb.lineage.code_branch
+        return (
+            self.pb.lineage.code_repo,
+            self.pb.lineage.code_hash,
+            self.pb.lineage.code_branch,
+        )
 
     @property
     def is_presentable(self):
-        """ Bundles present as a set of possible type or just a HyperFrame.
+        """Bundles present as a set of possible type or just a HyperFrame.
         If there is a Python presentation, return True.
 
         Returns:
@@ -340,7 +369,7 @@ class Bundle(HyperFrameRecord):
 
     @name.setter
     def name(self, name):
-        """ Add the name to the bundle
+        """Add the name to the bundle
         Args:
             name (str): The "human readable" name of this data
 
@@ -351,7 +380,7 @@ class Bundle(HyperFrameRecord):
 
     @processing_name.setter
     def processing_name(self, processing_name):
-        """ Add the processing name to the bundle
+        """Add the processing name to the bundle
         Args:
             processing_name (str): Another way to denote versioning "sameness"
         Returns:
@@ -361,7 +390,7 @@ class Bundle(HyperFrameRecord):
         self.pb.lineage.hframe_proc_name = processing_name
 
     def add_tags(self, tags):
-        """ Add tags to the bundle.  Updates if existing.
+        """Add tags to the bundle.  Updates if existing.
 
         Args:
             k,v (dict): string:string dictionary
@@ -374,16 +403,15 @@ class Bundle(HyperFrameRecord):
         return self
 
     def add_params(self, params):
-        """ Add (str,str) params to bundle
-        """
+        """Add (str,str) params to bundle"""
         self._check_open()
         assert isinstance(params, dict)
-        params = {f'{common.BUNDLE_TAG_PARAMS_PREFIX}{k}': v for k, v in params.items()}
+        params = {f"{common.BUNDLE_TAG_PARAMS_PREFIX}{k}": v for k, v in params.items()}
         super(Bundle, self).add_tags(params)
         return self
 
     def add_dependencies(self, bundles, arg_names=None):
-        """ Add one or more upstream bundles as dependencies
+        """Add one or more upstream bundles as dependencies
 
         Note: Metadata for correct re-use of re-execution semantics.
 
@@ -398,16 +426,24 @@ class Bundle(HyperFrameRecord):
         curr_count = LineageRecord.dependency_count(self.pb.lineage)
         if isinstance(bundles, collections.Iterable):
             if arg_names is None:
-                arg_names = ['_arg_{}'.format(i) for i in range(0+curr_count, len(bundles)+curr_count)]
-            LineageRecord.add_deps_to_lr(self.pb.lineage, [(b.processing_name, b.uuid, an) for an, b in zip(arg_names, bundles)])
+                arg_names = [
+                    "_arg_{}".format(i)
+                    for i in range(0 + curr_count, len(bundles) + curr_count)
+                ]
+            LineageRecord.add_deps_to_lr(
+                self.pb.lineage,
+                [(b.processing_name, b.uuid, an) for an, b in zip(arg_names, bundles)],
+            )
         else:
             if arg_names is None:
-                arg_names = '_arg_{}'.format(curr_count)
-            LineageRecord.add_deps_to_lr(self.pb.lineage, [(bundles.processing_name, bundles.uuid, arg_names)])
+                arg_names = "_arg_{}".format(curr_count)
+            LineageRecord.add_deps_to_lr(
+                self.pb.lineage, [(bundles.processing_name, bundles.uuid, arg_names)]
+            )
         return self
 
     def add_code_ref(self, code_ref):
-        """ Add a string referring to the code
+        """Add a string referring to the code
         that generated this data.   For example, if Python, one could use
         "package.module.class.method"
 
@@ -423,7 +459,7 @@ class Bundle(HyperFrameRecord):
         return self
 
     def add_git_info(self, repo, commit, branch):
-        """ Add a string referring to the code
+        """Add a string referring to the code
         that generated this data.   For example, if Python, one could use
         "package.module.class.method"
 
@@ -443,7 +479,7 @@ class Bundle(HyperFrameRecord):
         return self
 
     def add_timing(self, start_time, stop_time):
-        """ The start and end of the processing.
+        """The start and end of the processing.
 
         Note: Optional metadata.
 
@@ -457,7 +493,7 @@ class Bundle(HyperFrameRecord):
         return self
 
     def add_data(self, data):
-        """ Attach data to a bundle.   The bundle must be open and not closed.
+        """Attach data to a bundle.   The bundle must be open and not closed.
             One attaches one data item to a bundle (dictionary, list, tuple, scalar, or dataframe).
             Calling this replaces the latest item -- only the latest will be included in the bundle on close.
 
@@ -479,7 +515,7 @@ class Bundle(HyperFrameRecord):
     """ Alternative construction post allocation """
 
     def fill_from_hfr(self, hfr):
-        """ Given an internal hyperframe, copy out the information to this user-side Bundle object.
+        """Given an internal hyperframe, copy out the information to this user-side Bundle object.
 
         Assume the user has set the data_context appropriately when creating the bundle object
 
@@ -500,24 +536,25 @@ class Bundle(HyperFrameRecord):
         self.pb = hfr.pb
         self.init_internal_state()
         self._data = self.data_context.present_hfr(hfr)
-        self._local_dir, self._remote_dir = self.data_context.util_get_managed_paths(self.uuid)
+        self._local_dir, self._remote_dir = self.data_context.util_get_managed_paths(
+            self.uuid
+        )
         return self
 
     """ Python Context Manager Interface """
 
     def __enter__(self):
-        """ 'open'
-        """
+        """'open'"""
         return self.open()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """ 'close'
+        """'close'
         If there has been an exception, let the user deal with the written created bundle.
         """
         self.close()
 
     def open(self, force_uuid=None):
-        """ Management operations to open bundle for writing.
+        """Management operations to open bundle for writing.
         At this time all of the open operations, namely creating the managed path
         occur in the default constructor or in the class fill_from_hfr constructor.
 
@@ -530,11 +567,13 @@ class Bundle(HyperFrameRecord):
         if self._closed:
             _logger.error("Bundle is closed -- unable to re-open.")
             assert False
-        self._local_dir, self.pb.uuid, self._remote_dir = self.data_context.make_managed_path(uuid=force_uuid)
+        self._local_dir, self.pb.uuid, self._remote_dir = (
+            self.data_context.make_managed_path(uuid=force_uuid)
+        )
         return self
 
     def close(self):
-        """ Write out this bundle as a hyperframe.
+        """Write out this bundle as a hyperframe.
 
         Parse the data, set presentation, create lineage, and
         write to disk.
@@ -544,24 +583,31 @@ class Bundle(HyperFrameRecord):
         Returns:
             None
         """
+
         def extract_human_name(code_ref):
-            return code_ref.split('.')[-1]
+            return code_ref.split(".")[-1]
 
         try:
-            presentation, frames = parse_return_val(self.uuid, self._data, self.data_context)
+            presentation, frames = parse_return_val(
+                self.uuid, self._data, self.data_context
+            )
             self.add_frames(frames)
             self.pb.presentation = presentation
-            assert self.uuid != '', "Disdat API Error: Cannot close a bundle without a UUID."
+            assert (
+                self.uuid != ""
+            ), "Disdat API Error: Cannot close a bundle without a UUID."
             self.pb.lineage.hframe_uuid = self.uuid
-            if self.name == '':
-                if self.code_ref != '':
+            if self.name == "":
+                if self.code_ref != "":
                     self.name = extract_human_name(self.code_ref)
-            if self.processing_name == '':
+            if self.processing_name == "":
                 self.processing_name = self.default_processing_name()
-            self._mod_finish(new_time=True)   # Set the hash based on all the context now in the pb, record create time
+            self._mod_finish(
+                new_time=True
+            )  # Set the hash based on all the context now in the pb, record create time
             self.data_context.write_hframe_local(self)
         except Exception as error:
-            """ If we fail for any reason, remove bundle dir and raise """
+            """If we fail for any reason, remove bundle dir and raise"""
             self.abandon()
             raise
 
@@ -572,7 +618,7 @@ class Bundle(HyperFrameRecord):
     """ Convenience Routines """
 
     def cat(self):
-        """ Return the data in the bundle
+        """Return the data in the bundle
         The data is already present in .data
 
         """
@@ -580,7 +626,7 @@ class Bundle(HyperFrameRecord):
         return self._data
 
     def rm(self):
-        """ Remove bundle from the current context associated with this bundle object
+        """Remove bundle from the current context associated with this bundle object
         Only remove this bundle with this uuid.
         This only makes sense if the bundle is closed.
         """
@@ -589,7 +635,7 @@ class Bundle(HyperFrameRecord):
         return self
 
     def rmr(self):
-        """ Remove bundle from the current remote context associated with this bundle object
+        """Remove bundle from the current remote context associated with this bundle object
         Only remove this bundle with this uuid.
 
         WARNING: If all of your links are delocalized, this will permanently remove *all* of your data!
@@ -599,7 +645,7 @@ class Bundle(HyperFrameRecord):
         return self
 
     def commit(self):
-        """ Shortcut version of api.commit(uuid=bundle.uuid)
+        """Shortcut version of api.commit(uuid=bundle.uuid)
 
         Returns:
             self
@@ -608,7 +654,7 @@ class Bundle(HyperFrameRecord):
         return self
 
     def push(self, delocalize=False):
-        """ Shortcut version of api.push(uuid=bundle.uuid)
+        """Shortcut version of api.push(uuid=bundle.uuid)
 
         Args:
             delocalize (bool): Remove all local files, default False
@@ -620,20 +666,26 @@ class Bundle(HyperFrameRecord):
         self._check_closed()
 
         if self.data_context.get_remote_object_dir() is None:
-            raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(self.data_context.get_remote_name(),
-                                                                                          self.data_context.get_local_name()))
+            raise RuntimeError(
+                "Not pushing: Current branch '{}/{}' has no remote".format(
+                    self.data_context.get_remote_name(),
+                    self.data_context.get_local_name(),
+                )
+            )
 
-        self._fs.push(uuid=self.uuid, data_context=self.data_context, delocalize=delocalize)
+        self._fs.push(
+            uuid=self.uuid, data_context=self.data_context, delocalize=delocalize
+        )
 
         # if we removed files, update the the presentation
         if delocalize:
             assert self.is_presentable
-            self._data = self.data_context.present_hfr(self) # actualize link urls
+            self._data = self.data_context.present_hfr(self)  # actualize link urls
 
         return self
 
     def pull(self, localize=False):
-        """ Shortcut version of api.pull()
+        """Shortcut version of api.pull()
 
         Note if localizing, then we update this bundle to reflect the possibility of new, local links
 
@@ -644,11 +696,11 @@ class Bundle(HyperFrameRecord):
         # if we pulled files, update the the presentation
         if localize:
             assert self.is_presentable
-            self._data = self.data_context.present_hfr(self) # actualize link urls
+            self._data = self.data_context.present_hfr(self)  # actualize link urls
         return self
 
     def localize(self, path):
-        """ Given a remote managed path in a bundle, retrieve the file.
+        """Given a remote managed path in a bundle, retrieve the file.
 
         A local path should already be localized, but in case the user keeps a
         local path around, double check that it is local.
@@ -664,12 +716,22 @@ class Bundle(HyperFrameRecord):
         """
         self._check_closed()
         scheme = urllib.parse.urlparse(path).scheme
-        assert scheme == 's3', "Bundle.localize: Bad scheme {}, requires an s3 path".format(scheme)
-        assert self._remote_dir is not None, "Bundle.localize failed, bundle created in context without remote."
-        assert path.startswith(self._remote_dir), "Bundle.localize failed, {} is not remote managed path in {}".format(path, self._remote_dir)
+        assert (
+            scheme == "s3"
+        ), "Bundle.localize: Bad scheme {}, requires an s3 path".format(scheme)
+        assert (
+            self._remote_dir is not None
+        ), "Bundle.localize failed, bundle created in context without remote."
+        assert path.startswith(
+            self._remote_dir
+        ), "Bundle.localize failed, {} is not remote managed path in {}".format(
+            path, self._remote_dir
+        )
 
         # Pull the one file.
-        new_path = self.data_context.copy_in_files(path, urllib.parse.urljoin('file:', self._local_dir))
+        new_path = self.data_context.copy_in_files(
+            path, urllib.parse.urljoin("file:", self._local_dir)
+        )
 
         # Update the presentation
         assert self.is_presentable
@@ -678,7 +740,7 @@ class Bundle(HyperFrameRecord):
         return new_path
 
     def delocalize(self, path):
-        """ Given a local managed path in a bundle, delete the local copy.
+        """Given a local managed path in a bundle, delete the local copy.
 
         Tests that the metadata and this item have been pushed.
 
@@ -692,15 +754,27 @@ class Bundle(HyperFrameRecord):
         """
         self._check_closed()
         scheme = urllib.parse.urlparse(path).scheme
-        assert scheme == '' or scheme == 'file', "Bundle.delocalize: Bad scheme {}, requires a local path".format(scheme)
-        assert self._remote_dir is not None, "Bundle.delocalize failed, bundle created in context without remote."
-        assert path.startswith(self._local_dir), "Bundle.delocalize failed, {} is not a managed path in {}".format(path, self._remote_dir)
+        assert (
+            scheme == "" or scheme == "file"
+        ), "Bundle.delocalize: Bad scheme {}, requires a local path".format(scheme)
+        assert (
+            self._remote_dir is not None
+        ), "Bundle.delocalize failed, bundle created in context without remote."
+        assert path.startswith(
+            self._local_dir
+        ), "Bundle.delocalize failed, {} is not a managed path in {}".format(
+            path, self._remote_dir
+        )
         hframe_file = os.path.join(self._remote_dir, "{}_hframe.pb".format(self.uuid))
-        assert s3_path_exists(hframe_file), "Bundle.delocalize failed. Bundle must be pushed to remote before use."
+        assert s3_path_exists(
+            hframe_file
+        ), "Bundle.delocalize failed. Bundle must be pushed to remote before use."
 
         # Push the one file.   This is a safety call.
         # If we can't guarantee that we've made a copy, we don't remove the local copy.
-        new_path = self.data_context.copy_in_files(urllib.parse.urljoin('file:', path), self._remote_dir)
+        new_path = self.data_context.copy_in_files(
+            urllib.parse.urljoin("file:", path), self._remote_dir
+        )
 
         # Delete local copy
         try:
@@ -715,7 +789,7 @@ class Bundle(HyperFrameRecord):
         return new_path
 
     def get_directory(self, dir_name):
-        """ Returns path `<disdat-managed-directory>/<dir_name>`.  This gives the user a local
+        """Returns path `<disdat-managed-directory>/<dir_name>`.  This gives the user a local
         output directory into which to write files.  This is useful when a user needs to give an external tool, such
         as Spark or Tensorflow, a directory to place output files.   After this call, the directory
         will exist in the local context.
@@ -732,29 +806,35 @@ class Bundle(HyperFrameRecord):
         """
         self._check_open()
 
-        if dir_name[-1] == '/':
+        if dir_name[-1] == "/":
             dir_name = dir_name[:-1]
 
         # if the user erroneously passes in the directory of the bundle, return same
         if dir_name == self._local_dir:
             return self._local_dir
 
-        fqp = os.path.join(self._local_dir, dir_name.lstrip('/'))
+        fqp = os.path.join(self._local_dir, dir_name.lstrip("/"))
 
         try:
             os.makedirs(fqp)
         except OSError as why:
             if not why.errno == errno.EEXIST:
-                _logger.error("Creating directory in bundle directory failed errno {}".format(why.strerror))
+                _logger.error(
+                    "Creating directory in bundle directory failed errno {}".format(
+                        why.strerror
+                    )
+                )
                 raise
         except IOError as why:
-            _logger.error("Creating directory in bundle directory failed {}".format(why))
+            _logger.error(
+                "Creating directory in bundle directory failed {}".format(why)
+            )
             raise
 
         return fqp
 
     def get_file(self, filename):
-        """ Create a "managed path" to store file `filename` directly in the local data context.
+        """Create a "managed path" to store file `filename` directly in the local data context.
         This allows you to create versioned data sets without file copies and without worrying about where
         your data files are to be stored.
 
@@ -774,7 +854,7 @@ class Bundle(HyperFrameRecord):
         return os.path.join(self._local_dir, filename)
 
     def get_remote_directory(self, dir_name):
-        """ Returns path `<disdat-managed-remote-directory>/<dir_name>`.  This gives the user a remote (e.g., s3)
+        """Returns path `<disdat-managed-remote-directory>/<dir_name>`.  This gives the user a remote (e.g., s3)
         output directory into which to write files.  This is useful when a user needs to give an external tool, such
         as Spark or Tensorflow, a directory to place output files.
 
@@ -789,11 +869,11 @@ class Bundle(HyperFrameRecord):
             str: A directory path managed by disdat
         """
         self._check_open()
-        fqp = os.path.join(self._remote_dir, dir_name.lstrip('/'))
+        fqp = os.path.join(self._remote_dir, dir_name.lstrip("/"))
         return fqp
 
     def get_remote_file(self, filename):
-        """  Create a "managed path" to store file `filename` directly in the remote data context.
+        """Create a "managed path" to store file `filename` directly in the remote data context.
         This allows you to create versioned data sets without file copies.
 
         To use, you must a.) write data into this file-like object (a 'target'), and b.) add this
@@ -810,7 +890,7 @@ class Bundle(HyperFrameRecord):
         self._check_open()
 
         if not self.data_context.remote_ctxt_url:
-            raise Exception('Managed S3 path creation requires a remote context')
+            raise Exception("Managed S3 path creation requires a remote context")
 
         return os.path.join(self._remote_dir, filename)
 
@@ -825,19 +905,20 @@ class Bundle(HyperFrameRecord):
         Returns:
             (str): The processing name
         """
+
         def sorted_md5(input_dict):
             ids = [input_dict[k] for k in sorted(input_dict)]
-            as_one_str = '.'.join(ids)
-            return hashlib.md5(as_one_str.encode('utf-8')).hexdigest()
+            as_one_str = ".".join(ids)
+            return hashlib.md5(as_one_str.encode("utf-8")).hexdigest()
 
         dep_hash = sorted_md5(dep_proc_ids)[:PROC_ID_TRUNCATE_HASH]
         param_hash = sorted_md5(params)[:PROC_ID_TRUNCATE_HASH]
-        processing_id = code_ref + '_' + param_hash + '_' + dep_hash
+        processing_id = code_ref + "_" + param_hash + "_" + dep_hash
 
         return processing_id
 
     def default_processing_name(self):
-        """ The default processing name defines the set of bundles that were ostensibly created
+        """The default processing name defines the set of bundles that were ostensibly created
         from the same code and parameters.  These bundles share the
         same code_ref, parameters, and dependency processing_names.   Thus different versions
         might very well be different because the code changed (but not the code_ref).  Or the code
@@ -857,7 +938,9 @@ class Bundle(HyperFrameRecord):
         # Iterate through dependencies dict argname: (processing_name, uuid)
         dep_proc_ids = {k: v[0] for k, v in self.dependencies.items()}
 
-        return Bundle.calc_default_processing_name(self.code_ref, self.params, dep_proc_ids)
+        return Bundle.calc_default_processing_name(
+            self.code_ref, self.params, dep_proc_ids
+        )
 
 
 def _get_context(context_name):
@@ -879,7 +962,9 @@ def _get_context(context_name):
         data_context = fs.reload_context(context_name)
 
     if data_context is None:
-        error_msg = "Unable to perform operation: could not find context {}".format(context_name)
+        error_msg = "Unable to perform operation: could not find context {}".format(
+            context_name
+        )
         _logger.error(error_msg)
         raise RuntimeError(error_msg)
 
@@ -887,7 +972,7 @@ def _get_context(context_name):
 
 
 def init():
-    """ Initialize disdat with a local context directory and default configs
+    """Initialize disdat with a local context directory and default configs
     Returns:
         None
     """
@@ -895,7 +980,7 @@ def init():
 
 
 def current_context():
-    """ Return the current context name (not object) """
+    """Return the current context name (not object)"""
 
     fs = _get_fs()
 
@@ -907,7 +992,7 @@ def current_context():
 
 
 def ls_contexts():
-    """ Return list of contexts and their remotes
+    """Return list of contexts and their remotes
 
     Returns:
         List[Tuple(str,str)]: Return a list of tuples containing <local context>, <remote context>@<remote string>
@@ -920,7 +1005,7 @@ def ls_contexts():
 
 
 def context(context_name):
-    """ Create a new context
+    """Create a new context
 
     Args:
         context_name(str): <remote context>/<local context> or <local context>
@@ -933,7 +1018,7 @@ def context(context_name):
 
 
 def delete_context(context_name, remote=False, force=False):
-    """ Delete a local context.  Will not delete any data if there is a remote attached.
+    """Delete a local context.  Will not delete any data if there is a remote attached.
 
     Args:
         context_name (str):  The name of the local context to delete.
@@ -948,7 +1033,7 @@ def delete_context(context_name, remote=False, force=False):
 
 
 def switch(context_name):
-    """ Stateful switch to a different context.
+    """Stateful switch to a different context.
     This changes the current default context used by the CLI commands.
 
     Args:
@@ -962,7 +1047,7 @@ def switch(context_name):
 
 
 def remote(local_context, remote_context, remote_url):
-    """ Add a remote to local_context.
+    """Add a remote to local_context.
 
     Note that this local context may already have a remote bound.   This means that it might have
     references to bundles that have not been localized (file references will be 's3:`).
@@ -976,22 +1061,32 @@ def remote(local_context, remote_context, remote_url):
         None
 
     """
-    _logger.debug("Adding remote context {} at URL {} on local context '{}'".format(remote_context,
-                                                                                    remote_url,
-                                                                                    local_context))
+    _logger.debug(
+        "Adding remote context {} at URL {} on local context '{}'".format(
+            remote_context, remote_url, local_context
+        )
+    )
 
     # Be generous and fix up S3 URLs to end on a directory.
-    remote_url = '{}/'.format(remote_url.rstrip('/'))
+    remote_url = "{}/".format(remote_url.rstrip("/"))
 
     data_context = _get_context(local_context)
 
     data_context.bind_remote_ctxt(remote_context, remote_url)
 
 
-def search(local_context, human_name=None, processing_name=None, tags=None,
-           is_committed=None, find_intermediates=False, find_roots=False,
-           before=None, after=None):
-    """ Search for bundle in a local context.
+def search(
+    local_context,
+    human_name=None,
+    processing_name=None,
+    tags=None,
+    is_committed=None,
+    find_intermediates=False,
+    find_roots=False,
+    before=None,
+    after=None,
+):
+    """Search for bundle in a local context.
     Allow for searching by human name, is_committed, is intermediate or is root task output, and tags.
 
     At this time the SQL interface in disdat.fs does not allow searching for entries without particular tags.
@@ -1018,7 +1113,7 @@ def search(local_context, human_name=None, processing_name=None, tags=None,
         tags = {}
 
     if find_roots:
-        tags.update({'root_task': True})
+        tags.update({"root_task": True})
 
     if before is not None:
         before = disdat.fs._parse_date(before, throw=True)
@@ -1026,20 +1121,24 @@ def search(local_context, human_name=None, processing_name=None, tags=None,
     if after is not None:
         after = disdat.fs._parse_date(after, throw=True)
 
-    for i, r in enumerate(data_context.get_hframes(human_name=human_name,
-                                                   processing_name=processing_name,
-                                                   tags=tags,
-                                                   before=before,
-                                                   after=after)):
+    for i, r in enumerate(
+        data_context.get_hframes(
+            human_name=human_name,
+            processing_name=processing_name,
+            tags=tags,
+            before=before,
+            after=after,
+        )
+    ):
         if find_intermediates:
-            if r.get_tag('root_task') is not None:
+            if r.get_tag("root_task") is not None:
                 continue
         if is_committed is not None:
             if is_committed:
-                if r.get_tag('committed') is None:
+                if r.get_tag("committed") is None:
                     continue
             else:
-                if r.get_tag('committed') is not None:
+                if r.get_tag("committed") is not None:
                     continue
         results.append(Bundle(data_context).fill_from_hfr(r))
 
@@ -1047,7 +1146,7 @@ def search(local_context, human_name=None, processing_name=None, tags=None,
 
 
 def _lineage_single(ctxt_obj, uuid):
-    """ Helper function to return lineage information for a single bundle uuid in a local context.
+    """Helper function to return lineage information for a single bundle uuid in a local context.
     Shortcut: `api.lineage(<uuid>)` is equivalent to `api.search(uuid=<uuid>)[0].lineage`
 
     Args:
@@ -1064,16 +1163,16 @@ def _lineage_single(ctxt_obj, uuid):
     if hfr is None or len(hfr) == 0:
         return None
 
-    assert(len(hfr) == 1)
+    assert len(hfr) == 1
 
-    b = Bundle(ctxt_obj, 'unknown')
+    b = Bundle(ctxt_obj, "unknown")
     b.fill_from_hfr(hfr[0])
 
     return b.pb.lineage
 
 
 def lineage(local_context, uuid, max_depth=None):
-    """ Return lineage information from a bundle uuid in a local context.
+    """Return lineage information from a bundle uuid in a local context.
     This will follow in a breadth-first manner the lineage information.
     Shortcut: `api.lineage(<uuid>)` is equivalent to `api.search(uuid=<uuid>)[0].lineage`
 
@@ -1092,15 +1191,24 @@ def lineage(local_context, uuid, max_depth=None):
 
     frontier = []  # BFS (depth, uuid, lineage)
 
-    found = []     # Return [(depth, uuid, lineage),...]
+    found = []  # Return [(depth, uuid, lineage),...]
 
-    depth = 0      # Current depth of BFS
+    depth = 0  # Current depth of BFS
 
     while l is not None:
         if max_depth is not None and depth > max_depth:
             break
         found.append((depth, l.hframe_uuid, l))
-        frontier.extend([(depth + 1, deps.hframe_uuid, _lineage_single(ctxt_obj, deps.hframe_uuid)) for deps in l.depends_on])
+        frontier.extend(
+            [
+                (
+                    depth + 1,
+                    deps.hframe_uuid,
+                    _lineage_single(ctxt_obj, deps.hframe_uuid),
+                )
+                for deps in l.depends_on
+            ]
+        )
         l = None
         while len(frontier) > 0:
             depth, uuid, l = frontier.pop(0)
@@ -1113,7 +1221,7 @@ def lineage(local_context, uuid, max_depth=None):
 
 
 def get(local_context, bundle_name, uuid=None, tags=None):
-    """ Retrieve the latest (by date) bundle from local context, with name, uuid, and tags.
+    """Retrieve the latest (by date) bundle from local context, with name, uuid, and tags.
 
     Args:
         local_context (str):  The name of the local context to search.
@@ -1142,8 +1250,15 @@ def get(local_context, bundle_name, uuid=None, tags=None):
     return b
 
 
-def rm(local_context, bundle_name=None, uuid=None, tags=None, rm_all=False, rm_old_only=False):
-    """ Delete a bundle with a certain name, uuid, or tags.  By default removes the most recent bundle.
+def rm(
+    local_context,
+    bundle_name=None,
+    uuid=None,
+    tags=None,
+    rm_all=False,
+    rm_old_only=False,
+):
+    """Delete a bundle with a certain name, uuid, or tags.  By default removes the most recent bundle.
     Otherwise one may specify `rm_all=True` to remove all bundles, or `rm_old_only=True` to remove
     all bundles but the most recent.
 
@@ -1163,12 +1278,18 @@ def rm(local_context, bundle_name=None, uuid=None, tags=None, rm_all=False, rm_o
 
     data_context = _get_context(local_context)
 
-    fs.rm(human_name=bundle_name, rm_all=rm_all, rm_old_only=rm_old_only,
-          uuid=uuid, tags=tags, data_context=data_context)
+    fs.rm(
+        human_name=bundle_name,
+        rm_all=rm_all,
+        rm_old_only=rm_old_only,
+        uuid=uuid,
+        tags=tags,
+        data_context=data_context,
+    )
 
 
 def add(local_context, bundle_name, path, tags=None):
-    """  Create bundle bundle_name given path path_name.
+    """Create bundle bundle_name given path path_name.
 
     If path is a directory, then create bundle with items in directory as a list of links.
     If path is a file or set of files:
@@ -1187,9 +1308,11 @@ def add(local_context, bundle_name, path, tags=None):
         `api.Bundle`
     """
 
-    _logger.debug('Adding file {} to bundle {} in context {}'.format(path,
-                                                                     bundle_name,
-                                                                     local_context))
+    _logger.debug(
+        "Adding file {} to bundle {} in context {}".format(
+            path, bundle_name, local_context
+        )
+    )
 
     # The user can pass either a path or an iterable of paths,
     # convert single paths to iterable for compatibility
@@ -1200,11 +1323,15 @@ def add(local_context, bundle_name, path, tags=None):
     except TypeError:
         pass
 
-    with Bundle(local_context=local_context, name=bundle_name, owner=getpass.getuser()) as b:
+    with Bundle(
+        local_context=local_context, name=bundle_name, owner=getpass.getuser()
+    ) as b:
         file_list = []
 
         for path in paths:
-            assert os.path.exists(path), "Disdat cannot find file at path: {}".format(path)
+            assert os.path.exists(path), "Disdat cannot find file at path: {}".format(
+                path
+            )
 
             if os.path.isfile(path):
                 file_list.append(path)
@@ -1214,14 +1341,14 @@ def add(local_context, bundle_name, path, tags=None):
                     # create a directory at root
                     # /x/y/z/fileA
                     # /x/y/z/a/fileB
-                    dst_base_path = root.replace(base_path, '')
-                    if dst_base_path == '':
+                    dst_base_path = root.replace(base_path, "")
+                    if dst_base_path == "":
                         dst_base_path = b._local_dir
                     else:
                         dst_base_path = b.get_directory(dst_base_path)
                     for name in files:
                         dst_full_path = os.path.join(dst_base_path, name)
-                        src_full_path = os.path.join(root,name)
+                        src_full_path = os.path.join(root, name)
                         shutil.copyfile(src_full_path, dst_full_path)
                         file_list.append(dst_full_path)
 
@@ -1229,7 +1356,7 @@ def add(local_context, bundle_name, path, tags=None):
         file_list = file_list[0] if len(file_list) == 1 else file_list
         b.add_data(file_list)
         b.add_code_ref(add.__name__)
-        b.add_params({'path': path})
+        b.add_params({"path": path})
         if tags is not None and len(tags) > 0:
             b.add_tags(tags)
 
@@ -1256,7 +1383,7 @@ def cat(local_context, bundle_name):
 
 
 def commit(local_context, bundle_name, tags=None, uuid=None):
-    """ Commit bundle in this local context.  This adds a special `committed` tag
+    """Commit bundle in this local context.  This adds a special `committed` tag
     to the bundle, allowing it to be pushed to a remote.   This also removes the bundle
     from the "uncommitted history" limit.  One can have as many versions of committed bundles
     as they wish, but only N uncommitted bundles.
@@ -1282,7 +1409,7 @@ def commit(local_context, bundle_name, tags=None, uuid=None):
 
 
 def push(local_context, bundle_name=None, tags=None, uuid=None, delocalize=False):
-    """ Push a bundle to a remote repository.
+    """Push a bundle to a remote repository.
 
     Args:
         local_context (str):  The local context to push to (must have a remote).  Default None means push all.
@@ -1301,14 +1428,23 @@ def push(local_context, bundle_name=None, tags=None, uuid=None, delocalize=False
     data_context = _get_context(local_context)
 
     if data_context.get_remote_object_dir() is None:
-        raise RuntimeError("Not pushing: Current branch '{}/{}' has no remote".format(data_context.get_remote_name(),
-                                                                                      data_context.get_local_name()))
+        raise RuntimeError(
+            "Not pushing: Current branch '{}/{}' has no remote".format(
+                data_context.get_remote_name(), data_context.get_local_name()
+            )
+        )
 
-    fs.push(human_name=bundle_name, uuid=uuid, tags=tags, data_context=data_context, delocalize=delocalize)
+    fs.push(
+        human_name=bundle_name,
+        uuid=uuid,
+        tags=tags,
+        data_context=data_context,
+        delocalize=delocalize,
+    )
 
 
 def pull(local_context, bundle_name=None, uuid=None, localize=False):
-    """ Pull bundles from the remote context into this local context.
+    """Pull bundles from the remote context into this local context.
     If there is no remote context associated with this context, then this is
     a no-op.  fs.pull will raise UserWarning if there is no remote context.
 
@@ -1326,11 +1462,13 @@ def pull(local_context, bundle_name=None, uuid=None, localize=False):
 
     data_context = _get_context(local_context)
 
-    fs.pull(human_name=bundle_name, uuid=uuid, localize=localize, data_context=data_context)
+    fs.pull(
+        human_name=bundle_name, uuid=uuid, localize=localize, data_context=data_context
+    )
 
 
 def helper_get_files_in_dir(dir):
-    """ Return all files under this directory.
+    """Return all files under this directory.
     If no scheme, assume local files.
     1.) Only look one-level down (in this directory)
     2.) Do not include anything that looks like one of disdat's pbufs
@@ -1343,7 +1481,13 @@ def helper_get_files_in_dir(dir):
         (list:str): List of files in that directory
     """
 
-    files = [os.path.join(dir, f) for f in os.listdir(dir) if os.path.isfile(os.path.join(dir, f))
-             and ('_hframe.pb' not in f) and ('_frame.pb' not in f) and ('_auth.pb' not in f)]
+    files = [
+        os.path.join(dir, f)
+        for f in os.listdir(dir)
+        if os.path.isfile(os.path.join(dir, f))
+        and ("_hframe.pb" not in f)
+        and ("_frame.pb" not in f)
+        and ("_auth.pb" not in f)
+    ]
 
     return files

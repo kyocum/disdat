@@ -23,14 +23,13 @@ that may define additional commands.
 """
 
 import argparse
-import logging
-import sys
-import os
 import importlib.util
+import logging
+import os
+import sys
 
-from disdat import fs, add, lineage
+from disdat import __version__, add, fs, lineage, log
 from disdat.common import DisdatConfig
-from disdat import log, __version__
 
 _pipes_fs = None
 
@@ -39,6 +38,7 @@ DISDAT_PYTHONPATH = os.environ.get("PYTHONPATH", None)
 DISDAT_CLI_EXTRAS = ["disdatluigi"]
 EXTENSION_MODULE = "cli_extension"
 EXTENSION_METHOD = "add_arg_parser"
+
 
 def resolve_cli_extras(subparsers):
     """
@@ -55,42 +55,55 @@ def resolve_cli_extras(subparsers):
         spec = importlib.util.find_spec(module)
         if spec is None:
             pass
-            #print(f"Dynamic CLI extension: {module} is not installed")
+            # print(f"Dynamic CLI extension: {module} is not installed")
         else:
-            #print(f"Dynamic CLI extension: {module} found, attempting to extend CLI . . . ")
-            module_handle = importlib.import_module(module+f".{EXTENSION_MODULE}")
+            # print(f"Dynamic CLI extension: {module} found, attempting to extend CLI . . . ")
+            module_handle = importlib.import_module(module + f".{EXTENSION_MODULE}")
             try:
                 add_cli_arg_parser = getattr(module_handle, EXTENSION_METHOD)
                 add_cli_arg_parser(subparsers)
             except AttributeError as ae:
-                print(f"Disdat CLI unable to add commands from loaded extension [{module}], error {ae}")
+                print(
+                    f"Disdat CLI unable to add commands from loaded extension [{module}], error {ae}"
+                )
+
 
 def main():
     """
     Main is the package entry point.
     """
 
-    if getattr(sys, 'frozen', False):
-        here = os.path.join(sys._MEIPASS, 'disdat')
+    if getattr(sys, "frozen", False):
+        here = os.path.join(sys._MEIPASS, "disdat")
     else:
         here = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 
     args = sys.argv[1:]
 
     # General options
-    parser = argparse.ArgumentParser(prog='dsdt', description='DisDat (dsdt) -- distributed data science management')
+    parser = argparse.ArgumentParser(
+        prog="dsdt", description="DisDat (dsdt) -- distributed data science management"
+    )
     parser.add_argument(
-        '--profile',
+        "--profile",
         type=str,
         default=None,
-        help="An AWS credential profile to use when performing AWS operations (default is to use the \'default\' profile)",
-        dest='aws_profile'
+        help="An AWS credential profile to use when performing AWS operations (default is to use the 'default' profile)",
+        dest="aws_profile",
     )
-    parser.add_argument("--verbose", action='store_true', help='Be verbose: Show extra debugging information')
-    parser.add_argument("--version", action='version', version='Running Disdat version {}'.format(__version__))
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Be verbose: Show extra debugging information",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="Running Disdat version {}".format(__version__),
+    )
     subparsers = parser.add_subparsers()
 
-    ls_p = subparsers.add_parser('init')
+    ls_p = subparsers.add_parser("init")
     ls_p.set_defaults(func=lambda args: DisdatConfig.init())
 
     # Add disdat core subparsers
@@ -110,9 +123,9 @@ def main():
     log.enable(level=log_level)  # TODO: Add configurable verbosity
 
     if args.aws_profile is not None:
-        os.environ['AWS_PROFILE'] = args.aws_profile
+        os.environ["AWS_PROFILE"] = args.aws_profile
 
-    if hasattr(args,'func'):
+    if hasattr(args, "func"):
         args.func(args)
     else:
         print("dsdt requires arguments, see `dsdt -h` for usage")

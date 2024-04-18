@@ -26,9 +26,8 @@ import pytest
 import disdat.api as api
 from tests.functional.common import TEST_CONTEXT
 
-
-TEST_REMOTE = '__test_remote_context__'
-TEST_BUCKET = 'test-bucket'
+TEST_REMOTE = "__test_remote_context__"
+TEST_BUCKET = "test-bucket"
 TEST_BUCKET_URL = "s3://{}".format(TEST_BUCKET)
 TEST_BUCKET_KEY_URL = "s3://{}/somekey".format(TEST_BUCKET)
 
@@ -39,19 +38,19 @@ def test_add_remote():
     api.context(context_name=TEST_CONTEXT)
 
     # Setup moto s3 resources
-    s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3', region_name='us-east-1')
+    s3_client = boto3.client("s3")
+    s3_resource = boto3.resource("s3", region_name="us-east-1")
     s3_resource.create_bucket(Bucket=TEST_BUCKET)
 
     # Make sure bucket is empty
     objects = s3_client.list_objects(Bucket=TEST_BUCKET)
-    assert 'Contents' not in objects, 'Bucket should be empty'
+    assert "Contents" not in objects, "Bucket should be empty"
 
     # Bind remote context with just bucket
     api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_URL)
 
     with api.Bundle(TEST_CONTEXT) as b:
-        b.name = 'output'
+        b.name = "output"
         b.add_data([1, 3, 5])
 
     b.commit()
@@ -61,7 +60,7 @@ def test_add_remote():
     api.remote(TEST_CONTEXT, TEST_REMOTE, TEST_BUCKET_KEY_URL)
 
     with api.Bundle(TEST_CONTEXT) as b:
-        b.name = 'output'
+        b.name = "output"
         b.add_data([1, 3, 5])
 
     b.commit()
@@ -77,8 +76,8 @@ def test_add_remote_fail():
     api.context(context_name=TEST_CONTEXT)
 
     # Setup moto s3 resources
-    s3_client = boto3.client('s3')
-    s3_resource = boto3.resource('s3', region_name='us-east-1')
+    s3_client = boto3.client("s3")
+    s3_resource = boto3.resource("s3", region_name="us-east-1")
 
     # Bind remote context with just bucket
     try:
@@ -86,7 +85,7 @@ def test_add_remote_fail():
     except Exception as e:
         error = e
     finally:
-        assert(type(error) == RuntimeError)
+        assert type(error) == RuntimeError
 
     # Bind remote to new context with bucket and key
     try:
@@ -94,10 +93,10 @@ def test_add_remote_fail():
     except Exception as e:
         error = e
     finally:
-        assert(type(error) == RuntimeError)
+        assert type(error) == RuntimeError
 
     api.delete_context(TEST_CONTEXT)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pytest.main([__file__])

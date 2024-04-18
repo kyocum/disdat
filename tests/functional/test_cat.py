@@ -14,25 +14,25 @@
 # limitations under the License.
 #
 
-import os
 import hashlib
-import pytest
-import pandas as pd
-from numpy import random
+import os
 import shutil
 
+import pandas as pd
+import pytest
+from numpy import random
+
 import disdat.api as api
-from tests.functional.common import run_test, TEST_CONTEXT
+from tests.functional.common import TEST_CONTEXT, run_test
 
-
-TEST_REMOTE = '__test_remote_context__'
-TEST_BUCKET = 'test-bucket'
+TEST_REMOTE = "__test_remote_context__"
+TEST_BUCKET = "test-bucket"
 TEST_BUCKET_URL = "s3://{}".format(TEST_BUCKET)
-TEST_BUNDLE_NAME = 'test_bundle_cat'
+TEST_BUNDLE_NAME = "test_bundle_cat"
 
 
 def get_hash(path):
-    return hashlib.md5(open(path, 'rb').read()).hexdigest()
+    return hashlib.md5(open(path, "rb").read()).hexdigest()
 
 
 def test_cat(run_test):
@@ -44,8 +44,8 @@ def test_cat(run_test):
     try:
         # Create a couple of files to throw in the bundle .csv file
         for i in range(3):
-            test_csv_path = os.path.join(str(tmpdir), '{}_test.csv'.format(i))
-            df = pd.DataFrame({'a': random.randint(0,10,10), 'b': random.randint(10)})
+            test_csv_path = os.path.join(str(tmpdir), "{}_test.csv".format(i))
+            df = pd.DataFrame({"a": random.randint(0, 10, 10), "b": random.randint(10)})
             df.to_csv(test_csv_path)
             assert os.path.exists(test_csv_path)
 
@@ -57,12 +57,14 @@ def test_cat(run_test):
 
         # Assert the bundles contain the same data
         for f in bundle_data:
-            i = os.path.basename(f).split('_')[0]
-            bundle_hash, file_hash = get_hash(f), get_hash(os.path.join(tmpdir, '{}_test.csv'.format(i)))
-            assert bundle_hash == file_hash, 'Hashes do not match'
+            i = os.path.basename(f).split("_")[0]
+            bundle_hash, file_hash = get_hash(f), get_hash(
+                os.path.join(tmpdir, "{}_test.csv".format(i))
+            )
+            assert bundle_hash == file_hash, "Hashes do not match"
     finally:
         shutil.rmtree(tmpdir)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pytest.main([__file__])
