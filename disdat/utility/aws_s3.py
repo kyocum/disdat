@@ -17,7 +17,7 @@ from multiprocessing import get_context
 
 import boto3 as b3
 from botocore.exceptions import ClientError
-from six.moves import urllib
+import urllib
 
 from disdat import logger as _logger
 

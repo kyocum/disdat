@@ -18,7 +18,7 @@ from threading import current_thread
 
 from botocore.exceptions import ClientError
 import boto3 as b3
-from six.moves import urllib
+import urllib
 
 import logging
 from disdat import logger as _logger
@@ -315,6 +315,10 @@ def delete_s3_dir_many(s3_urls):
 
     """
     client = get_s3_resource()    
+
+    # The URLs may be "directories" or objects. 
+    #if s3_url in to_delete:
+        
     with futures.ThreadPoolExecutor(max_workers=disdat_cpu_count()) as pool:
         result_futures = []
         for s3_url in s3_urls:
@@ -363,7 +367,7 @@ def _delete_s3_dir(s3_resource, s3_url):
             print(e)
             print(f"FAILED DELETING OBJECTS: {objects_to_delete}")
 
-
+    #print(f"Deleted {len(objects_to_delete)} objects at prefix {s3_path}")
     return len(objects_to_delete)
 
 

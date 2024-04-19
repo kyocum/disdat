@@ -37,6 +37,7 @@ def run_module_test():
 
 
 def setup():
+    os.environ['DISDAT_CPU_COUNT'] = '1'
     if TEST_CONTEXT in api.ls_contexts():
         api.delete_context(context_name=TEST_CONTEXT)
     api.context(context_name=TEST_CONTEXT)
@@ -46,16 +47,16 @@ def setup():
 def moto_boto():
     # When you need to have moto mocked across tests. 
     with moto.mock_s3():
-        print(">>>>>>>>>>>>>>>>>>>> MOTO UP <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
+        print(">>>>>>>>>>>>>>>>>>>>  MOTO UP  <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
         yield
+    print(">>>>>>>>>>>>>>>>>>>> MOTO DOWN <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
 
 
 @pytest.fixture(scope='module')
 def count()->int:
-    return 400
+    return 100
 
-
-@pytest.fixture(scope='module') 
+@pytest.fixture(scope='function') 
 @moto.mock_s3
 def populate_objects(run_module_test, moto_boto, count: int) -> dict:
     """ Create a disdat context with count bundles.
@@ -82,13 +83,18 @@ def populate_objects(run_module_test, moto_boto, count: int) -> dict:
 @pytest.fixture(scope='module') 
 def populate_local_files(run_module_test, moto_boto, my_temp_path, count: int) -> List:
     """ Create a local temp directory, fill it with files. 
-    Note that we use DEL_TEST_BUCKET, b/c we don't want to delete the files made in populate_objects
+    Note that we use PUT_TEST_BUCKET, b/c we don't want to delete the files made in populate_objects
     """
     s3_resource = boto3.resource('s3', region_name='us-east-1')
     s3_resource.create_bucket(Bucket=PUT_TEST_BUCKET)
     files = []
-    for i in range(count):
-        files.append(os.path.join(my_temp_path, f"file_{i}.txt"))
+    for i in range(count):        
+        dir = os.path.join(my_temp_path,str(i%10))
+        try: 
+            os.mkdir(dir)
+        except FileExistsError as fee:
+            pass
+        files.append(os.path.join(dir, f"file_{i}.txt"))
         with open(files[i], mode="w") as file:
             file.write(f"this is file {i}")
     return files

@@ -983,9 +983,9 @@ class DisdatFS(object):
 
         if new_context is not None:
             self.curr_context = new_context
-            print("Switched to context {}".format(self.curr_context_name))
+            _logger.info("Switched to context {}".format(self.curr_context_name))
         else:
-            print("In context {}".format(self.curr_context_name))
+            _logger.info("In context {}".format(self.curr_context_name))
 
     def commit(self, bundle_name, input_tags, uuid=None, data_context=None):
         """Commit indicates that this is a primary version of this bundle.
