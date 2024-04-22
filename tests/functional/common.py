@@ -33,7 +33,7 @@ def run_module_test():
     setup()
     yield
     pass
-    #api.delete_context(context_name=TEST_CONTEXT)
+    api.delete_context(context_name=TEST_CONTEXT)
 
 
 def setup():

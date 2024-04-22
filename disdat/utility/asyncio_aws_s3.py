@@ -14,17 +14,17 @@
 
 import os
 import concurrent.futures as futures
-from threading import current_thread
 
-from botocore.exceptions import ClientError
 import boto3 as b3
 import urllib
 
-import logging
 from disdat import logger as _logger
-_logger.setLevel(logging.DEBUG)
 from disdat import log 
 
+
+S3_LS_USE_MP_THRESH = (
+    2000  # the threshold after which we should use MP to look up bundles on s3
+)
 
 # Note: one client for all threads. 
 # You can use a client across multiple threads, but allocating the client in multiple threads
@@ -55,23 +55,25 @@ get_s3_client._s3_client = None
 
 def disdat_cpu_count():
     """
-    Turns out that Python doesn't do a great job of retrieving the number of available cpus
-    when running within a container.   As of 7-2020, it returns the actual count on the machine that's
-    hosting the container.   For Disdat, this can be very bad.  When we use multiprocessing, we use
-    the forkserver.  This tends to be memory intensive, especially when creating more workers than actual
-    CPUs.  To help avoid (but not completely avoid the out-of-memory exceptions that arise), we allow
-    the calling convention to include an environment variable called DISDAT_CPU_COUNT to be set.
-    For example in `dsdt.run`, we set this to be equal to the requested vcpu count.
-
+    The current version of the aws_s3 module (here) is based on multi-threading, not multi-processing. 
+    Thus the concerns below do not apply.  However, I'm leaving the comment in the event that we wish to re-visit mp: 
+        Python retrieves the physical cpu count when running within a container (as of 7-2020).
+        When we use multiprocessing (forkserver) this is memory intensive, possibly creating more workers than
+        vCPUs.  To help avoid OOM errors, we support an environment variable called DISDAT_CPU_COUNT to be set.
+        For example in `dsdt.run`, we set this to be equal to the requested vcpu count.
+    Note that we still support the environment variable, which can be useful for tests (moto does not support multithreading).
+    
+    Finally, for multithreading, we scale up to 10 threads per available core. 
+        
     Returns:
         int: the number of available cpus
 
     """
     env_cpu_count = os.getenv('DISDAT_CPU_COUNT')
     if env_cpu_count is None:
-        return os.cpu_count()  # we did our best.
+        return os.cpu_count()*2  # magic number of threads = 2 * core count
     else:
-        return int(env_cpu_count)
+        return int(env_cpu_count) # just use the number in the env variable. 
 
 
 def s3_path_exists(s3_url):
@@ -113,7 +115,7 @@ def s3_path_exists(s3_url):
     return True
 
 
-async def s3_bucket_exists(bucket):
+def s3_bucket_exists(bucket):
     """
     Code from Amazon docs for checking bucket existence.
 
@@ -121,7 +123,7 @@ async def s3_bucket_exists(bucket):
         bucket:
 
     Returns:
-        booL: whether bucket exists
+        bool: whether bucket exists
 
     """
     import botocore
@@ -129,7 +131,7 @@ async def s3_bucket_exists(bucket):
     s3 = get_s3_resource()
     exists = True
     try:
-        await s3.meta.client.head_bucket(Bucket=bucket)
+        s3.meta.client.head_bucket(Bucket=bucket)
     except botocore.exceptions.ClientError as e:
         error_code = int(e.response['Error']['Code'])
         if error_code == 404:
@@ -408,7 +410,7 @@ def cp_local_to_s3_file(local_file, s3_file):
     Returns:
         s3_file
     """
-    s3 = get_s3_resource()
+    s3 = get_s3_client()
     return _cp_local_to_s3_file(s3, local_file, s3_file)
 
 
