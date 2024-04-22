@@ -14,11 +14,11 @@
 
 import configparser
 import importlib
-import urllib
 import logging
 import os
 import shutil
 import sys
+import urllib
 import uuid
 
 import disdat.config

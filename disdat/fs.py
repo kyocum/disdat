@@ -33,7 +33,6 @@ import pandas as pd
 
 import disdat.common as common
 import disdat.hyperframe as hyperframe
-
 import disdat.utility.asyncio_aws_s3 as aws_s3
 from disdat import logger as _logger
 from disdat.common import CatNoBundleError, DisdatConfig
@@ -84,7 +83,6 @@ def _run_git_cmd(git_dir, git_cmd, get_output=False):
     output = str(output)
 
     return output
-
 
     """
 def determine_pipe_version(pipe_root):
