@@ -276,6 +276,10 @@ class Bundle(HyperFrameRecord):
         return self._local_dir
 
     @property
+    def remote_dir(self):
+        return self._remote_dir
+
+    @property
     def tags(self):
         """Return the tags that the user set
         bundle.tags holds all of the tags, including the "hidden" parameter tags.
