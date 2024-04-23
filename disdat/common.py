@@ -12,14 +12,14 @@
 # limitations under the License.
 #
 
+import configparser
 import importlib
 import logging
 import os
 import shutil
 import sys
+import urllib
 import uuid
-
-from six.moves import configparser, urllib
 
 import disdat.config
 from disdat import logger as _logger

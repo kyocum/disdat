@@ -27,7 +27,7 @@ import disdat.common as common
 import disdat.constants as constants
 import disdat.hyperframe as hyperframe
 import disdat.hyperframe_pb2 as hyperframe_pb2
-import disdat.utility.aws_s3 as aws_s3
+import disdat.utility.asyncio_aws_s3 as aws_s3
 from disdat import logger as _logger
 from disdat.common import DisdatConfig
 
