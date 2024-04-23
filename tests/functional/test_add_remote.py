@@ -24,10 +24,9 @@ import moto
 import pytest
 
 import disdat.api as api
-from tests.functional.common import TEST_CONTEXT
+from tests.functional.common import TEST_BUCKET, TEST_CONTEXT
 
 TEST_REMOTE = "__test_remote_context__"
-TEST_BUCKET = "test-bucket"
 TEST_BUCKET_URL = "s3://{}".format(TEST_BUCKET)
 TEST_BUCKET_KEY_URL = "s3://{}/somekey".format(TEST_BUCKET)
 

@@ -12,24 +12,24 @@
 # limitations under the License.
 #
 
+import concurrent.futures as futures
 import os
-from multiprocessing import get_context
+import urllib
 
 import boto3 as b3
-from botocore.exceptions import ClientError
-from six.moves import urllib
 
+from disdat import log
 from disdat import logger as _logger
 
 S3_LS_USE_MP_THRESH = (
-    4000  # the threshold after which we should use MP to look up bundles on s3
+    2000  # the threshold after which we should use MP to look up bundles on s3
 )
 
-# Set to available MP contexts, such as forkserver, spawn, or fork.
-# We also support "singleprocess" -- in which case Disdat will not use MP
-SINGLE_PROCESS_MP_TYPE = "singleprocess"
-MP_CONTEXT_TYPE = os.environ.get("MP_CONTEXT_TYPE", "forkserver")
-MAX_TASKS_PER_CHILD = 100  # Force the pool to kill workers when they've done 100 tasks.
+# Note: one client for all threads.
+# You can use a client across multiple threads, but allocating the client in multiple threads
+# races on the shared default session in which they are created.
+# And you don't want to spend the time to create individual sessions for each thread.
+# https://medium.com/@life-is-short-so-enjoy-it/aws-boto3-misunderstanding-about-thread-safe-a7261d7391fd
 
 
 # Helper module-level access function to make sure resource is initialized
@@ -56,24 +56,25 @@ get_s3_client._s3_client = None
 
 def disdat_cpu_count():
     """
-    Turns out that Python doesn't do a great job of retrieving the number of available cpus
-    when running within a container.   As of 7-2020, it returns the actual count on the machine that's
-    hosting the container.   For Disdat, this can be very bad.  When we use multiprocessing, we use
-    the forkserver.  This tends to be memory intensive, especially when creating more workers than actual
-    CPUs.  To help avoid (but not completely avoid the out-of-memory exceptions that arise), we allow
-    the calling convention to include an environment variable called DISDAT_CPU_COUNT to be set.
-    For example in `dsdt.run`, we set this to be equal to the requested vcpu count.
+    The current version of the aws_s3 module (here) is based on multi-threading, not multi-processing.
+    Thus the concerns below do not apply.  However, I'm leaving the comment in the event that we wish to re-visit mp:
+        Python retrieves the physical cpu count when running within a container (as of 7-2020).
+        When we use multiprocessing (forkserver) this is memory intensive, possibly creating more workers than
+        vCPUs.  To help avoid OOM errors, we support an environment variable called DISDAT_CPU_COUNT to be set.
+        For example in `dsdt.run`, we set this to be equal to the requested vcpu count.
+    Note that we still support the environment variable, which can be useful for tests (moto does not support multithreading).
+
+    Finally, for multithreading, we scale up to 10 threads per available core.
 
     Returns:
         int: the number of available cpus
 
     """
-
     env_cpu_count = os.getenv("DISDAT_CPU_COUNT")
     if env_cpu_count is None:
-        return os.cpu_count()  # we did our best.
+        return os.cpu_count() * 2  # magic number of threads = 2 * core count
     else:
-        return int(env_cpu_count)
+        return int(env_cpu_count)  # just use the number in the env variable.
 
 
 def s3_path_exists(s3_url):
@@ -123,7 +124,7 @@ def s3_bucket_exists(bucket):
         bucket:
 
     Returns:
-        booL: whether bucket exists
+        bool: whether bucket exists
 
     """
     import botocore
@@ -182,7 +183,7 @@ def s3_list_objects_at_prefix(bucket, prefix):
     return result
 
 
-def s3_list_objects_at_prefix_v2(bucket, prefix):
+def _s3_list_objects_at_prefix_v2(client, bucket, prefix):
     """List out the objects at this prefix
     Returns a list of the keys found at this bucket.
     We do so because boto objects aren't serializable under multiprocessing
@@ -190,6 +191,7 @@ def s3_list_objects_at_prefix_v2(bucket, prefix):
     Note: Use v2 for multi-processing, since this filters on the server side!
 
     Args:
+        client(boto3.client): the boto3 s3 client
         bucket(str): The s3 bucket
         prefix(str): The s3 key prefix you wish to search
 
@@ -197,10 +199,6 @@ def s3_list_objects_at_prefix_v2(bucket, prefix):
         (list): List of item keys
     """
     result = []
-    client = get_s3_client()
-
-    # print(f"s3_list_objects_at_prefix_v2 the b3[{b3}] and client[{b3.client} and resource[{b3.resource}]")
-
     try:
         paginator = client.get_paginator("list_objects_v2")
         page_iterator = paginator.paginate(Bucket=bucket, Prefix=prefix)
@@ -235,35 +233,33 @@ def ls_s3_url_keys(s3_url, is_object_directory=False):
         s3_url += "/"
 
     bucket, s3_path = split_s3_url(s3_url)
+    if s3_path is None:
+        s3_path = ""
 
     hexes = "0123456789abcdef"
 
     results = []
 
-    if is_object_directory and MP_CONTEXT_TYPE != SINGLE_PROCESS_MP_TYPE:
+    client = get_s3_client()
+
+    if is_object_directory:
         prefixes = [f"{c}{d}" for c in hexes for d in hexes]
-        multiple_results = []
-        mp_ctxt = get_context(MP_CONTEXT_TYPE)
         est_cpu_count = disdat_cpu_count()
         _logger.debug("ls_s3_url_keys using MP with cpu_count {}".format(est_cpu_count))
-        with mp_ctxt.Pool(
-            processes=est_cpu_count,
-            maxtasksperchild=MAX_TASKS_PER_CHILD,
-            initializer=get_s3_client,
-        ) as pool:
+
+        with futures.ThreadPoolExecutor(max_workers=disdat_cpu_count()) as pool:
+            result_futures = []
             for i, prefix in enumerate(prefixes):
                 prefix = os.path.join(s3_path, prefix)
-                multiple_results.append(
-                    pool.apply_async(
-                        s3_list_objects_at_prefix_v2,
-                        (bucket, prefix),
-                        callback=results.extend,
-                    )
+                result_futures.append(
+                    pool.submit(_s3_list_objects_at_prefix_v2, client, bucket, prefix)
                 )
-            pool.close()
-            pool.join()
+            results = [
+                r for f in futures.as_completed(result_futures) for r in f.result()
+            ]
+
     else:
-        results = s3_list_objects_at_prefix_v2(bucket, s3_path)
+        results = _s3_list_objects_at_prefix_v2(client, bucket, s3_path)
 
     return results
 
@@ -333,27 +329,16 @@ def delete_s3_dir_many(s3_urls):
         number objects deleted (int)
 
     """
-    if MP_CONTEXT_TYPE == SINGLE_PROCESS_MP_TYPE:
-        results = []
+    client = get_s3_resource()
+
+    # The URLs may be "directories" or objects.
+    # if s3_url in to_delete:
+
+    with futures.ThreadPoolExecutor(max_workers=disdat_cpu_count()) as pool:
+        result_futures = []
         for s3_url in s3_urls:
-            results.append(delete_s3_dir(s3_url))
-    else:
-        mp_ctxt = get_context(
-            MP_CONTEXT_TYPE
-        )  # Using forkserver here causes moto / pytest failures
-        with mp_ctxt.Pool(
-            processes=disdat_cpu_count(),
-            maxtasksperchild=MAX_TASKS_PER_CHILD,
-            initializer=get_s3_resource,
-        ) as pool:
-            multiple_results = []
-            results = []
-            for s3_url in s3_urls:
-                multiple_results.append(
-                    pool.apply_async(delete_s3_dir, (s3_url,), callback=results.append)
-                )
-            pool.close()
-            pool.join()
+            result_futures.append(pool.submit(_delete_s3_dir, client, s3_url))
+        results = [f.result() for f in futures.as_completed(result_futures)]
 
     return sum([1 if r > 0 else 0 for r in results])
 
@@ -362,22 +347,38 @@ def delete_s3_dir(s3_url):
     """
 
     Args:
-        s3_url:
+        s3_url(str): the directory to delete
 
     Returns:
         number deleted (int)
 
     """
+    return _delete_s3_dir(get_s3_resource(), s3_url)
 
-    s3 = get_s3_resource()
+
+def _delete_s3_dir(s3_resource, s3_url):
+    """
+    Args:
+        resource(boto3.resource): The boto3 s3 resource
+        s3_url(str): the directory to delete
+    Returns:
+        number deleted (int)
+    """
+
     bucket, s3_path = split_s3_url(s3_url)
 
-    bucket = s3.Bucket(bucket)
+    bucket = s3_resource.Bucket(bucket)
     objects_to_delete = []
     for obj in bucket.objects.filter(Prefix=s3_path):
         objects_to_delete.append({"Key": obj.key})
     if len(objects_to_delete) > 0:
-        bucket.delete_objects(Delete={"Objects": objects_to_delete})
+        try:
+            bucket.delete_objects(Delete={"Objects": objects_to_delete})
+        except Exception as e:
+            print(e)
+            print(f"FAILED DELETING OBJECTS: {objects_to_delete}")
+
+    # print(f"Deleted {len(objects_to_delete)} objects at prefix {s3_path}")
     return len(objects_to_delete)
 
 
@@ -398,7 +399,6 @@ def cp_s3_file(s3_src_path, s3_root):
     output_path = os.path.join(s3_path, filename)
 
     src_bucket, src_key = split_s3_url(s3_src_path)
-    # print "Trying to copy from bucket {} key {} to bucket {} key {}".format(src_bucket, src_key, bucket, output_path)
 
     s3.Object(bucket, output_path).copy_from(
         CopySource={"Bucket": src_bucket, "Key": src_key},
@@ -419,12 +419,17 @@ def cp_local_to_s3_file(local_file, s3_file):
     Returns:
         s3_file
     """
-    s3 = get_s3_resource()
+    s3 = get_s3_client()
+    return _cp_local_to_s3_file(s3, local_file, s3_file)
+
+
+def _cp_local_to_s3_file(s3_client, local_file, s3_file):
     bucket, s3_path = split_s3_url(s3_file)
     local_file = urllib.parse.urlparse(local_file).path
-    # print("AWS_S3: ----->>>>>>>\tCP s3 src {}  dst {}".format(local_file, s3_file))
-    s3.Object(bucket, s3_path).upload_file(
+    s3_client.upload_file(
         local_file,
+        bucket,
+        s3_path,
         ExtraArgs={
             "ServerSideEncryption": "AES256",
             "ACL": "bucket-owner-full-control",
@@ -473,34 +478,16 @@ def put_s3_key_many(bucket_key_file_tuples):
         list: list of destination s3 paths
 
     """
+    s3_client = get_s3_client()
 
-    if MP_CONTEXT_TYPE == SINGLE_PROCESS_MP_TYPE:
-        results = []
+    with futures.ThreadPoolExecutor(max_workers=disdat_cpu_count()) as pool:
+        result_futures = []
         for local_object_path, s3_path in bucket_key_file_tuples:
-            results.append(cp_local_to_s3_file(local_object_path, s3_path))
-    else:
-        mp_ctxt = get_context(MP_CONTEXT_TYPE)
-        est_cpu_count = disdat_cpu_count()
-        _logger.debug(
-            "put_s3_key_many using MP with cpu_count {}".format(est_cpu_count)
-        )
-        with mp_ctxt.Pool(
-            processes=est_cpu_count,
-            maxtasksperchild=MAX_TASKS_PER_CHILD,
-            initializer=get_s3_resource,
-        ) as pool:
-            multiple_results = []
-            results = []
-            for local_object_path, s3_path in bucket_key_file_tuples:
-                multiple_results.append(
-                    pool.apply_async(
-                        cp_local_to_s3_file,
-                        (local_object_path, s3_path),
-                        callback=results.append,
-                    )
-                )
-            pool.close()
-            pool.join()
+            result_futures.append(
+                pool.submit(_cp_local_to_s3_file, s3_client, local_object_path, s3_path)
+            )
+        results = [f.result() for f in futures.as_completed(result_futures)]
+
     return results
 
 
@@ -511,14 +498,16 @@ def get_s3_key(bucket, key, filename=None):
         bucket:
         key:
         file_name:
-        s3: A boto3.resource('s3')
 
     Returns:
 
     """
-    dl_retry = 3
     s3 = get_s3_resource()
+    return _get_s3_key(s3, bucket, key, filename)
 
+
+def _get_s3_key(s3_resource, bucket, key, filename=None):
+    dl_retry = 3
     if filename is None:
         filename = os.path.basename(key)
     else:
@@ -534,24 +523,22 @@ def get_s3_key(bucket, key, filename=None):
 
     while dl_retry > 0:
         try:
-            s3.Bucket(bucket).download_file(key, filename)
+            s3_resource.Bucket(bucket).download_file(key, filename)
             dl_retry = -1
         except Exception as e:
-            _logger.warn(
+            _logger.warning(
                 "aws_s3.get_s3_key Retry Count [{}] on download_file raised exception {}".format(
                     dl_retry, e
                 )
             )
             dl_retry -= 1
             if dl_retry <= 0:
-                _logger.warn(
+                _logger.warning(
                     "aws_s3.get_s3_key Fail on downloading file after 3 retries with exception {}".format(
                         e
                     )
                 )
                 raise
-
-    # print "PID({}) STOP bkt[] key[{}] file[{}]".format(multiprocessing.current_process(),key,filename)
 
     return filename
 
@@ -570,35 +557,18 @@ def get_s3_key_many(bucket_key_file_tuples):
         filenames (list): list of filenames
 
     """
-    if MP_CONTEXT_TYPE == SINGLE_PROCESS_MP_TYPE:
-        results = []
+    s3_resource = get_s3_resource()
+
+    with futures.ThreadPoolExecutor(max_workers=disdat_cpu_count()) as pool:
+        result_futures = []
         for s3_bucket, s3_key, local_object_path in bucket_key_file_tuples:
-            results.append(get_s3_key(s3_bucket, s3_key, local_object_path))
-    else:
-        mp_ctxt = get_context(
-            MP_CONTEXT_TYPE
-        )  # Using forkserver here causes moto / pytest failures
-        est_cpu_count = disdat_cpu_count()
-        _logger.debug(
-            "get_s3_key_many using MP with cpu_count {}".format(est_cpu_count)
-        )
-        with mp_ctxt.Pool(
-            processes=est_cpu_count,
-            maxtasksperchild=MAX_TASKS_PER_CHILD,
-            initializer=get_s3_resource,
-        ) as pool:
-            multiple_results = []
-            results = []
-            for s3_bucket, s3_key, local_object_path in bucket_key_file_tuples:
-                multiple_results.append(
-                    pool.apply_async(
-                        get_s3_key,
-                        (s3_bucket, s3_key, local_object_path),
-                        callback=results.append,
-                    )
+            result_futures.append(
+                pool.submit(
+                    _get_s3_key, s3_resource, s3_bucket, s3_key, local_object_path
                 )
-            pool.close()
-            pool.join()
+            )
+        results = [f.result() for f in futures.as_completed(result_futures)]
+
     return results
 
 
@@ -636,3 +606,53 @@ def split_s3_url(s3_url):
     if len(key) == 0:
         key = None
     return bucket, key
+
+
+from os import path
+from time import time
+
+if __name__ == "__main__":
+    push_test_url = "ai-advisory/kentest"
+    pull_test_url = "disdat-cdo-prd/context/ai-advisory/objects"
+    # test_url = "ai-advisory/"
+    s3_url = f"s3://{pull_test_url}"
+
+    # test each of the concurrent calls
+
+    start = time()
+    # def ls_s3_url_keys(s3_url, is_object_directory=False):
+    ls_result = ls_s3_url_keys(s3_url, is_object_directory=True)
+    end = time()
+    print(f"ls_s3_url_keys: {ls_result}")
+    print(f"Elapsed: {end-start}")
+
+    ls_result = ls_result[:10]
+
+    if True:
+        start = time()
+        # bucket_key_file_tuples (tuple): (bucket:str, key:str, filename=None)
+        # gets = [("ai-advisory", f, f"./CRAP/{path.basename(f)}") for f in ls_result]
+        gets = [("disdat-cdo-prd", f, f"./CRAP/{path.basename(f)}") for f in ls_result]
+        get_result = get_s3_key_many(gets)
+        end = time()
+        print(f"get_s3_key_many: {get_result}")
+        print(f"Elapsed: {end-start}")
+
+    if True:
+        start = time()
+        # bucket_key_file_tuples (list[tuple]): (filename, s3_path)
+        puts = [
+            (f, f"s3://{push_test_url}/junk/{path.basename(f)}") for f in get_result
+        ]
+        put_results = put_s3_key_many(puts)
+        end = time()
+        print(f"put_s3_key_many: {put_results}")
+        print(f"Elapsed: {end-start}")
+
+    start = time()
+    #  s3_urls(list(str)): list of s3_urls we will remove
+    deletes = [f"s3://{push_test_url}/junk/{path.basename(f)}" for f in put_results]
+    del_results = delete_s3_dir_many(deletes)
+    end = time()
+    print(f"delete_s3_key_many: {deletes} {del_results}")
+    print(f"Elapsed: {end-start}")
