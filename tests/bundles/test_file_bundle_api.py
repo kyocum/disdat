@@ -9,7 +9,7 @@ import moto
 import pytest
 
 import disdat.api as api
-import disdat.utility.asyncio_aws_s3 as aws_s3
+import disdat.utility.aws_s3 as aws_s3
 from tests.functional.common import TEST_CONTEXT, run_test
 
 #

@@ -65,7 +65,7 @@ from sqlalchemy.sql import text
 import disdat.common as common
 from disdat import hyperframe_pb2
 from disdat import logger as _logger
-from disdat.utility.asyncio_aws_s3 import s3_path_exists
+from disdat.utility.aws_s3 import s3_path_exists
 
 HyperFrameTuple = namedtuple("HyperFrameTuple", "columns, links, uuid, tags")
 
