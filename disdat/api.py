@@ -34,7 +34,7 @@ import disdat.fs
 from disdat import logger as _logger
 from disdat.data_context import DataContext
 from disdat.hyperframe import HyperFrameRecord, LineageRecord, parse_return_val
-from disdat.utility.asyncio_aws_s3 import s3_path_exists
+from disdat.utility.aws_s3 import s3_path_exists
 
 PROC_ID_TRUNCATE_HASH = 10  # 10 ls hex digits
 

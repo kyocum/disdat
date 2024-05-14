@@ -33,7 +33,7 @@ import pandas as pd
 
 import disdat.common as common
 import disdat.hyperframe as hyperframe
-import disdat.utility.asyncio_aws_s3 as aws_s3
+import disdat.utility.aws_s3 as aws_s3
 from disdat import logger as _logger
 from disdat.common import CatNoBundleError, DisdatConfig
 from disdat.data_context import DataContext
