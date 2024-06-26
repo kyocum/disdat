@@ -17,8 +17,6 @@
 import hashlib
 import os
 
-import boto3
-import moto
 import pandas as pd
 import pytest
 
