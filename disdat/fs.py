@@ -84,11 +84,10 @@ def _run_git_cmd(git_dir, git_cmd, get_output=False):
 
     return output
 
-    """
-def determine_pipe_version(pipe_root):
-    Given a pipe file path, return the repo status. If they are set, use the environment variables,
-    otherwise run the git commands.
 
+def determine_pipe_version(pipe_root):
+    """ Given a pipe file path, return the repo status. If they are set, use the environment variables,
+    otherwise run the git commands.
 
     Args:
         pipe_root: path to the root of the pipeline

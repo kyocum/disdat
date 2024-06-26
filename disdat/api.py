@@ -428,7 +428,7 @@ class Bundle(HyperFrameRecord):
         """
         self._check_open()
         curr_count = LineageRecord.dependency_count(self.pb.lineage)
-        if isinstance(bundles, collections.Iterable):
+        if isinstance(bundles, collections.abc.Iterable):
             if arg_names is None:
                 arg_names = [
                     "_arg_{}".format(i)
