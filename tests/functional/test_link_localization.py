@@ -145,7 +145,7 @@ def _setup(remote=True):
     return s3_client
 
 
-@moto.mock_s3
+@moto.mock_aws
 def test_fast_push():
 
     s3_client = _setup()
@@ -177,7 +177,7 @@ def test_fast_push():
     api.delete_context(TEST_CONTEXT)
 
 
-@moto.mock_s3
+@moto.mock_aws
 def test_bundle_push_delocalize():
     """Test Bundle.push(delocalize)
     Test if we can push individually, and see that the files actualize to s3 paths.
@@ -210,7 +210,7 @@ def test_bundle_push_delocalize():
     api.delete_context(TEST_CONTEXT)
 
 
-@moto.mock_s3
+@moto.mock_aws
 def X_test_api_push_delocalize():
     """Test api.push(delocalize)
 
@@ -239,7 +239,7 @@ def X_test_api_push_delocalize():
     api.delete_context(TEST_CONTEXT)
 
 
-@moto.mock_s3
+@moto.mock_aws
 def test_bundle_link_localization_no_remote():
     """Test the ability to localize and delocalize individual links
     Note: you can only localize / de-localize a closed bundle.
@@ -268,7 +268,7 @@ def test_bundle_link_localization_no_remote():
     api.delete_context(TEST_CONTEXT)
 
 
-@moto.mock_s3
+@moto.mock_aws
 def test_bundle_link_localization_with_remote():
     """Test the ability to localize and delocalize individual links
     Note: you can only localize / de-localize a closed bundle.

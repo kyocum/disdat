@@ -31,7 +31,7 @@ TEST_BUCKET_URL = "s3://{}".format(TEST_BUCKET)
 TEST_BUCKET_KEY_URL = "s3://{}/somekey".format(TEST_BUCKET)
 
 
-@moto.mock_s3
+@moto.mock_aws
 def test_add_remote():
     api.delete_context(TEST_CONTEXT)
     api.context(context_name=TEST_CONTEXT)
@@ -68,7 +68,7 @@ def test_add_remote():
     api.delete_context(TEST_CONTEXT)
 
 
-@moto.mock_s3
+@moto.mock_aws
 def test_add_remote_fail():
     error = None
     api.delete_context(TEST_CONTEXT)

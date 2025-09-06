@@ -48,7 +48,7 @@ def setup():
 @pytest.fixture(autouse=False, scope="module")
 def moto_boto():
     # When you need to have moto mocked across tests.
-    with moto.mock_s3():
+    with moto.mock_aws():
         print(">>>>>>>>>>>>>>>>>>>>  MOTO UP  <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
         yield
     print(">>>>>>>>>>>>>>>>>>>> MOTO DOWN <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
@@ -60,7 +60,7 @@ def count() -> int:
 
 
 @pytest.fixture(scope="function")
-@moto.mock_s3
+@moto.mock_aws
 def populate_objects(run_module_test, moto_boto, count: int) -> dict:
     """Create a disdat context with count bundles.
     Return the list of UUIDs and the list of objects

@@ -83,7 +83,7 @@ def test_zero_copy_local_file(run_test):
     assert md5_file(b.data[1]) == saved_f2_md5
 
 
-@moto.mock_s3
+@moto.mock_aws
 def test_copy_in_s3_file(run_test):
     """Test copying in s3 file
     The file should be copied into the local context
@@ -110,7 +110,7 @@ def test_copy_in_s3_file(run_test):
     assert md5 == saved_md5
 
 
-@moto.mock_s3
+@moto.mock_aws
 def test_copy_in_s3_file_with_remote(run_test):
     """Test copying in s3 file
     The file should be copied into the remote context
@@ -136,7 +136,7 @@ def test_copy_in_s3_file_with_remote(run_test):
     assert b.data.startswith("s3://")
 
 
-@moto.mock_s3
+@moto.mock_aws
 def test_zero_copy_s3_file(run_test):
     """Test managed path in local file"""
     s3_resource = boto3.resource("s3", region_name="us-east-1")

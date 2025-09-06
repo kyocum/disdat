@@ -26,7 +26,7 @@ TEST_BUCKET = "test-bucket"
 TEST_BUCKET_URL = "s3://{}".format(TEST_BUCKET)
 
 
-@moto.mock_s3
+@moto.mock_aws
 def test_push(run_test):
     s3_client = boto3.client("s3")
     s3_resource = boto3.resource("s3", region_name="us-east-1")
@@ -55,7 +55,7 @@ def test_push(run_test):
     bucket.delete()
 
 
-@moto.mock_s3
+@moto.mock_aws
 def test_pull(run_test):
     s3_client = boto3.client("s3")
     s3_resource = boto3.resource("s3", region_name="us-east-1")
