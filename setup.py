@@ -41,7 +41,11 @@ setup(
         "License :: OSI Approved :: Apache Software License",
         # Specify the Python versions you support here. In particular, ensure
         # that you indicate whether you support Python 2, Python 3 or both.
-        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
         "Operating System :: OS Independent",
         "Natural Language :: English",
     ],
@@ -63,7 +67,7 @@ setup(
     },
     exclude_package_data={"disdat": []},
     data_files=[("", ["setup.py"])],
-    python_requires=">=3.8, <3.12",
+    python_requires=">=3.9, <3.14",
     # List run-time dependencies here.  These will be installed by pip when
     # your project is installed.  If >=, means it worked with the base version.
     # If <= means higher versions broke something.
@@ -88,7 +92,7 @@ setup(
             "pylint",
             "coverage",
             "tox",
-            "moto==2.2.13",  # same as tox.ini
+            "moto",  # same as tox.ini
             "s3fs<=0.4.2",  # 0.5.0 breaks with aiobotocore and missing AWS headers
         ],
         "rel": [
