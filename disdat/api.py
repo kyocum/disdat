@@ -734,7 +734,7 @@ class Bundle(HyperFrameRecord):
 
         # Pull the one file.
         new_path = self.data_context.copy_in_files(
-            path, urllib.parse.urljoin("file:", self._local_dir)
+            path, common.path_to_file_url(self._local_dir)
         )
 
         # Update the presentation
@@ -777,7 +777,7 @@ class Bundle(HyperFrameRecord):
         # Push the one file.   This is a safety call.
         # If we can't guarantee that we've made a copy, we don't remove the local copy.
         new_path = self.data_context.copy_in_files(
-            urllib.parse.urljoin("file:", path), self._remote_dir
+            common.path_to_file_url(path), self._remote_dir
         )
 
         # Delete local copy

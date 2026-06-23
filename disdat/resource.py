@@ -26,8 +26,8 @@ Advantages:
 
 """
 
+import importlib.util
 import os
-import pkgutil
 import sys
 import types
 
@@ -35,17 +35,24 @@ import types
 def filename(package, resource):
 
     if isinstance(package, types.ModuleType):
-        mod = package
+        if not getattr(package, "__file__", None):
+            return None
+        base = os.path.dirname(package.__file__)
     else:
-        loader = pkgutil.get_loader(package)
-        if loader is None or not hasattr(loader, "get_data"):
-            return None
-        mod = sys.modules.get(package) or loader.load_module(package)
-        if mod is None or not hasattr(mod, "__file__"):
-            return None
+        # Resolve a package given by name. pkgutil.get_loader/load_module were
+        # removed in Python 3.12; use importlib instead and avoid importing the
+        # module when it is already loaded.
+        mod = sys.modules.get(package)
+        if mod is not None and getattr(mod, "__file__", None):
+            base = os.path.dirname(mod.__file__)
+        else:
+            spec = importlib.util.find_spec(package)
+            if spec is None or spec.origin is None:
+                return None
+            base = os.path.dirname(spec.origin)
 
     parts = resource.split("/")
-    parts.insert(0, os.path.dirname(mod.__file__))
+    parts.insert(0, base)
     return os.path.join(*parts)
 
 

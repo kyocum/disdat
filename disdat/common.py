@@ -237,6 +237,22 @@ def get_local_file_path(url):
     return parsed_url.path
 
 
+def path_to_file_url(path):
+    """Return a ``file://`` URL for an absolute local filesystem path.
+
+    Built explicitly instead of via ``urllib.parse.urljoin("file:", path)``:
+    Python 3.14 made ``urljoin`` RFC-compliant, so ``urljoin("file:", "/abs")``
+    now yields a single-slash ``file:/abs`` rather than ``file:///abs``.
+
+    Args:
+        path: An absolute local filesystem path.
+
+    Returns:
+        A ``file://`` scheme URL.
+    """
+    return "file://" + path
+
+
 def slicezip(a, b):
     """
     Fast method of zip + flatten with same-sized lists.

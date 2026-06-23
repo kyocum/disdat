@@ -1178,7 +1178,7 @@ class DisdatFS(object):
             src_paths = data_context.actualize_link_urls(fr)
             bundle_dir = os.path.join(branch_object_dir, fr.hframe_uuid)
             if urllib.parse.urlparse(bundle_dir).scheme != "s3":
-                bundle_dir = urllib.parse.urljoin("file:", bundle_dir)
+                bundle_dir = common.path_to_file_url(bundle_dir)
             dst_paths = data_context.copy_in_files(
                 src_paths, bundle_dir, dry_run=dry_run
             )

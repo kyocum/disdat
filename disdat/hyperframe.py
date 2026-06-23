@@ -534,7 +534,8 @@ def update_hfr_db(
         'UPDATE {} SET state = "{}" {}'.format(pb_cls.table_name, state.name, where)
     )
 
-    with engine_g.connect() as conn:
+    # SQLAlchemy 2.0 no longer autocommits on connect(); begin() commits on exit.
+    with engine_g.begin() as conn:
         result = conn.execute(s)
 
     return result
@@ -576,7 +577,8 @@ def delete_hfr_db(
     tag_del = text("DELETE FROM {} {}".format(pb_cls.table_name + "_tags", where))
 
     results = []
-    with engine_g.connect() as conn:
+    # SQLAlchemy 2.0 no longer autocommits on connect(); begin() commits on exit.
+    with engine_g.begin() as conn:
         results.append(conn.execute(hfr_del))
         results.append(conn.execute(tag_del))
 
@@ -600,7 +602,8 @@ def delete_fr_db(engine_g, hfr_uuid):
 
     fr_del = text("DELETE FROM {} {}".format(pb_cls.table_name, where))
 
-    with engine_g.connect() as conn:
+    # SQLAlchemy 2.0 no longer autocommits on connect(); begin() commits on exit.
+    with engine_g.begin() as conn:
         results = conn.execute(fr_del)
 
     return [results]
@@ -730,8 +733,8 @@ def parse_return_val(hfid, val, data_context):
         np.float16,
         np.float32,
         np.float64,
-        np.unicode_,
-        np.string_,
+        np.str_,
+        np.bytes_,
     )
 
     frames = []
@@ -992,12 +995,17 @@ class PBObject(object):
         """
         objs = []
         for row in sa_result:
-            if "pb" in row:
-                pb = row["pb"]
+            # SQLAlchemy 2.0: key membership/lookup is on row._mapping, not the
+            # Row itself (`in`/[] on a Row operate on positional values).
+            row_map = row._mapping
+            if "pb" in row_map:
+                pb = row_map["pb"]
                 if isinstance(pb, str):
                     pb = pb.encode("utf8")
+                elif isinstance(pb, memoryview):
+                    pb = pb.tobytes()
                 obj = cls.from_str_bytes(pb)
-                obj.state = row["state"]
+                obj.state = row_map["state"]
             else:
                 obj = row
             objs.append(obj)
@@ -2063,14 +2071,13 @@ class FrameRecord(PBObject):
             np.uint16: "UINT16",
             np.uint32: "UINT32",
             np.uint64: "UINT64",
-            np.float_: "FLOAT64",
             np.float16: "FLOAT16",
             np.float32: "FLOAT32",
             np.float64: "FLOAT64",
             bytes: "STRING",
             str: "STRING",
-            np.unicode_: "STRING",
-            np.string_: "STRING",
+            np.str_: "STRING",
+            np.bytes_: "STRING",
             np.object_: "OBJECT",
         }
 
@@ -2092,7 +2099,7 @@ class FrameRecord(PBObject):
 
         if self.pb.type == hyperframe_pb2.HFRAME:
             # Choose to pass HyperFrames as UUIDs
-            nda = np.array([hf_pb.uuid for hf_pb in self.pb.hframes], dtype=np.string_)
+            nda = np.array([hf_pb.uuid for hf_pb in self.pb.hframes], dtype=np.bytes_)
 
         elif self.pb.type == hyperframe_pb2.LINK:
             nda = np.array([LinkBase.find_url(lr) for lr in self.pb.links])
@@ -2184,7 +2191,7 @@ class FrameRecord(PBObject):
                 # print("frame_type {}".format(frame_type))
                 # raise Exception("make_native_frame does not yet support non-string objects")
 
-        elif nda.dtype.type == np.unicode_ or nda.dtype.type == np.string_:
+        elif nda.dtype.type == np.str_ or nda.dtype.type == np.bytes_:
             # If it's an ndarray containing scalar string types
             frame_type = FrameRecord.get_proto_type(nda.dtype)
             if len(nda.shape) == 0:

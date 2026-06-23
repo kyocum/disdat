@@ -47,7 +47,7 @@ dependencies = [
     "pandas>=2.0,<3.0",
     "numpy>=1.24,<3.0",
     "sqlalchemy>=2.0,<3.0",
-    "protobuf>=5.0,<7.0",
+    "protobuf>=6.31.1,<7.0",  # floor matches regenerated hyperframe_pb2.py gencode (protoc 6.31.1)
     "docutils>=0.18",
 ]
 
