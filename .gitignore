@@ -10,7 +10,7 @@
 htmlcov
 /disdat/version.py
 .python-version
-.venv
+.venv*
 .eggs
 .cache
 uv.lock

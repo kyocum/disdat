@@ -1112,7 +1112,7 @@ class DataContext(object):
                 copied_in_series_like.append(
                     self.copy_in_files(
                         src,
-                        urllib.parse.urljoin("file:", local_managed_path),
+                        common.path_to_file_url(local_managed_path),
                         localize=False,
                     )
                 )
@@ -1357,7 +1357,7 @@ class DataContext(object):
         for lf, rurl in zip(local_file_set, urls):
             if os.path.isfile(lf):
                 if not strip_file_scheme:
-                    lf = urllib.parse.urljoin("file:", lf)
+                    lf = common.path_to_file_url(lf)
                 file_set.append(lf)
             else:
                 remote_dir = self.get_remote_object_dir()

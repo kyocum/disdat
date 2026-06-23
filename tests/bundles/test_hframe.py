@@ -88,8 +88,8 @@ test_data = {
         dtype=np.float64,
     ),
     "bool_data": np.array([True, True, False, True, False], dtype=np.bool_),
-    "string_data": np.array(["This", " is", " a", " test!"], dtype=np.string_),
-    "unicode_data": np.array(["This", " is", " a", " test!"], dtype=np.unicode_),
+    "string_data": np.array(["This", " is", " a", " test!"], dtype=np.bytes_),
+    "unicode_data": np.array(["This", " is", " a", " test!"], dtype=np.str_),
 }
 
 
@@ -133,7 +133,9 @@ def _make_hframe_record(name, tags=None, hframes=None):
         for test_name, nda in test_data.items():
             frames.append(hyperframe.FrameRecord.from_ndarray(hfid, test_name, nda))
             if "int" in test_name or "float" in test_name:
-                test_series = nda.byteswap().newbyteorder()
+                # numpy 2.0 removed ndarray.newbyteorder(); reinterpret via a
+                # byte-swapped dtype view instead.
+                test_series = nda.byteswap().view(nda.dtype.newbyteorder())
                 frames.append(
                     hyperframe.FrameRecord.from_ndarray(
                         hfid, test_name + "_swapped", test_series

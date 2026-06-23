@@ -16,6 +16,7 @@
 import pytest
 
 import disdat.api as api
+from disdat.fs import DisdatFS
 
 
 def test_create_context():
@@ -47,6 +48,26 @@ def test_independent_context():
 
     assert context_1_name not in api.ls_contexts(), "Contexts should be removed"
     assert context_2_name not in api.ls_contexts(), "Contexts should be removed"
+
+
+def test_get_hframe_names():
+    """Regression: grouped name listing under SQLAlchemy 2.0.
+
+    get_hframe_names() runs a groupby query whose rows have no ``pb`` column,
+    so hyperframe.from_row returns the non-pb branch. Under SQLAlchemy 2.0 a
+    raw Row has no string-key access, so the result must be a RowMapping for
+    ``row["human_name"]`` to work.
+    """
+    context_name = "__test_names__"
+    api.context(context_name)
+    try:
+        api.Bundle(context_name, name="alpha", data=1)
+        api.Bundle(context_name, name="beta", data=2)
+
+        data_context = DisdatFS().get_context(context_name)
+        assert sorted(data_context.get_hframe_names()) == ["alpha", "beta"]
+    finally:
+        api.delete_context(context_name=context_name)
 
 
 if __name__ == "__main__":
