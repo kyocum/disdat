@@ -12,4 +12,4 @@ discipline. Status advances forward only: `created` → `implemented` →
 | 3 | py314 / Phase 2: modernize dependency pins | `design_docs/plans/py-3.10-3.14-migration.plan.md` | 2026-06-11 | 2026-06-23 | `909253e` | committed |
 | 4 | py314 / Phase 3: code changes for new deps | `design_docs/plans/py-3.10-3.14-migration.plan.md` | 2026-06-11 | 2026-06-23 | `22a1100` | committed |
 | 5 | py314 / Phase 4: test & verify across versions | `design_docs/plans/py-3.10-3.14-migration.plan.md` | 2026-06-11 | 2026-06-23 | `22a1100` | committed |
-| 6 | py314 / Phase 5: CI matrix + publish update | `design_docs/plans/py-3.10-3.14-migration.plan.md` | 2026-06-11 | - | - | created |
+| 6 | py314 / Phase 5: CI matrix + publish update | `design_docs/plans/py-3.10-3.14-migration.plan.md` | 2026-06-11 | 2026-06-23 | `ba826ba` | committed |
