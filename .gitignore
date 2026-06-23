@@ -9,3 +9,8 @@
 .coverage
 htmlcov
 /disdat/version.py
+.python-version
+.venv
+.eggs
+.cache
+uv.lock

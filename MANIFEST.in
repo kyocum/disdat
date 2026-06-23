@@ -1,7 +1,6 @@
 include LICENSE.txt
 include NOTICE.txt
-include setup.py
-include disdat/VERSION
+include pyproject.toml
 include disdat/resources/*
 recursive-include disdat/config *
 
