@@ -1007,7 +1007,10 @@ class PBObject(object):
                 obj = cls.from_str_bytes(pb)
                 obj.state = row_map["state"]
             else:
-                obj = row
+                # Non-pb rows (e.g. grouped name queries): return the mapping,
+                # not the raw Row. SQLAlchemy 2.0 Row has no string-key access,
+                # so callers doing row["human_name"] need the RowMapping.
+                obj = row_map
             objs.append(obj)
         return objs
 
