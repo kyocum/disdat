@@ -37,16 +37,18 @@ classifiers = [
     "Operating System :: OS Independent",
     "Natural Language :: English",
 ]
-# Runtime dependencies. Pins are migrated verbatim from setup.py here;
-# modernization for Python 3.10-3.14 wheels happens in py314 Phase 2.
+# Runtime dependencies. Pins modernized for Python 3.10-3.14 wheel support
+# (py314 Phase 2). The code changes these floors require — numpy 2.x alias
+# removals, protobuf 5/6 regenerated module, and the SQLAlchemy 2.0 Core
+# migration — land in py314 Phase 3.
 dependencies = [
-    "boto3>=1.14.49,<2.0",
-    "termcolor>=1.1.0,<2.0",
-    "pandas>=1.5,<3.0",
-    "numpy>=1.18.1,<=1.26.4",
-    "sqlalchemy>=1.3.13,<1.4",
-    "protobuf>=3.11.2,<4.0",
-    "docutils<0.16,>=0.10",
+    "boto3>=1.34,<2.0",
+    "termcolor>=2.0,<3.0",
+    "pandas>=2.0,<3.0",
+    "numpy>=1.24,<3.0",
+    "sqlalchemy>=2.0,<3.0",
+    "protobuf>=5.0,<7.0",
+    "docutils>=0.18",
 ]
 
 [project.urls]
@@ -64,7 +66,7 @@ dev = [
     "coverage",
     "tox",
     "moto",
-    "s3fs<=0.4.2",   # 0.5.0 breaks with aiobotocore and missing AWS headers
+    "s3fs>=2024.2.0",   # modern s3fs/aiobotocore; replaces the 2020-era 0.4.2 pin
     "pyarrow",
     "grpcio-tools",  # vendors protoc (python -m grpc_tools.protoc) for hyperframe_pb2 regen
 ]
