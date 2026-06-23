@@ -33,7 +33,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install project and dev dependencies
-        run: uv pip install --system -e ".[dev]"
+        run: |
+          uv venv --python ${{ matrix.python-version }}
+          uv pip install -e ".[dev]"
 
       - name: Run tests
-        run: python -m pytest tests --disable-warnings -q
+        run: .venv/bin/python -m pytest tests --disable-warnings -q
