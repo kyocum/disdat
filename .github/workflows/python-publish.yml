@@ -28,7 +28,10 @@ jobs:
     - name: Install uv
       uses: astral-sh/setup-uv@v5
       with:
-        python-version: '3.x'
+        # setup-uv maps this to UV_PYTHON, so it must be a concrete interpreter
+        # request, not setup-python's '3.x' alias. The wheel is py3-none-any, so
+        # any supported version builds it.
+        python-version: '3.13'
 
     - name: Build sdist and wheel
       run: uv build
