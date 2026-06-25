@@ -1,0 +1,41 @@
+name: Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+
+    env:
+      # disdat uses forked multiprocessing; pin the start method (Python 3.14
+      # defaults to forkserver on Linux).
+      MP_CONTEXT_TYPE: fork
+      # moto mocks AWS; provide dummy credentials so boto3 never reaches out.
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: testing
+      AWS_SECRET_ACCESS_KEY: testing
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # setuptools_scm needs full history/tags
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install project and dev dependencies
+        run: |
+          uv venv --clear --python ${{ matrix.python-version }}
+          uv pip install -e ".[dev]"
+
+      - name: Run tests
+        run: .venv/bin/python -m pytest tests --disable-warnings -q

@@ -1,47 +1,74 @@
-# This workflow will upload a Python Package using Twine when a release is created
-# For more information see: https://help.github.com/en/actions/language-and-framework-guides/using-python-with-github-actions#publishing-to-package-registries
+# Build and publish the disdat package.
+#
+# - On a GitHub *release*: build (version derived from the release tag by
+#   setuptools_scm) and upload to PyPI.
+# - On *manual dispatch*: build a dev version and upload to TestPyPI as a
+#   dry run (no real PyPI publish). Requires a TEST_PYPI_API_TOKEN secret.
+#
+# Builds use `uv build` (sdist + wheel); uploads use twine via `uvx`.
 
 name: Upload Python Package
 
 on:
   workflow_dispatch:
-    inputs:
-      name:
-        description: 'Manual publish event'
-        required: true
-        default: 'default default string'
-
   release:
     types: [created]
 
 jobs:
-  deploy:
-
+  publish-pypi:
+    # Real publish only happens for an actual release (clean tag version).
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v2
-    - name: Set up Python
-      uses: actions/setup-python@v2
+    - uses: actions/checkout@v4
       with:
-        python-version: '3.x'
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install setuptools wheel twine
-    - name: Build and publish
+        fetch-depth: 0   # setuptools_scm derives the version from tags
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: '3.13'
+
+    - name: Build sdist and wheel
+      run: uv build
+
+    - name: Check distributions
+      run: uvx twine check dist/*
+
+    - name: Publish to PyPI
       env:
         TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
         TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-      run: |
-        echo "Cleaning up repo for sdist build ..."
-        rm -rf  disdat/infrastructure/dockerizer/context.template/disdat-*.tar.gz
-        rm -rf  dist/disdat-*.tar.gz
-        echo "Creating sdist without a copy of itself for dockerizer ..."
-        python setup.py sdist
-        echo "Copying sdist to dockerizer template..."
-        cp dist/disdat-*.tar.gz disdat/infrastructure/dockerizer/context.template/.
-        echo "Creating sdist with a copy of itself ..."
-        python setup.py sdist
-        echo "Uploading to PyPi ... (not yet)"
-        twine upload dist/disdat-*.tar.gz
+      run: uvx twine upload dist/*
+
+  testpypi-dry-run:
+    # Manual runs validate the full build+upload path against TestPyPI without
+    # touching real PyPI. Needs a TEST_PYPI_API_TOKEN repository secret.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: '3.13'
+
+    - name: Build sdist and wheel
+      # No tag on HEAD -> a dev version. Strip setuptools_scm's local segment
+      # (+gHASH), which PyPI/TestPyPI reject, so the dev build is uploadable.
+      env:
+        SETUPTOOLS_SCM_OVERRIDES_FOR_DISDAT: '{ local_scheme = "no-local-version" }'
+      run: uv build
+
+    - name: Check distributions
+      run: uvx twine check dist/*
+
+    - name: Upload to TestPyPI (dry run)
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        TWINE_REPOSITORY_URL: https://test.pypi.org/legacy/
+      run: uvx twine upload --skip-existing dist/*
