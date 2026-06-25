@@ -31,18 +31,21 @@ Useful subsets:
 .venv/bin/python -m pytest tests/functional/test_remote.py::test_push -x   # one test
 ```
 
-### Heads-up: leftover test contexts
+### Test contexts
 
 The functional tests write to disdat's local context store
-(`~/.disdat/context/`) and only clean up on success. If a run fails partway, it
-can leave `__test*` / `___test*` contexts behind, and a subsequent run may then
-see stale bundles (spurious count-mismatch failures). Reset just the test
-contexts — your real contexts are left untouched:
+(`~/.disdat/context/`). Tests clean up their own contexts on success, and the
+suite's teardown (`tests/conftest.py`) removes any leftover `__test*` contexts
+when a run *fails* — so a later run starts clean. Your real contexts are never
+touched.
+
+You only need to clean up by hand if a run is hard-killed before teardown
+runs (e.g. an interrupted process). In that case:
 
 ```bash
 .venv/bin/python -c "import disdat.api as api; \
 [api.delete_context(context_name=c) for c in list(api.ls_contexts()) \
- if c.startswith('__test') or c.startswith('___test')]"
+ if c.startswith('_') and c.lstrip('_').startswith('test')]"
 ```
 
 ## Testing across all supported Python versions
