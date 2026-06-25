@@ -1,25 +1,24 @@
-# Builds and publishes the disdat package to PyPI when a GitHub release is
-# created (or via manual dispatch). Build is done with `uv build`; upload with
-# twine using repository secrets.
+# Build and publish the disdat package.
+#
+# - On a GitHub *release*: build (version derived from the release tag by
+#   setuptools_scm) and upload to PyPI.
+# - On *manual dispatch*: build a dev version and upload to TestPyPI as a
+#   dry run (no real PyPI publish). Requires a TEST_PYPI_API_TOKEN secret.
+#
+# Builds use `uv build` (sdist + wheel); uploads use twine via `uvx`.
 
 name: Upload Python Package
 
 on:
   workflow_dispatch:
-    inputs:
-      name:
-        description: 'Manual publish event'
-        required: true
-        default: 'default default string'
-
   release:
     types: [created]
 
 jobs:
-  deploy:
-
+  publish-pypi:
+    # Real publish only happens for an actual release (clean tag version).
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
       with:
@@ -28,16 +27,48 @@ jobs:
     - name: Install uv
       uses: astral-sh/setup-uv@v5
       with:
-        # setup-uv maps this to UV_PYTHON, so it must be a concrete interpreter
-        # request, not setup-python's '3.x' alias. The wheel is py3-none-any, so
-        # any supported version builds it.
         python-version: '3.13'
 
     - name: Build sdist and wheel
       run: uv build
+
+    - name: Check distributions
+      run: uvx twine check dist/*
 
     - name: Publish to PyPI
       env:
         TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
         TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
       run: uvx twine upload dist/*
+
+  testpypi-dry-run:
+    # Manual runs validate the full build+upload path against TestPyPI without
+    # touching real PyPI. Needs a TEST_PYPI_API_TOKEN repository secret.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: '3.13'
+
+    - name: Build sdist and wheel
+      # No tag on HEAD -> a dev version. Strip setuptools_scm's local segment
+      # (+gHASH), which PyPI/TestPyPI reject, so the dev build is uploadable.
+      env:
+        SETUPTOOLS_SCM_OVERRIDES_FOR_DISDAT: '{ local_scheme = "no-local-version" }'
+      run: uv build
+
+    - name: Check distributions
+      run: uvx twine check dist/*
+
+    - name: Upload to TestPyPI (dry run)
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        TWINE_REPOSITORY_URL: https://test.pypi.org/legacy/
+      run: uvx twine upload --skip-existing dist/*
