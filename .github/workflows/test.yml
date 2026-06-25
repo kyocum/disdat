@@ -14,9 +14,6 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     env:
-      # disdat uses forked multiprocessing; pin the start method (Python 3.14
-      # defaults to forkserver on Linux).
-      MP_CONTEXT_TYPE: fork
       # moto mocks AWS; provide dummy credentials so boto3 never reaches out.
       AWS_DEFAULT_REGION: us-east-1
       AWS_ACCESS_KEY_ID: testing

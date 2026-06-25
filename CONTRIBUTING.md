@@ -20,13 +20,8 @@ pyarrow, s3fs, grpcio-tools, etc.) declared under
 ## Running the tests
 
 ```bash
-export MP_CONTEXT_TYPE=fork          # required: disdat uses multiprocessing
 .venv/bin/python -m pytest tests -q
 ```
-
-`MP_CONTEXT_TYPE=fork` is required on macOS — disdat relies on forked
-multiprocessing, and the default `spawn` start method causes the
-multiprocessing tests to hang or fail.
 
 Useful subsets:
 
@@ -52,9 +47,9 @@ contexts — your real contexts are left untouched:
 
 ## Testing across all supported Python versions
 
-`tox.ini` is configured for `py310`–`py314` (it sets `MP_CONTEXT_TYPE=fork` and
-writes an HTML coverage report). It runs whichever interpreters you have
-installed (`skip_missing_interpreters=true`):
+`tox.ini` is configured for `py310`–`py314` (and writes an HTML coverage
+report). It runs whichever interpreters you have installed
+(`skip_missing_interpreters=true`):
 
 ```bash
 uv tool run tox          # or: pipx run tox
