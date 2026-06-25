@@ -17,7 +17,15 @@ import os
 
 import pytest
 
+import disdat.api as api
 from disdat.common import SYSTEM_CONFIG_DIR, DisdatConfig
+
+
+def _is_test_context(name):
+    """A context the suite creates: leading underscores followed by 'test'
+    (e.g. ``__test_context_1__``, ``___test_context___``). Real user contexts
+    do not match, so they are never touched."""
+    return name.startswith("_") and name.lstrip("_").startswith("test")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -33,3 +41,24 @@ def ensure_disdat_initialized():
     if not os.path.exists(os.path.expanduser(SYSTEM_CONFIG_DIR)):
         DisdatConfig.init()
     yield
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Remove leftover test contexts when the run fails.
+
+    Tests clean up their own contexts on success, but a test that fails partway
+    leaves ``__test*`` contexts behind, which then pollute the next run (stale
+    bundles -> spurious failures). On a non-zero exit, delete those contexts so
+    a subsequent run starts clean. Best-effort: never raise from teardown.
+    """
+    if exitstatus == 0:
+        return
+    try:
+        for name in list(api.ls_contexts()):
+            if _is_test_context(name):
+                try:
+                    api.delete_context(context_name=name)
+                except Exception:
+                    pass
+    except Exception:
+        pass
