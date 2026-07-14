@@ -396,19 +396,41 @@ class DataContext(object):
         self.dbck()
         return
 
-    @staticmethod
-    def _file_db_corrupt(db_file):
-        """Whether an existing ctxt.db file fails to open as a sqlite database.
+    # Substrings of the sqlite3 error message that indicate the file is not a
+    # valid sqlite database (i.e. genuine corruption / wrong file format), as
+    # opposed to a transient/operational condition such as a held lock or a disk
+    # I/O error. Only the former justifies deleting the file and rebuilding.
+    _DB_CORRUPT_SIGNATURES = (
+        "file is not a database",
+        "file is encrypted or is not a database",
+        "not a database",
+        "malformed",
+    )
 
-        Distinguishes a genuinely corrupt/unreadable file (which must be deleted
-        and rebuilt) from a valid-but-empty database (which just needs its tables
-        created via rebuild_db, no delete). Only the former returns True.
+    @classmethod
+    def _file_db_corrupt(cls, db_file):
+        """Whether an existing ctxt.db file is genuinely corrupt (bad format).
+
+        Distinguishes a corrupt/wrong-format file (which must be deleted and
+        rebuilt) from both a valid-but-empty database (needs only its tables
+        created via rebuild_db, no delete) and a *transient* failure such as
+        ``database is locked`` or a disk I/O error.
+
+        Transient/operational errors are re-raised rather than reported as
+        corruption: a concurrent writer may legitimately hold the DB lock, and
+        deleting the file out from under it would replace a valid index in use.
+        The caller lets such errors propagate instead of destroying the file.
 
         Args:
             db_file (str): Path to the ctxt.db file (assumed to exist).
 
         Returns:
-            bool: True if the file is not a valid sqlite database.
+            bool: True only if the file is not a valid sqlite database.
+
+        Raises:
+            sqlite3.DatabaseError: On a transient/operational error (e.g. the DB
+                is locked or unreadable due to I/O), so the caller does not treat
+                it as corruption and delete the file.
         """
         try:
             conn = sqlite3.connect(db_file)
@@ -419,8 +441,16 @@ class DataContext(object):
                 conn.close()
             return False
         except sqlite3.DatabaseError as e:
-            _logger.debug("Local db {} unreadable: {}".format(db_file, e))
-            return True
+            msg = str(e).lower()
+            if any(sig in msg for sig in cls._DB_CORRUPT_SIGNATURES):
+                _logger.debug("Local db {} is corrupt: {}".format(db_file, e))
+                return True
+            # Transient/operational (locked, disk I/O, ...) -- do NOT delete.
+            _logger.debug(
+                "Local db {} not readable right now (not treating as corrupt): "
+                "{}".format(db_file, e)
+            )
+            raise
 
     @staticmethod
     def _weak_validate_hframe(hfr, found_frames_uuids):
