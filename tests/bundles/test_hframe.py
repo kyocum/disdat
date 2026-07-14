@@ -10,11 +10,10 @@ import uuid
 
 import numpy as np
 import pytest
-from sqlalchemy import create_engine
 
 import disdat.hyperframe as hyperframe
 from disdat.common import BUNDLE_URI_SCHEME
-from disdat.hyperframe import r_pb_db, r_pb_fs, w_pb_db, w_pb_fs
+from disdat.hyperframe import make_engine, r_pb_db, r_pb_fs, w_pb_db, w_pb_fs
 
 
 def _make_linkauth_records():
@@ -320,7 +319,7 @@ def test_link_rw_pb():
 
 
 """ Create in-memory DB """
-engine_g = create_engine("sqlite:///:memory:", echo=True)
+engine_g = make_engine("sqlite:///:memory:", echo=True)
 
 
 def test_hframe_rw_db():

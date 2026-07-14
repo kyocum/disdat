@@ -16,12 +16,11 @@ import glob
 import json
 import os
 import shutil
+import sqlite3
 import urllib
 
-import boto3
 import numpy as np
 import pandas as pd
-from sqlalchemy import create_engine
 
 import disdat.common as common
 import disdat.constants as constants
@@ -44,8 +43,7 @@ class DataContext(object):
     all the objects.  Each context organizes its repository in the following way.
     .disdat/context/<context name>/objects/<uuid>/{uuid_hframes.pb, uuid_frames.pb, uuid_auths.pb}
 
-    For local operation, the context is indexed into a sqlite db.   For shared operation,
-    it may be indexed by a postgres database.
+    For local operation, the context is indexed into a sqlite db.
 
     It's only valid if we've written it to disk or read it from disk
 
@@ -79,12 +77,10 @@ class DataContext(object):
         self.local_ctxt = local_ctxt
         self.remote_ctxt_url = remote_ctxt_url
         self.local_engine = None
-        self.remote_engine = None
         self.valid = False
         self.len_uncommitted_history = DEFAULT_LEN_UNCOMMITTED_HISTORY
 
         self.init_local_db()
-        self.init_remote_db()
 
     @staticmethod
     def create_branch(ctxt_dir, local_ctxt_name):
@@ -338,30 +334,6 @@ class DataContext(object):
         """Return fully qualified context string"""
         return f"local [{self.local_ctxt}] remote [{self.remote_ctxt}@{self.remote_ctxt_url}/{self.remote_ctxt}]"
 
-    def init_remote_db(self):
-        """
-        Currently a no-op.  Will connect to something like dynamodb
-        when we have external indices for objects in cloud storage (aka S3).
-
-        Called when we first create a data_context object.
-        At this point it may or may not have a remote.
-        If we have a remote, then we assume AWS access.
-        If we have AWS access, then we try to associate with dynamo.
-
-        """
-        if self.remote_ctxt_url is None:
-            return
-
-        # Enable when we start to use Dynamo for an index.
-        if not self.remote_engine and False:
-            try:
-                self.remote_engine = boto3.resource(
-                    "dynamodb", endpoint_url="http://localhost:8000"
-                )
-            except Exception as e:
-                _logger.debug("Failed to get dynamo AWS resource: {}".format(e))
-        return
-
     def init_local_db(self, in_memory=False):
         """
         Initialize the data context's local database (sqlite).
@@ -369,16 +341,17 @@ class DataContext(object):
         Otherwise build db.
 
         Create db engine.  If no location, create in memory database engine.
-        Can be used with either a local, in memory, or remote db
 
         Examples
-        'postgresql://scott:tiger@localhost:5432/mydatabase'
         'sqlite:////absolute/path/to/foo.db'
         'sqlite:///:memory:'
 
+        The on-disk sqlite index is a rebuildable cache -- the protobuf files on
+        disk are the source of truth.  If the ctxt.db file is missing or is
+        corrupt/unreadable, we (re)build it by scanning the on-disk .pb files.
+
         Args:
-            in_memory: Directory where we expect the current context to be cached.
-            force_rebuild: Force the rebuild even if ctxt.db exists.
+            in_memory: Build an in-memory database from local state.
 
         Returns:
             None
@@ -387,19 +360,67 @@ class DataContext(object):
 
         if in_memory:
             _logger.debug("Building in-memory database from local state...")
-            self.local_engine = create_engine("sqlite:///:memory:", echo=False)
+            self.local_engine = hyperframe.make_engine("sqlite:///:memory:")
             self.rebuild_db()
         else:
             db_file = os.path.join(self._get_local_context_dir(), DB_FILE)
-            self.local_engine = create_engine("sqlite:///" + db_file, echo=False)
-            if not os.path.isfile(db_file):
-                _logger.debug("No disdat {} local db data file found.".format(db_file))
-                _logger.debug(
-                    "\t  Rebuilding local database from local state...".format(db_file)
+            # Capture existence *before* make_engine, which creates the file on
+            # connect. A missing file means a brand-new context to be built.
+            file_existed = os.path.isfile(db_file)
+            if file_existed and self._file_db_corrupt(db_file):
+                # The file exists but is not a valid sqlite database. Since the
+                # index is a rebuildable cache, delete it and rebuild below.
+                _logger.warning(
+                    "Local db {} is unreadable; rebuilding from local state.".format(
+                        db_file
+                    )
                 )
-                self.rebuild_db()
+                os.remove(db_file)
+                file_existed = False
+            self.local_engine = hyperframe.make_engine("sqlite:///" + db_file)
+            if not file_existed:
+                _logger.debug("No disdat {} local db data file found.".format(db_file))
+                _logger.debug("\t  Rebuilding local database from local state...")
+                # make_engine already created the (empty) db file on connect. If
+                # the rebuild fails partway, remove the half-built file so a
+                # later init does not mistake it for a complete index (a valid
+                # but incomplete sqlite db is not "corrupt", so _file_db_corrupt
+                # would not catch it) -- it will rebuild from scratch instead.
+                try:
+                    self.rebuild_db()
+                except Exception:
+                    self.local_engine.dispose()
+                    if os.path.isfile(db_file):
+                        os.remove(db_file)
+                    raise
         self.dbck()
         return
+
+    @staticmethod
+    def _file_db_corrupt(db_file):
+        """Whether an existing ctxt.db file fails to open as a sqlite database.
+
+        Distinguishes a genuinely corrupt/unreadable file (which must be deleted
+        and rebuilt) from a valid-but-empty database (which just needs its tables
+        created via rebuild_db, no delete). Only the former returns True.
+
+        Args:
+            db_file (str): Path to the ctxt.db file (assumed to exist).
+
+        Returns:
+            bool: True if the file is not a valid sqlite database.
+        """
+        try:
+            conn = sqlite3.connect(db_file)
+            try:
+                # Cheap header/integrity touch that fails on a non-sqlite file.
+                conn.execute("SELECT name FROM sqlite_master LIMIT 1").fetchone()
+            finally:
+                conn.close()
+            return False
+        except sqlite3.DatabaseError as e:
+            _logger.debug("Local db {} unreadable: {}".format(db_file, e))
+            return True
 
     @staticmethod
     def _weak_validate_hframe(hfr, found_frames_uuids):

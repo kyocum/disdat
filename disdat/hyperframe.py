@@ -46,21 +46,10 @@ from collections import defaultdict, namedtuple
 from collections.abc import Sequence
 from datetime import datetime
 
+import sqlite3
+
 import numpy as np
 import pandas as pd
-from sqlalchemy import (
-    BLOB,
-    Column,
-    DateTime,
-    Enum,
-    MetaData,
-    String,
-    Table,
-    Text,
-    UniqueConstraint,
-)
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.sql import text
 
 import disdat.common as common
 from disdat import hyperframe_pb2
@@ -89,6 +78,140 @@ class RecordState(enum.Enum):
     pending = 1
     valid = 2
     deleted = 3
+
+
+class _Table(object):
+    """A minimal table descriptor replacing the SQLAlchemy ``Table`` object.
+
+    Disdat only ever used SQLAlchemy Core to (a) emit ``CREATE TABLE`` DDL and
+    (b) key column->value row dicts by table name for inserts. This descriptor
+    carries exactly that: the table name and the ``CREATE TABLE`` statement.
+    Inserts build their column list from the row dict, so no column metadata is
+    needed here.
+
+    Attributes:
+        name (str): The table name.
+        create_sql (str): The ``CREATE TABLE IF NOT EXISTS`` statement.
+    """
+
+    def __init__(self, name, create_sql):
+        self.name = name
+        self.create_sql = create_sql
+
+
+class _SqliteConnection(object):
+    """Context-manager wrapper around a ``sqlite3.Connection``.
+
+    Mimics the small slice of the SQLAlchemy connection interface that disdat
+    used: a context manager yielding an object with ``.execute()``. When
+    ``transactional`` is True the wrapped block commits on clean exit and rolls
+    back on exception (SQLAlchemy 2.0 ``engine.begin()`` semantics); otherwise it
+    is a read connection that neither commits nor rolls back.
+
+    The underlying connection is owned by the :class:`_SqliteEngine` and is not
+    closed here -- the engine controls its lifetime.
+    """
+
+    def __init__(self, conn, transactional):
+        self._conn = conn
+        self._transactional = transactional
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._transactional:
+            if exc_type is None:
+                self._conn.commit()
+            else:
+                self._conn.rollback()
+        return False
+
+    def execute(self, sql, params=None):
+        """Execute a SQL statement.
+
+        Args:
+            sql (str): A raw SQL statement (no SQLAlchemy ``text()`` wrapper).
+            params: Optional parameter sequence/mapping for placeholders.
+
+        Returns:
+            sqlite3.Cursor: Supports iteration and ``fetchone()``.
+        """
+        if params is None:
+            return self._conn.execute(sql)
+        return self._conn.execute(sql, params)
+
+
+class _SqliteEngine(object):
+    """Thin stdlib-``sqlite3`` engine replacing the SQLAlchemy engine.
+
+    Exposes the slice of the SQLAlchemy engine interface disdat relied on:
+    ``connect()`` (read), ``begin()`` (write transaction), and ``dispose()``.
+    Constructed from the same ``sqlite:///`` URLs the code already builds.
+
+    An in-memory database (``sqlite:///:memory:``) lives only as long as its
+    connection, and the read/write flow reuses a single engine across
+    ``create_table`` -> ``w_pb_db`` -> ``r_pb_db`` calls. So we keep one
+    persistent connection for the lifetime of the engine (both in-memory and
+    file URLs), matching the previous single-engine behavior. ``row_factory`` is
+    set to :class:`sqlite3.Row` so rows support string-key access (``row["col"]``),
+    replacing SQLAlchemy's ``row._mapping``.
+
+    Args:
+        url (str): A ``sqlite:///:memory:`` or ``sqlite:///<path>`` URL.
+        echo (bool): Accepted for call-site compatibility with
+            ``create_engine(..., echo=...)``. When True, statement logging is
+            left to the caller; ignored here beyond a debug note.
+    """
+
+    _URL_PREFIX = "sqlite:///"
+
+    def __init__(self, url, echo=False):
+        if not url.startswith(self._URL_PREFIX):
+            raise ValueError("Unsupported database URL: {}".format(url))
+        target = url[len(self._URL_PREFIX) :]
+        if target == ":memory:":
+            self._path = ":memory:"
+        else:
+            self._path = target
+        self.echo = echo
+        # check_same_thread=False matches the prior SQLAlchemy sqlite engine,
+        # which created raw connections with the same setting; disdat may use a
+        # context's engine from a worker thread other than the one that built it.
+        self._conn = sqlite3.connect(self._path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+
+    def connect(self):
+        """Return a non-transactional connection context manager (reads)."""
+        return _SqliteConnection(self._conn, transactional=False)
+
+    def begin(self):
+        """Return a transactional connection context manager (writes).
+
+        Commits on clean exit, rolls back on exception.
+        """
+        return _SqliteConnection(self._conn, transactional=True)
+
+    def dispose(self):
+        """Close the underlying connection."""
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
+
+def make_engine(url, echo=False):
+    """Construct a :class:`_SqliteEngine` from a ``sqlite:///`` URL.
+
+    Drop-in for the previous ``sqlalchemy.create_engine`` calls.
+
+    Args:
+        url (str): A ``sqlite:///:memory:`` or ``sqlite:///<path>`` URL.
+        echo (bool): Accepted for compatibility; see :class:`_SqliteEngine`.
+
+    Returns:
+        _SqliteEngine
+    """
+    return _SqliteEngine(url, echo=echo)
 
 
 def r_pb_fs(file_path, read_pb_class, validate_cksum=False):
@@ -175,13 +298,66 @@ def is_hyperframe_pb_file(file):
     return False
 
 
+def _adapt_datetime(dt):
+    """Serialize a datetime to the exact string the old sqlite3 adapter produced.
+
+    We format explicitly (``YYYY-MM-DD HH:MM:SS[.ffffff]``, i.e. a space-separated
+    ISO string) rather than relying on sqlite3's default datetime adapter, which
+    is deprecated in Python 3.12+ and scheduled for removal. This reproduces the
+    prior on-disk representation byte-for-byte, including sub-second precision --
+    which matters: ``ORDER BY creation_date`` / ``maxbydate`` disambiguate
+    near-simultaneous bundle writes by the microsecond fraction, and the
+    ``before``/``after`` where-clause comparisons (formatted to whole seconds in
+    _where_clause) remain prefix-compatible with this representation, exactly as
+    before.
+    """
+    return dt.isoformat(sep=" ")
+
+
+def _adapt_value(v):
+    """Adapt a Python row value to a sqlite3-storable scalar.
+
+    - ``RecordState`` is stored by enum *name* (matching the prior SQLAlchemy
+      ``Enum(RecordState)`` on-disk representation).
+    - ``datetime`` is stored via :func:`_adapt_datetime`.
+    """
+    if isinstance(v, RecordState):
+        return v.name
+    if isinstance(v, datetime):
+        return _adapt_datetime(v)
+    return v
+
+
+def _insert_row(tbl, row, db_conn):
+    """Insert a single column->value row dict into a table.
+
+    Builds a parameterized ``INSERT INTO <tbl> (cols...) VALUES (?...)`` from the
+    row dict's keys. Values are adapted via :func:`_adapt_value`.
+
+    Args:
+        tbl (_Table): The target table descriptor.
+        row (dict): Column name -> value.
+        db_conn (_SqliteConnection): Open connection.
+
+    Returns:
+        sqlite3.Cursor
+    """
+    cols = list(row.keys())
+    values = [_adapt_value(v) for v in row.values()]
+    placeholders = ", ".join("?" for _ in cols)
+    sql = "INSERT INTO {} ({}) VALUES ({})".format(
+        tbl.name, ", ".join(cols), placeholders
+    )
+    return db_conn.execute(sql, values)
+
+
 def _sql_write_tbl_rows(pb_tbls, pb_rows, db_conn):
     """
-    NOTE: May throw sqlalchemy exceptions.  Caller should use try: except: clause.
+    NOTE: May throw sqlite3.IntegrityError.  Caller should use try: except: clause.
     Args:
-        pb_tbls:
-        pb_rows:
-        db_conn:
+        pb_tbls (Union[dict[str, _Table], _Table]): table descriptor(s)
+        pb_rows: dict of list-of-rows (keyed by table name) or a single row dict
+        db_conn (_SqliteConnection):
 
     Returns:
 
@@ -191,14 +367,12 @@ def _sql_write_tbl_rows(pb_tbls, pb_rows, db_conn):
         results = []
         for k, tbl in pb_tbls.items():  # dict of tables
             for r in pb_rows[k]:  # dict of list of rows
-                ins = tbl.insert()
-                results.append(db_conn.execute(ins, r))
+                results.append(_insert_row(tbl, r, db_conn))
     else:
         assert type(pb_tbls) is not list
         assert type(pb_tbls) is not tuple
-        ins = pb_tbls.insert()
         results = [
-            db_conn.execute(ins, pb_rows),
+            _insert_row(pb_tbls, pb_rows, db_conn),
         ]
     return results
 
@@ -237,7 +411,7 @@ def w_pb_db(pb_record, engine_g):
         for pb_tbls, pb_rows in all_inserts:
             try:
                 results.append(_sql_write_tbl_rows(pb_tbls, pb_rows, db_conn))
-            except IntegrityError as ie:
+            except sqlite3.IntegrityError as ie:
                 _logger.info(
                     "Writing class pb to table encountered error {}".format(ie)
                 )
@@ -257,12 +431,10 @@ def r_pb_db(pb_cls, engine_g):
         results (list): a list of xxxRecord objects
 
     """
-    from sqlalchemy.sql import text
-
-    s = text("SELECT * from {}".format(pb_cls.table_name))
+    s = "SELECT * from {}".format(pb_cls.table_name)
 
     with engine_g.connect() as conn:
-        result = conn.execute(s)
+        result = conn.execute(s).fetchall()
 
     lars = pb_cls.from_row(result)
 
@@ -408,7 +580,7 @@ def _tag_query(tags):
 
 def bundle_count(engine_g):
 
-    s = text("SELECT count(*) FROM {}".format(HFRAMES_TABLE))
+    s = "SELECT count(*) FROM {}".format(HFRAMES_TABLE)
 
     with engine_g.connect() as conn:
         result = conn.execute(s)
@@ -491,16 +663,14 @@ def select_hfr_db(
             + " ON a.human_name = b.hn AND a.creation_date = b.max_date "
         )
 
-    s = text(
-        "SELECT {} FROM {} {} {} {} {}".format(
-            select, pb_cls.table_name, sub_q, where, groupby, orderby
-        )
+    s = "SELECT {} FROM {} {} {} {} {}".format(
+        select, pb_cls.table_name, sub_q, where, groupby, orderby
     )
 
     # print ("Query {}".format(s))
 
     with engine_g.connect() as conn:
-        result = conn.execute(s)
+        result = conn.execute(s).fetchall()
         hfrs = pb_cls.from_row(result)  # returns rows if no pb in rows
 
     return hfrs
@@ -530,11 +700,9 @@ def update_hfr_db(
 
     where = _where_clause(uuid, owner, human_name, processing_name)
 
-    s = text(
-        'UPDATE {} SET state = "{}" {}'.format(pb_cls.table_name, state.name, where)
-    )
+    s = 'UPDATE {} SET state = "{}" {}'.format(pb_cls.table_name, state.name, where)
 
-    # SQLAlchemy 2.0 no longer autocommits on connect(); begin() commits on exit.
+    # begin() commits on clean exit, rolls back on exception.
     with engine_g.begin() as conn:
         result = conn.execute(s)
 
@@ -570,14 +738,14 @@ def delete_hfr_db(
     if where == "":
         raise Exception("HFrame DB Delete requires a valid where clause")
 
-    hfr_del = text("DELETE FROM {} {}".format(pb_cls.table_name, where))
+    hfr_del = "DELETE FROM {} {}".format(pb_cls.table_name, where)
 
     where = _where_clause(uuid)
 
-    tag_del = text("DELETE FROM {} {}".format(pb_cls.table_name + "_tags", where))
+    tag_del = "DELETE FROM {} {}".format(pb_cls.table_name + "_tags", where)
 
     results = []
-    # SQLAlchemy 2.0 no longer autocommits on connect(); begin() commits on exit.
+    # begin() commits on clean exit, rolls back on exception.
     with engine_g.begin() as conn:
         results.append(conn.execute(hfr_del))
         results.append(conn.execute(tag_del))
@@ -600,9 +768,9 @@ def delete_fr_db(engine_g, hfr_uuid):
 
     where = "WHERE hframe_uuid {}".format(_translate(hfr_uuid))
 
-    fr_del = text("DELETE FROM {} {}".format(pb_cls.table_name, where))
+    fr_del = "DELETE FROM {} {}".format(pb_cls.table_name, where)
 
-    # SQLAlchemy 2.0 no longer autocommits on connect(); begin() commits on exit.
+    # begin() commits on clean exit, rolls back on exception.
     with engine_g.begin() as conn:
         results = conn.execute(fr_del)
 
@@ -839,19 +1007,16 @@ class PBObject(object):
         pass
 
     @staticmethod
-    def _create_table(metadata):
+    def _create_table():
         """
         **IMPLEMENTED BY USER**
-        Create unbound sqlalchemy table object
+        Return the table descriptor(s) for this PB object.
         For a PB object, we keep track of external key and any
         other items we want to have in the database beyond the
         byte blob or file pointer for the PB object.
 
-        Args:
-            metadata:
-
         Returns:
-            sqlalchemy.Table or dict[str:<table>, sqlalchemy.Table]
+            _Table or dict[str, _Table]
         """
 
         raise NotImplementedError
@@ -891,46 +1056,45 @@ class PBObject(object):
     def create_table(cls, db_engine):
         """
         Do not over-ride
-        Create the table that the inheriting class has set up
-        in _create_table(cls, metadata).  _create_table() may
-        create multiple tables.
+        Create the table(s) that the inheriting class has set up
+        in _create_table().  _create_table() may create multiple tables.
 
         Args:
-            db_engine: sqlalchemy engine
+            db_engine (_SqliteEngine):
 
         Returns:
             None
         """
-        metadata = MetaData()
-        metadata.bind = db_engine
-        _ = cls._create_table(metadata)
-        metadata.create_all(bind=db_engine)
+        pb_tbls = cls._create_table()
+        if type(pb_tbls) is dict:
+            tables = list(pb_tbls.values())
+        else:
+            tables = [pb_tbls]
+        # begin() commits on clean exit, rolls back on exception.
+        with db_engine.begin() as conn:
+            for tbl in tables:
+                conn.execute(tbl.create_sql)
 
     def write_row(self, state):
         """
         Do not over-ride
-        Given sqlalchemy connection, execute write.
+        Gather the table descriptor(s) and row value(s) to write.
 
         Some pb's write to multiple tables and multiple rows.
         So some pb's _create_table and _write_row will return a dictionary
         referring to the table and the rows to insert into that table.
 
         You set the state on your in-memory copy when you write to the db.
-        You set the state on your in-memory copy when you read from the cb.
-
-        We use sqlite at the moment, so
-        https://docs.sqlalchemy.org/en/latest/dialects/sqlite.html
-        See ON CONFLICT support for constraints
+        You set the state on your in-memory copy when you read from the db.
 
         Args:
             state (enum): invalid, valid, pending, deleted
 
         Returns:
-            pb_tbl, pb_rows:   #conn.execute result
+            pb_tbls, pb_rows: descriptor(s) and row dict(s) for _sql_write_tbl_rows
         """
-        metadata = MetaData()
         self.state = state
-        pb_tbls = self._create_table(metadata)
+        pb_tbls = self._create_table()
         pb_rows = self._write_row()
 
         return pb_tbls, pb_rows
@@ -974,9 +1138,9 @@ class PBObject(object):
         return obj
 
     @classmethod
-    def from_row(cls, sa_result):
+    def from_row(cls, rows):
         """
-        Given sqlalchemy row, instantiate a cls
+        Given sqlite3.Row rows, instantiate a cls
         Since these are small, we store the LAB as a blob
         and instantiate from it.
 
@@ -988,29 +1152,29 @@ class PBObject(object):
         with a protobuf in it.
 
         Args:
-           sa_result:  a sqlalchemy result object
+           rows: an iterable of sqlite3.Row objects
 
         Returns:
             [obj, ]
         """
         objs = []
-        for row in sa_result:
-            # SQLAlchemy 2.0: key membership/lookup is on row._mapping, not the
-            # Row itself (`in`/[] on a Row operate on positional values).
-            row_map = row._mapping
-            if "pb" in row_map:
-                pb = row_map["pb"]
+        for row in rows:
+            # sqlite3.Row: membership tests go through .keys(); `in row` iterates
+            # values. Column access is by string key (row["col"]).
+            if "pb" in row.keys():
+                pb = row["pb"]
                 if isinstance(pb, str):
                     pb = pb.encode("utf8")
                 elif isinstance(pb, memoryview):
                     pb = pb.tobytes()
                 obj = cls.from_str_bytes(pb)
-                obj.state = row_map["state"]
+                # state was stored by enum name (see _insert_row); restore it.
+                obj.state = RecordState[row["state"]]
             else:
-                # Non-pb rows (e.g. grouped name queries): return the mapping,
-                # not the raw Row. SQLAlchemy 2.0 Row has no string-key access,
-                # so callers doing row["human_name"] need the RowMapping.
-                obj = row_map
+                # Non-pb rows (e.g. grouped name queries): return the sqlite3.Row,
+                # which supports string-key access (row["human_name"]) that callers
+                # depend on.
+                obj = row
             objs.append(obj)
         return objs
 
@@ -1261,37 +1425,32 @@ class HyperFrameRecord(PBObject):
         return HyperFrameRecord.make_filename(self.pb.uuid)
 
     @staticmethod
-    def _create_table(metadata):
+    def _create_table():
         """
-        Create hframe table
-        Create tags table
+        Create hframe table descriptor
+        Create tags table descriptor
 
-        :return: Table
+        :return: dict[str, _Table]
         """
-        hframes = Table(
+        hframes = _Table(
             HyperFrameRecord.table_name,
-            metadata,
-            Column(
-                "uuid", String(50), primary_key=True
-            ),  # sqlite_on_conflict_primary_key=UPSERT_POLICY),
-            Column("owner", String),
-            Column("human_name", String),
-            Column("processing_name", String),
-            Column("creation_date", DateTime),  # TIMESTAMP),
-            Column("state", Enum(RecordState)),
-            Column("pb", BLOB),
+            "CREATE TABLE IF NOT EXISTS {} ("
+            "uuid TEXT PRIMARY KEY, "
+            "owner TEXT, "
+            "human_name TEXT, "
+            "processing_name TEXT, "
+            "creation_date TEXT, "
+            "state TEXT, "
+            "pb BLOB)".format(HyperFrameRecord.table_name),
         )
 
-        tags = Table(
+        tags = _Table(
             HyperFrameRecord.table_name + "_tags",
-            metadata,
-            Column("key", String),
-            Column("uuid", String(50)),
-            Column("value", String),
-            # explicit/composite unique constraint.  'name' is optional.
-            UniqueConstraint(
-                "key", "uuid", name="uix_1"
-            ),  # , sqlite_on_conflict=UPSERT_POLICY)
+            "CREATE TABLE IF NOT EXISTS {} ("
+            "key TEXT, "
+            "uuid TEXT, "
+            "value TEXT, "
+            "UNIQUE (key, uuid))".format(HyperFrameRecord.table_name + "_tags"),
         )
 
         return {
@@ -1599,26 +1758,23 @@ class LineageRecord(PBObject):
             self.add_dependencies(depends_on)
 
     @staticmethod
-    def _create_table(metadata):
+    def _create_table():
         """
-        Create unbound table object
+        Create table descriptor
         Only enter the items that we want to index / search on
-        :return: Table
+        :return: _Table
         """
-        lineage = Table(
+        return _Table(
             LineageRecord.table_name,
-            metadata,
-            Column(
-                "hframe_uuid", String(50), primary_key=True
-            ),  # sqlite_on_conflict_primary_key=UPSERT_POLICY),
-            Column("hframe_proc_name", String),
-            Column("code_repo", String),
-            Column("code_hash", String(50)),
-            Column("creation_date", DateTime),  # TIMESTAMP),
-            Column("state", Enum(RecordState)),
-            Column("pb", BLOB),
+            "CREATE TABLE IF NOT EXISTS {} ("
+            "hframe_uuid TEXT PRIMARY KEY, "
+            "hframe_proc_name TEXT, "
+            "code_repo TEXT, "
+            "code_hash TEXT, "
+            "creation_date TEXT, "
+            "state TEXT, "
+            "pb BLOB)".format(LineageRecord.table_name),
         )
-        return lineage
 
     @staticmethod
     def _pb_type():
@@ -1773,30 +1929,24 @@ class FrameRecord(PBObject):
         self.pb.hash = hashlib.md5(self.pb.SerializeToString()).hexdigest()
 
     @staticmethod
-    def _create_table(metadata):
+    def _create_table():
         """
-        Create unbound table object
-
-        Args:
-            metadata:
+        Create table descriptor
 
         Returns:
-            Table
+            _Table
 
         """
 
-        frame_tbl = Table(
+        return _Table(
             FrameRecord.table_name,
-            metadata,
-            Column(
-                "uuid", String(50), primary_key=True
-            ),  # sqlite_on_conflict_primary_key=UPSERT_POLICY),
-            Column("hframe_uuid", String(50)),
-            Column("name", String),
-            Column("state", Enum(RecordState)),
-            Column("pb", BLOB),
+            "CREATE TABLE IF NOT EXISTS {} ("
+            "uuid TEXT PRIMARY KEY, "
+            "hframe_uuid TEXT, "
+            "name TEXT, "
+            "state TEXT, "
+            "pb BLOB)".format(FrameRecord.table_name),
         )
-        return frame_tbl
 
     @staticmethod
     def _pb_type():
@@ -2336,9 +2486,9 @@ link     -- link information referencing hframe
 linkauth -- unique linkauth records, links may refer to them by uuid, but policy
             may dictate whether the user can get access to the linkauth.
 
-We use SqlAlchemy to give us one way of interacting with a database.   The user may have
-a database locally (sqlite) but we might have a server (postgres) that also has these tables.
-To have our objects be read/written identically we leverage sqlalchemy's core.
+We use Python's stdlib sqlite3 to interact with the local per-context index
+database.  Each record type declares its schema and row layout so objects are
+read/written identically across the record classes.
 
 Each object has a
 write_row(connection) - uses existing connection to write the row
@@ -2363,22 +2513,19 @@ class LinkAuthBase(PBObject):
         self.pb = self._pb_type()
 
     @staticmethod
-    def _create_table(metadata):
+    def _create_table():
         """
-        Create unbound table object
-        :return: Table
+        Create table descriptor
+        :return: _Table
         """
-        linkauth = Table(
+        return _Table(
             LinkAuthBase.table_name,
-            metadata,
-            Column(
-                "uuid", String(50), primary_key=True
-            ),  # sqlite_on_conflict_primary_key=UPSERT_POLICY),
-            Column("profile", String),
-            Column("state", Enum(RecordState)),
-            Column("pb", BLOB),
+            "CREATE TABLE IF NOT EXISTS {} ("
+            "uuid TEXT PRIMARY KEY, "
+            "profile TEXT, "
+            "state TEXT, "
+            "pb BLOB)".format(LinkAuthBase.table_name),
         )
-        return linkauth
 
     @staticmethod
     def _pb_type():
@@ -2487,25 +2634,23 @@ class LinkBase(PBObject):
         self.pb.linkauth_uuid = linkauth_uuid
 
     @staticmethod
-    def _create_table(metadata):
+    def _create_table():
         """
-        id   -- primary key auto-increment
         frame_uuid -- hyperframe uuid
         linkauth_uuid -- linkauth uuid
         url  -- Most links have some form of URL
         pb   -- protocol buffer blob
-        :return: Table
+        :return: _Table
         """
-        link = Table(
+        return _Table(
             LinkBase.table_name,
-            metadata,
-            Column("frame_uuid", String(50)),
-            Column("linkauth_uuid", String(50)),
-            Column("url", Text),
-            Column("state", Enum(RecordState)),
-            Column("pb", BLOB),
+            "CREATE TABLE IF NOT EXISTS {} ("
+            "frame_uuid TEXT, "
+            "linkauth_uuid TEXT, "
+            "url TEXT, "
+            "state TEXT, "
+            "pb BLOB)".format(LinkBase.table_name),
         )
-        return link
 
     @staticmethod
     def _pb_type():
