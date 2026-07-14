@@ -2,11 +2,13 @@
 Test for hyperframe implementations.
 """
 
+import calendar
 import hashlib
 import os
 import shutil
 import tempfile
 import uuid
+from datetime import datetime
 
 import numpy as np
 import pytest
@@ -435,6 +437,154 @@ def test_link_rw_db():
 
     assert local_hash == local_hash2
     assert s3_hash == s3_hash2
+
+
+##########################################
+# sqlite3 migration coverage (rm-sqla)
+#
+# These exercise the query shapes and transaction semantics that the
+# SQLAlchemy -> stdlib sqlite3 migration reimplemented, which the pre-existing
+# round-trip tests above did not cover directly:
+#   - select_hfr_db date filtering / ordering / maxbydate (depends on the
+#     _adapt_datetime string format used for the creation_date column)
+#   - tag-filtered select (_tag_query sub-select)
+#   - update_hfr_db state transition + RecordState read-back
+#   - _SqliteEngine.begin() rollback on exception
+##########################################
+
+
+def _write_hframe(engine, name, creation_ts, tags=None):
+    """Create+write an hframe with a controlled creation timestamp."""
+    hf = _make_hframe_record(name, tags=tags)
+    # _write_row converts pb.lineage.creation_date (epoch float) via
+    # datetime.utcfromtimestamp -> _adapt_datetime for the creation_date column.
+    hf.pb.lineage.creation_date = creation_ts
+    w_pb_db(hf, engine)
+    return hf
+
+
+def test_select_date_filter_and_order():
+    """before/after filtering and orderby depend on the creation_date TEXT
+    format produced by _adapt_datetime; assert they select/sort correctly.
+    """
+    engine = make_engine("sqlite:///:memory:")
+    hyperframe.HyperFrameRecord.create_table(engine)
+
+    # Three bundles at distinct, known times (seconds apart).
+    t_old = calendar.timegm(datetime(2020, 1, 1, 0, 0, 0).timetuple())
+    t_mid = calendar.timegm(datetime(2021, 6, 15, 12, 0, 0).timetuple())
+    t_new = calendar.timegm(datetime(2022, 12, 31, 23, 59, 59).timetuple())
+    _write_hframe(engine, "old", t_old)
+    _write_hframe(engine, "mid", t_mid)
+    _write_hframe(engine, "new", t_new)
+
+    # orderby -> newest first
+    ordered = hyperframe.select_hfr_db(engine, orderby=True)
+    names = [h.pb.human_name for h in ordered]
+    assert names == ["new", "mid", "old"], names
+
+    # after= keeps only records on/after mid
+    after_mid = hyperframe.select_hfr_db(engine, after=datetime(2021, 1, 1, 0, 0, 0))
+    assert sorted(h.pb.human_name for h in after_mid) == ["mid", "new"]
+
+    # before= keeps only records on/before mid
+    before_mid = hyperframe.select_hfr_db(engine, before=datetime(2022, 1, 1, 0, 0, 0))
+    assert sorted(h.pb.human_name for h in before_mid) == ["mid", "old"]
+
+    engine.dispose()
+
+
+def test_select_maxbydate_latest_per_name():
+    """maxbydate returns the most recent bundle per human_name.
+
+    The two writes are only microseconds apart (within the same wall-clock
+    second) -- the real-world "add the same bundle name twice in quick
+    succession" case. The sub-select joins on max(creation_date), so it relies
+    on the stored creation_date preserving sub-second precision AND ordering
+    lexicographically the same as chronologically. If _adapt_datetime dropped
+    the microsecond fraction, both rows would share an identical timestamp and
+    the "latest" tie-break would be ambiguous (this test would fail).
+    """
+    engine = make_engine("sqlite:///:memory:")
+    hyperframe.HyperFrameRecord.create_table(engine)
+
+    base = calendar.timegm(datetime(2022, 1, 1, 0, 0, 0).timetuple())
+    older = base + 0.001  # same second ...
+    newer = base + 0.900  # ... 0.899s later
+    _write_hframe(engine, "shared", older)
+    latest = _write_hframe(engine, "shared", newer)
+
+    found = hyperframe.select_hfr_db(engine, human_name="shared", maxbydate=True)
+    assert len(found) == 1
+    assert found[0].pb.uuid == latest.pb.uuid
+
+    engine.dispose()
+
+
+def test_select_by_tags():
+    """Tag-filtered select exercises the _tag_query uuid sub-select."""
+    engine = make_engine("sqlite:///:memory:")
+    hyperframe.HyperFrameRecord.create_table(engine)
+
+    ts = calendar.timegm(datetime(2022, 1, 1, 0, 0, 0).timetuple())
+    _write_hframe(engine, "green", ts, tags={"color": "green"})
+    _write_hframe(engine, "red", ts, tags={"color": "red"})
+
+    found = hyperframe.select_hfr_db(engine, tags={"color": "green"})
+    assert len(found) == 1
+    assert found[0].pb.human_name == "green"
+
+    engine.dispose()
+
+
+def test_update_state_roundtrip():
+    """update_hfr_db writes a new state; from_row reads it back as a
+    RecordState enum (stored/read by name).
+    """
+    engine = make_engine("sqlite:///:memory:")
+    hyperframe.HyperFrameRecord.create_table(engine)
+
+    ts = calendar.timegm(datetime(2022, 1, 1, 0, 0, 0).timetuple())
+    hf = _write_hframe(engine, "to_delete", ts)
+
+    # Freshly written rows are valid.
+    got = hyperframe.select_hfr_db(engine, uuid=hf.pb.uuid)
+    assert len(got) == 1
+    assert got[0].state == hyperframe.RecordState.valid
+
+    hyperframe.update_hfr_db(
+        engine, hyperframe.RecordState.deleted, uuid=hf.pb.uuid
+    )
+
+    got = hyperframe.select_hfr_db(engine, uuid=hf.pb.uuid)
+    assert len(got) == 1
+    assert got[0].state == hyperframe.RecordState.deleted
+
+    engine.dispose()
+
+
+def test_begin_rolls_back_on_exception():
+    """_SqliteEngine.begin() must roll back the transaction if the block raises,
+    leaving no partial write behind.
+    """
+    engine = make_engine("sqlite:///:memory:")
+    hyperframe.HyperFrameRecord.create_table(engine)
+
+    assert hyperframe.bundle_count(engine) == 0
+
+    with pytest.raises(RuntimeError):
+        with engine.begin() as conn:
+            conn.execute(
+                "INSERT INTO hframes (uuid, owner, human_name, "
+                "processing_name, creation_date, state, pb) "
+                "VALUES ('u1', 'o', 'h', 'p', '2022-01-01 00:00:00', 'valid', NULL)"
+            )
+            raise RuntimeError("boom")
+
+    # The insert must have been rolled back.
+    assert hyperframe.bundle_count(engine) == 0
+
+    engine.dispose()
 
 
 if __name__ == "__main__":

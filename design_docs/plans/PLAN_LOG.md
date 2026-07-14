@@ -14,5 +14,5 @@ discipline. Status advances forward only: `created` → `implemented` →
 | 5 | py314 / Phase 4: test & verify across versions | `design_docs/plans/py-3.10-3.14-migration.plan.md` | 2026-06-11 | 2026-06-23 | `22a1100` | committed |
 | 6 | py314 / Phase 5: CI matrix + publish update | `design_docs/plans/py-3.10-3.14-migration.plan.md` | 2026-06-11 | 2026-06-23 | `ba826ba` | committed |
 | 7 | rm-sqla / Phase 0: plan scaffolding | `design_docs/plans/remove-sqlalchemy.plan.md` | 2026-07-13 | 2026-07-13 | `06638e5` | committed |
-| 8 | rm-sqla / Phase 1: sqlite3 layer (replace SQLAlchemy) | `design_docs/plans/remove-sqlalchemy.plan.md` | 2026-07-13 | 2026-07-14 | `be360f0` | implemented |
-| 9 | rm-sqla / Phase 2: drop sqlalchemy dependency | `design_docs/plans/remove-sqlalchemy.plan.md` | 2026-07-13 | - | - | created |
+| 8 | rm-sqla / Phase 1: sqlite3 layer (replace SQLAlchemy) | `design_docs/plans/remove-sqlalchemy.plan.md` | 2026-07-13 | 2026-07-14 | `8bcf618` | committed |
+| 9 | rm-sqla / Phase 2: drop sqlalchemy dependency | `design_docs/plans/remove-sqlalchemy.plan.md` | 2026-07-13 | 2026-07-14 | - | implemented |
