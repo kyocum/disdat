@@ -202,8 +202,6 @@ class _SqliteEngine(object):
 def make_engine(url, echo=False):
     """Construct a :class:`_SqliteEngine` from a ``sqlite:///`` URL.
 
-    Drop-in for the previous ``sqlalchemy.create_engine`` calls.
-
     Args:
         url (str): A ``sqlite:///:memory:`` or ``sqlite:///<path>`` URL.
         echo (bool): Accepted for compatibility; see :class:`_SqliteEngine`.
