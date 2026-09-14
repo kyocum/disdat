@@ -14,15 +14,19 @@
 # limitations under the License.
 #
 
+import logging
 import os
 import pathlib
 from time import time
+from types import SimpleNamespace
 from typing import List
 
 import boto3
+import botocore
 import pytest
 
 import disdat.api as api
+import disdat.utility.aws_s3 as aws_s3
 from disdat.common import create_uuid
 from disdat.utility.aws_s3 import (
     delete_s3_dir_many,
@@ -156,6 +160,165 @@ def _delete_s3_paths(s3_client, s3_paths):
     print(f"Elapsed: {end-start}")
     objects = s3_client.list_objects(Bucket=TEST_BUCKET, MaxKeys=MAX_KEYS)
     assert "Contents" not in objects
+
+
+# Tests for issue #223: AWS Error.Code must not be cast to int.
+#
+# `head_bucket` and `Object.load` report a missing object with the numeric-string
+# code '404', but service-level failures use symbolic codes ('ServiceUnavailable',
+# 'AccessDenied', ...). Casting the code to int raised ValueError on those,
+# replacing the real ClientError and leaving it only on __context__.
+
+
+def _client_error(code, operation):
+    """Build a botocore ClientError carrying `code` as its Error.Code."""
+    return botocore.exceptions.ClientError(
+        {"Error": {"Code": code, "Message": "synthetic {}".format(code)}},
+        operation,
+    )
+
+
+@pytest.mark.parametrize(
+    "code", ["ServiceUnavailable", "SlowDown", "InternalError", "InvalidAccessKeyId"]
+)
+def test_bucket_exists_propagates_non_numeric_error_code(monkeypatch, code):
+    """A non-numeric Error.Code must surface as the original ClientError."""
+
+    class _Stub:
+        def head_bucket(self, Bucket):
+            raise _client_error(code, "HeadBucket")
+
+    monkeypatch.setattr(
+        aws_s3, "get_s3_resource", lambda: SimpleNamespace(meta=SimpleNamespace(client=_Stub()))
+    )
+
+    with pytest.raises(botocore.exceptions.ClientError) as excinfo:
+        aws_s3.s3_bucket_exists("any-bucket")
+
+    assert excinfo.value.response["Error"]["Code"] == code
+
+
+@pytest.mark.parametrize("code", ["ServiceUnavailable", "SlowDown", "InternalError"])
+def test_path_exists_propagates_non_numeric_error_code(monkeypatch, code):
+    """s3_path_exists has the same cast; it must also propagate."""
+
+    class _Obj:
+        def load(self):
+            raise _client_error(code, "HeadObject")
+
+    monkeypatch.setattr(
+        aws_s3, "get_s3_resource", lambda: SimpleNamespace(Object=lambda b, k: _Obj())
+    )
+
+    with pytest.raises(botocore.exceptions.ClientError) as excinfo:
+        aws_s3.s3_path_exists("s3://some-bucket/some/key")
+
+    assert excinfo.value.response["Error"]["Code"] == code
+
+
+@pytest.mark.parametrize("code", ["NoSuchBucket", "404"])
+def test_bucket_exists_false_for_missing_bucket_codes(monkeypatch, code):
+    """Both the numeric and symbolic 'missing' codes mean False, not an error."""
+
+    class _Stub:
+        def head_bucket(self, Bucket):
+            raise _client_error(code, "HeadBucket")
+
+    monkeypatch.setattr(
+        aws_s3, "get_s3_resource", lambda: SimpleNamespace(meta=SimpleNamespace(client=_Stub()))
+    )
+
+    assert aws_s3.s3_bucket_exists("missing-bucket") is False
+
+
+@pytest.mark.parametrize("code", ["AccessDenied", "403"])
+def test_bucket_exists_false_for_forbidden_codes(monkeypatch, code):
+    """403/AccessDenied is treated as 'not visible to us', not an exception."""
+
+    class _Stub:
+        def head_bucket(self, Bucket):
+            raise _client_error(code, "HeadBucket")
+
+    monkeypatch.setattr(
+        aws_s3, "get_s3_resource", lambda: SimpleNamespace(meta=SimpleNamespace(client=_Stub()))
+    )
+
+    assert aws_s3.s3_bucket_exists("forbidden-bucket") is False
+
+
+def test_bucket_exists_raises_for_suspended_account(monkeypatch):
+    """AllAccessDisabled means the account is suspended, not that the bucket is
+    absent. It must raise rather than be reported as a missing bucket, so the
+    operator sees the real cause."""
+
+    class _Stub:
+        def head_bucket(self, Bucket):
+            raise _client_error("AllAccessDisabled", "HeadBucket")
+
+    monkeypatch.setattr(
+        aws_s3,
+        "get_s3_resource",
+        lambda: SimpleNamespace(meta=SimpleNamespace(client=_Stub())),
+    )
+
+    with pytest.raises(botocore.exceptions.ClientError) as excinfo:
+        aws_s3.s3_bucket_exists("suspended-bucket")
+
+    assert excinfo.value.response["Error"]["Code"] == "AllAccessDisabled"
+
+
+def test_bucket_exists_logs_url_before_propagating(monkeypatch, caplog):
+    """The propagating branch must name the bucket it was checking."""
+
+    class _Stub:
+        def head_bucket(self, Bucket):
+            raise _client_error("ServiceUnavailable", "HeadBucket")
+
+    monkeypatch.setattr(
+        aws_s3,
+        "get_s3_resource",
+        lambda: SimpleNamespace(meta=SimpleNamespace(client=_Stub())),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(botocore.exceptions.ClientError):
+            aws_s3.s3_bucket_exists("noisy-bucket")
+
+    assert "noisy-bucket" in caplog.text
+    assert "ServiceUnavailable" in caplog.text
+
+
+def test_path_exists_logs_url_before_propagating(monkeypatch, caplog):
+    """Same for s3_path_exists: the failing URL must appear in the log."""
+
+    class _Obj:
+        def load(self):
+            raise _client_error("ServiceUnavailable", "HeadObject")
+
+    monkeypatch.setattr(
+        aws_s3, "get_s3_resource", lambda: SimpleNamespace(Object=lambda b, k: _Obj())
+    )
+
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(botocore.exceptions.ClientError):
+            aws_s3.s3_path_exists("s3://noisy-bucket/some/key")
+
+    assert "s3://noisy-bucket/some/key" in caplog.text
+
+
+@pytest.mark.parametrize("code", ["NoSuchKey", "404"])
+def test_path_exists_false_for_missing_key_codes(monkeypatch, code):
+    """A missing key is False for both the numeric and symbolic codes."""
+
+    class _Obj:
+        def load(self):
+            raise _client_error(code, "HeadObject")
+
+    monkeypatch.setattr(
+        aws_s3, "get_s3_resource", lambda: SimpleNamespace(Object=lambda b, k: _Obj())
+    )
+
+    assert aws_s3.s3_path_exists("s3://some-bucket/some/key") is False
 
 
 if __name__ == "__main__":

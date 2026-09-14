@@ -17,9 +17,23 @@ import os
 import urllib
 
 import boto3 as b3
+import botocore.exceptions
 
 from disdat import log
 from disdat import logger as _logger
+
+# AWS spells "missing" and "forbidden" either numerically or symbolically
+# depending on the operation: HEAD requests carry no XML body, so botocore
+# synthesizes '404' / '403' from the HTTP status, while GET and LIST return
+# codes like NoSuchKey and NoSuchBucket. Both spellings mean the same thing
+# here, so each set covers them.
+#
+# Every code outside these sets is a genuine service failure and must reach the
+# caller unchanged -- including AllAccessDisabled (a suspended account), which
+# is deliberately absent: reporting it as "bucket does not exist" would hide
+# the real cause from the operator.
+_S3_NOT_FOUND_CODES = frozenset(("404", "NoSuchBucket", "NoSuchKey", "NotFound"))
+_S3_FORBIDDEN_CODES = frozenset(("403", "AccessDenied"))
 
 S3_LS_USE_MP_THRESH = (
     2000  # the threshold after which we should use MP to look up bundles on s3
@@ -96,8 +110,6 @@ def s3_path_exists(s3_url):
     Returns:
 
     """
-    import botocore
-
     s3 = get_s3_resource()
     bucket, key = split_s3_url(s3_url)
     if key is None:
@@ -106,11 +118,17 @@ def s3_path_exists(s3_url):
     try:
         s3.Object(bucket, key).load()
     except botocore.exceptions.ClientError as e:
-        error_code = int(e.response["Error"]["Code"])
-        _logger.info("Error code {}".format(error_code))
-        if error_code == 404:
+        error_code = e.response["Error"]["Code"]
+        if error_code in _S3_NOT_FOUND_CODES:
             return False
         else:
+            # Not a "missing object" answer: log which URL failed, then let the
+            # real AWS error propagate.
+            _logger.warning(
+                "aws_s3: existence check for {} failed with code {}".format(
+                    s3_url, error_code
+                )
+            )
             raise
 
     return True
@@ -127,17 +145,15 @@ def s3_bucket_exists(bucket):
         bool: whether bucket exists
 
     """
-    import botocore
-
     s3 = get_s3_resource()
     exists = True
     try:
         s3.meta.client.head_bucket(Bucket=bucket)
     except botocore.exceptions.ClientError as e:
-        error_code = int(e.response["Error"]["Code"])
-        if error_code == 404:
+        error_code = e.response["Error"]["Code"]
+        if error_code in _S3_NOT_FOUND_CODES:
             exists = False
-        elif error_code == 403:
+        elif error_code in _S3_FORBIDDEN_CODES:
             # for buckets you can get a forbidden instead of resource not found
             # if you have the s3:ListBucket permission on the bucket, Amazon S3 will return a
             # HTTP status code 404 ("no such key") error. If you don't have the s3:ListBucket permission,
@@ -149,6 +165,13 @@ def s3_bucket_exists(bucket):
             )
             exists = False
         else:
+            # Not an answer about existence: log which bucket failed, then let
+            # the real AWS error propagate.
+            _logger.warning(
+                "aws_s3: existence check for bucket {} failed with code {}".format(
+                    bucket, error_code
+                )
+            )
             raise
     return exists
 
