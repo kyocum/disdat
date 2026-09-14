@@ -14,6 +14,7 @@
 # limitations under the License.
 #
 
+import logging
 import os
 import pathlib
 from time import time
@@ -161,24 +162,12 @@ def _delete_s3_paths(s3_client, s3_paths):
     assert "Contents" not in objects
 
 
-if __name__ == "__main__":
-    # setup()
-    # uuids, paths = populate_objects(2)
-    # x = create_testdir()
-    # print(x)
-    # print(uuids)
-    # print(paths)
-
-    pytest.main([__file__, "-s"])
-
-
-"""Tests for issue #223: AWS Error.Code must not be cast to int.
-
-`head_bucket` and `Object.load` report a missing object with the numeric-string
-code '404', but service-level failures use symbolic codes ('ServiceUnavailable',
-'AccessDenied', ...). Casting the code to int raised ValueError on those,
-replacing the real ClientError and leaving it only on __context__.
-"""
+# Tests for issue #223: AWS Error.Code must not be cast to int.
+#
+# `head_bucket` and `Object.load` report a missing object with the numeric-string
+# code '404', but service-level failures use symbolic codes ('ServiceUnavailable',
+# 'AccessDenied', ...). Casting the code to int raised ValueError on those,
+# replacing the real ClientError and leaving it only on __context__.
 
 
 def _client_error(code, operation):
@@ -257,6 +246,66 @@ def test_bucket_exists_false_for_forbidden_codes(monkeypatch, code):
     assert aws_s3.s3_bucket_exists("forbidden-bucket") is False
 
 
+def test_bucket_exists_raises_for_suspended_account(monkeypatch):
+    """AllAccessDisabled means the account is suspended, not that the bucket is
+    absent. It must raise rather than be reported as a missing bucket, so the
+    operator sees the real cause."""
+
+    class _Stub:
+        def head_bucket(self, Bucket):
+            raise _client_error("AllAccessDisabled", "HeadBucket")
+
+    monkeypatch.setattr(
+        aws_s3,
+        "get_s3_resource",
+        lambda: SimpleNamespace(meta=SimpleNamespace(client=_Stub())),
+    )
+
+    with pytest.raises(botocore.exceptions.ClientError) as excinfo:
+        aws_s3.s3_bucket_exists("suspended-bucket")
+
+    assert excinfo.value.response["Error"]["Code"] == "AllAccessDisabled"
+
+
+def test_bucket_exists_logs_url_before_propagating(monkeypatch, caplog):
+    """The propagating branch must name the bucket it was checking."""
+
+    class _Stub:
+        def head_bucket(self, Bucket):
+            raise _client_error("ServiceUnavailable", "HeadBucket")
+
+    monkeypatch.setattr(
+        aws_s3,
+        "get_s3_resource",
+        lambda: SimpleNamespace(meta=SimpleNamespace(client=_Stub())),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(botocore.exceptions.ClientError):
+            aws_s3.s3_bucket_exists("noisy-bucket")
+
+    assert "noisy-bucket" in caplog.text
+    assert "ServiceUnavailable" in caplog.text
+
+
+def test_path_exists_logs_url_before_propagating(monkeypatch, caplog):
+    """Same for s3_path_exists: the failing URL must appear in the log."""
+
+    class _Obj:
+        def load(self):
+            raise _client_error("ServiceUnavailable", "HeadObject")
+
+    monkeypatch.setattr(
+        aws_s3, "get_s3_resource", lambda: SimpleNamespace(Object=lambda b, k: _Obj())
+    )
+
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(botocore.exceptions.ClientError):
+            aws_s3.s3_path_exists("s3://noisy-bucket/some/key")
+
+    assert "s3://noisy-bucket/some/key" in caplog.text
+
+
 @pytest.mark.parametrize("code", ["NoSuchKey", "404"])
 def test_path_exists_false_for_missing_key_codes(monkeypatch, code):
     """A missing key is False for both the numeric and symbolic codes."""
@@ -270,3 +319,14 @@ def test_path_exists_false_for_missing_key_codes(monkeypatch, code):
     )
 
     assert aws_s3.s3_path_exists("s3://some-bucket/some/key") is False
+
+
+if __name__ == "__main__":
+    # setup()
+    # uuids, paths = populate_objects(2)
+    # x = create_testdir()
+    # print(x)
+    # print(uuids)
+    # print(paths)
+
+    pytest.main([__file__, "-s"])
