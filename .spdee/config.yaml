@@ -1,0 +1,20 @@
+# .spdee/config.yaml — repo conventions for the spdee workflow.
+# Written by /spdee:init. Edit freely; spdee reads it, never rewrites it.
+#
+# COMMIT THIS FILE. Every value in it is a repo-wide convention, identical for
+# every developer — a gitignored copy binds nobody, and a missing ticket_pattern
+# silently makes tickets optional in a repo that requires them.
+
+# Where specs/ and plans/ live, relative to the repo root.
+docs_dir: docs/superpowers
+
+# The branch phase PRs target.
+default_branch: master
+
+# Ticket keys required in this repo, as an anchored extended regex (grep -E).
+# Setting this makes tickets MANDATORY: every plan document must declare a
+# `ticket:` in its front matter, and spdee refuses to cut a branch without one.
+# The key itself lives in the plan document, not here — one key per plan, so a
+# repo-wide field cannot describe two plans running at once.
+# Leave empty if this repo has no ticketing requirement.
+ticket_pattern: ""
