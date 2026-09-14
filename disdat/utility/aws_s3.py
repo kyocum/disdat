@@ -17,9 +17,17 @@ import os
 import urllib
 
 import boto3 as b3
+import botocore.exceptions
 
 from disdat import log
 from disdat import logger as _logger
+
+# AWS reports a missing or inaccessible object either numerically (HeadBucket
+# and HeadObject answer with '404' / '403') or symbolically, depending on the
+# operation. Both spellings mean the same thing to us, and every other code is
+# a real service failure that must reach the caller unchanged.
+S3_NOT_FOUND_CODES = frozenset(("404", "NoSuchBucket", "NoSuchKey", "NotFound"))
+S3_FORBIDDEN_CODES = frozenset(("403", "AccessDenied", "AllAccessDisabled"))
 
 S3_LS_USE_MP_THRESH = (
     2000  # the threshold after which we should use MP to look up bundles on s3
@@ -96,8 +104,6 @@ def s3_path_exists(s3_url):
     Returns:
 
     """
-    import botocore
-
     s3 = get_s3_resource()
     bucket, key = split_s3_url(s3_url)
     if key is None:
@@ -106,11 +112,11 @@ def s3_path_exists(s3_url):
     try:
         s3.Object(bucket, key).load()
     except botocore.exceptions.ClientError as e:
-        error_code = int(e.response["Error"]["Code"])
-        _logger.info("Error code {}".format(error_code))
-        if error_code == 404:
+        error_code = e.response["Error"]["Code"]
+        if error_code in S3_NOT_FOUND_CODES:
             return False
         else:
+            # Not a "missing object" answer: let the real AWS error propagate.
             raise
 
     return True
@@ -127,17 +133,15 @@ def s3_bucket_exists(bucket):
         bool: whether bucket exists
 
     """
-    import botocore
-
     s3 = get_s3_resource()
     exists = True
     try:
         s3.meta.client.head_bucket(Bucket=bucket)
     except botocore.exceptions.ClientError as e:
-        error_code = int(e.response["Error"]["Code"])
-        if error_code == 404:
+        error_code = e.response["Error"]["Code"]
+        if error_code in S3_NOT_FOUND_CODES:
             exists = False
-        elif error_code == 403:
+        elif error_code in S3_FORBIDDEN_CODES:
             # for buckets you can get a forbidden instead of resource not found
             # if you have the s3:ListBucket permission on the bucket, Amazon S3 will return a
             # HTTP status code 404 ("no such key") error. If you don't have the s3:ListBucket permission,
